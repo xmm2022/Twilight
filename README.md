@@ -18,11 +18,11 @@
 
 | 模块 | 说明 |
 | ---- | ---- |
-| **Emby/Jellyfin 管理** | 用户注册/续期/禁用、媒体库权限控制、会话与设备管理、账号绑定 |
+| **Emby/Jellyfin 管理** | 用户注册/续期/禁用、账号绑定 |
 | **求片功能** | TMDB + Bangumi 多源搜索、库存自动检查（含季度）、请求-审核流程 |
 | **Bangumi 同步** | 支持账号绑定与条目同步能力，便于统一追番状态 |
-| **安全** | 设备数/播放数限制、IP 黑名单、登录日志、API Key 细粒度权限（4 种范围） |
-| **Web 管理界面** | 基于 Next.js 16 的响应式 UI，可视化配置编辑器、内置 API 测试工具 |
+| **安全** | 设备数/播放数限制、IP 黑名单、登录日志、API Key |
+| **Web 管理界面** | 基于 Next.js 16 的响应式 UI，可视化配置编辑器 |
 | **扩展集成** | RESTful API、API Key 外部接口、可选 Telegram Bot |
 
 ---
@@ -49,7 +49,6 @@
 | [API Key 文档](docs/API_KEY_API.md) | 外部系统接入指南 |
 | [前端开发文档](docs/FRONTEND.md) | 前端技术栈与开发指南 |
 | [开发指南](docs/DEVELOPMENT.md) | 编码规范、调试、贡献流程 |
-| [邀请树 & 公告渲染](docs/INVITE_AND_ANNOUNCEMENTS.md) | 邀请森林、Markdown/BBCode 公告 |
 | [安全加固指南](docs/SECURITY.md) | 生产安全基线与检查清单 |
 
 运行时访问 `/api/v1/docs` 查看 Swagger UI 交互式文档。
