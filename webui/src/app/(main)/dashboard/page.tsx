@@ -598,12 +598,15 @@ export default function DashboardPage() {
                 <Coins className="h-6 w-6" />
               </div>
               <div className="min-w-0">
-                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                <p
+                  className="text-[10px] font-black uppercase tracking-widest text-muted-foreground whitespace-nowrap truncate"
+                  title={`我的${signinSummary.currency_name}`}
+                >
                   我的{signinSummary.currency_name}
                 </p>
-                <div className="flex items-baseline gap-2">
+                <div className="flex items-baseline gap-2 whitespace-nowrap">
                   <h3 className="text-2xl font-black tracking-tight">{signinSummary.current_points}</h3>
-                  <span className="text-sm text-muted-foreground">{signinSummary.currency_name}</span>
+                  <span className="text-sm text-muted-foreground truncate">{signinSummary.currency_name}</span>
                 </div>
                 <p className="mt-0.5 text-xs text-muted-foreground inline-flex items-center gap-1">
                   <Flame className="h-3 w-3 text-orange-500" />
