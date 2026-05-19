@@ -86,8 +86,7 @@ export default function DashboardPage() {
   const [directEmbyUsername, setDirectEmbyUsername] = useState("");
   const [directEmbyPassword, setDirectEmbyPassword] = useState("");
   const [showDirectEmbyPassword, setShowDirectEmbyPassword] = useState(false);
-  const [directSelectedDays, setDirectSelectedDays] = useState<number | null>(null);
-  const [directCustomDays, setDirectCustomDays] = useState("");
+  // 自由注册天数由管理员单值固定，前端不再让用户挑套餐或自定义
 
   const [telegramStatus, setTelegramStatus] = useState<TelegramStatus | null>(null);
   const [embyInfo, setEmbyInfo] = useState<EmbyInfo | null>(null);
@@ -213,23 +212,7 @@ export default function DashboardPage() {
     setDirectEmbyUsername(user?.username || "");
     setDirectEmbyPassword("");
     setShowDirectEmbyPassword(false);
-    setDirectCustomDays("");
   }, [user?.uid, user?.username]);
-
-  useEffect(() => {
-    if (!registerAvailability || directSelectedDays !== null) return;
-    const options = (registerAvailability.emby_direct_register_day_options || []).map((v) => Number(v)).filter((v) => Number.isFinite(v));
-    const fallback = Number(registerAvailability.emby_direct_register_days || 30);
-    if (options.includes(fallback)) {
-      setDirectSelectedDays(fallback);
-      return;
-    }
-    if (options.length > 0) {
-      setDirectSelectedDays(options[0]);
-      return;
-    }
-    setDirectSelectedDays(fallback);
-  }, [registerAvailability, directSelectedDays]);
 
   const renderLatencyText = (key: string) => {
     const info = lineLatencyMap[key];
@@ -400,16 +383,14 @@ export default function DashboardPage() {
   };
 
   // ============== Emby 自由注册（登录后从仪表盘开通） ==============
-  const dayOptions = useMemo(() => {
-    const raw = (registerAvailability?.emby_direct_register_day_options || [])
-      .map((v) => Number(v))
-      .filter((v) => Number.isFinite(v));
-    return raw.length > 0 ? raw : [3, 7, 30, -1];
-  }, [registerAvailability?.emby_direct_register_day_options]);
+  // 天数由管理员在配置里固定，前端只读取并展示
+  const directRegisterDays = useMemo<number>(() => {
+    const raw = Number(registerAvailability?.emby_direct_register_days);
+    if (!Number.isFinite(raw) || raw === 0) return 30;
+    return raw;
+  }, [registerAvailability?.emby_direct_register_days]);
 
-  const customDaysMin = Number(registerAvailability?.emby_direct_register_custom_days_min ?? 1);
-  const customDaysMax = Number(registerAvailability?.emby_direct_register_custom_days_max ?? 365);
-  const allowCustomDays = Boolean(registerAvailability?.emby_direct_register_allow_custom_days);
+  const directRegisterDaysLabel = directRegisterDays <= 0 ? "永久" : `${directRegisterDays} 天`;
 
   const directRegisterBlockedReason = useMemo<string | null>(() => {
     if (!registerAvailability) return null;
@@ -446,43 +427,70 @@ export default function DashboardPage() {
       return;
     }
 
-    // 解析最终天数
-    let days: number;
-    if (directSelectedDays === null) {
-      // 默认走 emby_direct_register_days
-      days = Number(registerAvailability?.emby_direct_register_days ?? 30);
-    } else if (directSelectedDays === -2) {
-      // "自定义"挡位
-      const parsed = parseInt(directCustomDays, 10);
-      if (!Number.isFinite(parsed) || parsed <= 0) {
-        toast({ title: "请输入有效的天数", variant: "destructive" });
-        return;
-      }
-      if (parsed < customDaysMin || parsed > customDaysMax) {
-        toast({
-          title: "天数超出允许范围",
-          description: `允许范围：${customDaysMin}~${customDaysMax} 天`,
-          variant: "destructive",
-        });
-        return;
-      }
-      days = parsed;
-    } else {
-      days = directSelectedDays;
-    }
-
     setIsSubmittingDirectRegister(true);
     try {
-      const res = await api.completeEmbyRegistration(username, password, days);
+      // 不再传 days：后端按 RegisterConfig.EMBY_DIRECT_REGISTER_DAYS 单值落库
+      const res = await api.completeEmbyRegistration(username, password);
       if (res.success) {
-        toast({
-          title: "Emby 账号已开通",
-          description: days <= 0 ? "永久" : `开通时长 ${days} 天`,
-          variant: "success",
-        });
-        setShowDirectRegisterDialog(false);
-        setDirectEmbyPassword("");
-        await fetchUser();
+        // 注册队列高峰期可能 60s 内还没跑完，后端会返回 success+pending=true 让前端轮询。
+        // 这里只在终态时关掉弹窗 + 刷新；pending 状态保留窗口，再触发一次轮询。
+        const pending = Boolean((res.data as any)?.pending);
+        if (pending) {
+          const data = res.data as any;
+          toast({
+            title: "Emby 注册已加入队列",
+            description: data?.queue_position ? `排队中（第 ${data.queue_position} 位），稍后会自动完成` : "稍后会自动完成，请刷新页面查看",
+            variant: "default",
+          });
+          // 异步轮询，最多 60s
+          void (async () => {
+            const reqId = data?.request_id;
+            const token = data?.status_token;
+            if (!reqId || !token) return;
+            for (let i = 0; i < 30; i++) {
+              await new Promise((r) => setTimeout(r, 2000));
+              try {
+                const s = await api.getEmbyRegisterStatus(reqId, token);
+                if (s.success && s.data) {
+                  const st = s.data.status;
+                  if (st === "success") {
+                    toast({
+                      title: "Emby 账号已开通",
+                      description: directRegisterDays <= 0 ? "永久" : `开通时长 ${directRegisterDays} 天`,
+                      variant: "success",
+                    });
+                    await fetchUser();
+                    return;
+                  }
+                  if (st === "failed") {
+                    toast({
+                      title: "Emby 注册失败",
+                      description: s.data.message || "请稍后重试",
+                      variant: "destructive",
+                    });
+                    return;
+                  }
+                }
+              } catch (_) {
+                // 忽略瞬时网络抖动
+              }
+            }
+            toast({
+              title: "队列处理超时",
+              description: "请刷新页面查看最新状态",
+              variant: "default",
+            });
+          })();
+        } else {
+          toast({
+            title: "Emby 账号已开通",
+            description: directRegisterDays <= 0 ? "永久" : `开通时长 ${directRegisterDays} 天`,
+            variant: "success",
+          });
+          setShowDirectRegisterDialog(false);
+          setDirectEmbyPassword("");
+          await fetchUser();
+        }
       } else {
         toast({ title: "开通失败", description: res.message, variant: "destructive" });
       }
@@ -926,42 +934,12 @@ export default function DashboardPage() {
           <div className="space-y-4 py-2 text-sm">
             <div className="space-y-2">
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">开通时长</Label>
-              <div className="flex flex-wrap gap-1.5">
-                {dayOptions.map((d) => (
-                  <Button
-                    key={d}
-                    type="button"
-                    size="sm"
-                    variant={directSelectedDays === d ? "default" : "outline"}
-                    className="h-8 px-3 text-xs"
-                    onClick={() => setDirectSelectedDays(d)}
-                  >
-                    {d <= 0 ? "永久" : `${d} 天`}
-                  </Button>
-                ))}
-                {allowCustomDays && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={directSelectedDays === -2 ? "default" : "outline"}
-                    className="h-8 px-3 text-xs"
-                    onClick={() => setDirectSelectedDays(-2)}
-                  >
-                    自定义
-                  </Button>
-                )}
-              </div>
-              {allowCustomDays && directSelectedDays === -2 && (
-                <Input
-                  type="number"
-                  min={customDaysMin}
-                  max={customDaysMax}
-                  placeholder={`${customDaysMin} ~ ${customDaysMax} 天`}
-                  value={directCustomDays}
-                  onChange={(e) => setDirectCustomDays(e.target.value)}
-                  className="h-9"
-                />
-              )}
+              <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm font-medium">
+                {directRegisterDaysLabel}
+                <span className="ml-2 text-xs font-normal text-muted-foreground">
+                  （由管理员统一配置，本次开通后将自动生效）
+                </span>
+              </p>
             </div>
 
             <div className="space-y-2">

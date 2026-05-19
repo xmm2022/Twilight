@@ -75,7 +75,11 @@ class UserService:
 
     @staticmethod
     def get_emby_user_limit() -> int:
-        """读取 Emby 绑定用户上限（-1 表示不限制）。"""
+        """读取 Emby 绑定用户总上限（-1 表示不限制）。
+
+        所有"会让本站用户拿到 Emby 账号"的路径都走这一个值；不要再额外引入
+        "绑定专属上限"之类的拆分配置，业务侧已确认共用同一个计数器。
+        """
         return UserService._normalize_emby_user_limit()
 
     @staticmethod
@@ -83,63 +87,32 @@ class UserService:
         return await UserOperate.get_emby_bound_users_count()
 
     @staticmethod
-    async def check_emby_user_capacity() -> Tuple[bool, str]:
-        """检查 Emby 绑定用户总量是否达到上限。"""
+    async def check_emby_user_capacity(*, extra_pending: int = 0) -> Tuple[bool, str]:
+        """检查 Emby 绑定用户总量是否达到上限。
+
+        :param extra_pending: 额外把队列里"已占名额但还没写库"的人头算进来，让自由注册
+            队列和绑定路径在并发场景下不再各自踩同一个名额。调用方在 *进入临界区时* 传入
+            从队列拿到的 in-flight 数即可（普通同步路径传 0）。
+        """
         limit = UserService.get_emby_user_limit()
         if limit <= 0:
             return True, ""
 
         current = await UserService.get_emby_bound_user_count()
-        if current >= limit:
-            return False, f"Emby 已绑定用户数已达上限（{current}/{limit}）"
+        projected = current + max(0, int(extra_pending))
+        if projected >= limit:
+            return False, f"Emby 已绑定用户数已达上限（{projected}/{limit}）"
         return True, ""
-
-    @staticmethod
-    def get_emby_direct_register_day_options() -> List[int]:
-        """获取自由注册可选套餐天数（去重并规范化，-1 表示永久）。"""
-        raw_options = getattr(RegisterConfig, 'EMBY_DIRECT_REGISTER_DAY_OPTIONS', [3, 7, 30, -1])
-        if not isinstance(raw_options, list):
-            raw_options = [3, 7, 30, -1]
-
-        normalized: List[int] = []
-        for item in raw_options:
-            try:
-                parsed = int(item)
-            except (TypeError, ValueError):
-                continue
-            value = -1 if parsed <= 0 else parsed
-            if value not in normalized:
-                normalized.append(value)
-
-        if not normalized:
-            return [3, 7, 30, -1]
-        return normalized
-
-    @staticmethod
-    def get_emby_direct_register_custom_days_range() -> Tuple[int, int]:
-        """获取自由注册自定义天数区间。"""
-        try:
-            min_days = int(getattr(RegisterConfig, 'EMBY_DIRECT_REGISTER_CUSTOM_DAYS_MIN', 1))
-        except (TypeError, ValueError):
-            min_days = 1
-
-        try:
-            max_days = int(getattr(RegisterConfig, 'EMBY_DIRECT_REGISTER_CUSTOM_DAYS_MAX', 365))
-        except (TypeError, ValueError):
-            max_days = 365
-
-        if min_days < 1:
-            min_days = 1
-        if max_days < min_days:
-            max_days = min_days
-        return min_days, max_days
 
     @staticmethod
     def resolve_emby_direct_register_days(
         user: UserModel,
-        requested_days: Optional[int] = None,
     ) -> Tuple[bool, Optional[int], str]:
-        """解析用户补建 Emby 时应使用的开通天数。"""
+        """解析用户补建 Emby 时应使用的开通天数。
+
+        策略：天数由管理员通过 ``RegisterConfig.EMBY_DIRECT_REGISTER_DAYS`` 单一固定值决定，
+        前端不再提供 "选套餐 / 自定义天数" 入口。注册码授予的 PENDING_EMBY_DAYS 仍优先生效。
+        """
         pending_days = getattr(user, 'PENDING_EMBY_DAYS', None)
         if pending_days is not None:
             days = UserService._normalize_code_days(pending_days, default=30)
@@ -151,23 +124,11 @@ class UserService:
         if not getattr(user, 'TELEGRAM_ID', None):
             return False, None, "自由注册 Emby 前请先绑定 Telegram"
 
-        default_days = UserService._normalize_code_days(RegisterConfig.EMBY_DIRECT_REGISTER_DAYS, default=30)
-        selected_days = default_days if requested_days is None else UserService._normalize_code_days(requested_days, default=default_days)
-
-        day_options = UserService.get_emby_direct_register_day_options()
-        allow_custom = bool(getattr(RegisterConfig, 'EMBY_DIRECT_REGISTER_ALLOW_CUSTOM_DAYS', False))
-        custom_min, custom_max = UserService.get_emby_direct_register_custom_days_range()
-
-        if selected_days in day_options:
-            return True, selected_days, ""
-
-        if allow_custom and selected_days > 0:
-            if selected_days < custom_min or selected_days > custom_max:
-                return False, None, f"自定义天数需在 {custom_min}~{custom_max} 天之间"
-            return True, selected_days, ""
-
-        options_text = "、".join(["永久" if d <= 0 else f"{d}天" for d in day_options])
-        return False, None, f"当前仅支持以下开通时长：{options_text}"
+        days = UserService._normalize_code_days(
+            RegisterConfig.EMBY_DIRECT_REGISTER_DAYS,
+            default=30,
+        )
+        return True, days, ""
 
     @staticmethod
     def validate_password_strength(password: Optional[str], label: str = "密码") -> Tuple[bool, str]:
@@ -362,48 +323,9 @@ class UserService:
 
         return response
 
-    @staticmethod
-    async def register_direct_emby(
-        telegram_id: Optional[int],
-        username: str,
-        email: Optional[str] = None,
-        password: Optional[str] = None,
-    ) -> RegisterResponse:
-        """直接创建 Emby 账号（用于 Emby 自由注册队列）。"""
-        if not RegisterConfig.EMBY_DIRECT_REGISTER_ENABLED:
-            return RegisterResponse(RegisterResult.ERROR, "Emby 自由注册未开启")
-
-        if not telegram_id:
-            return RegisterResponse(RegisterResult.TELEGRAM_NOT_BOUND, "请先完成 Telegram 绑定")
-
-        locks = await acquire_registration_lock(username, telegram_id)
-        if locks is None:
-            return RegisterResponse(RegisterResult.ERROR, "当前注册请求较多，请稍后重试")
-
-        try:
-            available, msg = await UserService.check_registration_available(use_cache=False)
-            if not available:
-                return RegisterResponse(RegisterResult.USER_LIMIT_REACHED, msg)
-
-            existing_tg = await UserOperate.get_user_by_telegram_id(telegram_id)
-            if existing_tg and existing_tg.EMBYID:
-                return RegisterResponse(RegisterResult.USER_EXISTS, "该 Telegram 账号已绑定 Emby 账户")
-
-            existing_name = await UserOperate.get_user_by_username(username)
-            if existing_name and existing_name.EMBYID:
-                return RegisterResponse(RegisterResult.USER_EXISTS, "该用户名已被占用")
-            if existing_name and existing_name.TELEGRAM_ID and existing_name.TELEGRAM_ID != telegram_id:
-                return RegisterResponse(RegisterResult.USER_EXISTS, "该用户名已被占用")
-
-            return await UserService._create_emby_user(
-                telegram_id=telegram_id,
-                username=username,
-                email=email,
-                days=UserService._normalize_code_days(RegisterConfig.EMBY_DIRECT_REGISTER_DAYS, default=30),
-                password=password,
-            )
-        finally:
-            await release_registration_lock(locks)
+    # 注：历史 ``register_direct_emby`` 已删除——它的 Bot 自由注册流程从未接通，
+    # 当前所有"为已登录用户补建 Emby"都统一走 ``complete_emby_registration``，
+    # 由 ``EmbyRegisterQueueService`` 在前面串行 + 限流。
 
     @staticmethod
     async def register_pending(
@@ -569,9 +491,12 @@ class UserService:
         user: UserModel,
         emby_username: str,
         emby_password: str,
-        requested_days: Optional[int] = None,
     ) -> RegisterResponse:
-        """已登录用户补建 Emby 账号；失败保留 PENDING_EMBY 标记便于重试。"""
+        """已登录用户补建 Emby 账号；失败保留 PENDING_EMBY 标记便于重试。
+
+        开通天数已统一由管理员通过 ``RegisterConfig.EMBY_DIRECT_REGISTER_DAYS`` 配置，
+        用户不再传入 ``days``；老版本前端如果继续传字段，由 API 层忽略。
+        """
         import json
 
         if user.EMBYID:
@@ -590,10 +515,7 @@ class UserService:
         if not ok:
             return RegisterResponse(RegisterResult.ERROR, msg)
 
-        days_ok, days, days_msg = UserService.resolve_emby_direct_register_days(
-            user,
-            requested_days=requested_days,
-        )
+        days_ok, days, days_msg = UserService.resolve_emby_direct_register_days(user)
         if not days_ok or days is None:
             return RegisterResponse(RegisterResult.ERROR, days_msg)
 

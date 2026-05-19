@@ -127,12 +127,18 @@ async def complete_emby_account_for_me():
     需要当前用户 PENDING_EMBY=True 且 EMBYID 为空。
     失败会保留 PENDING_EMBY 标记，前端可重复尝试。
 
+    实际执行走 ``EmbyRegisterQueueService``：API handler 入队后同步等结果（默认 60s），
+    在等待窗口内完成就直接返回最终态；超时未完成会返回 ``status='queued'/'processing'``，
+    前端凭 ``request_id`` + ``status_token`` 调 ``/users/register/emby/status`` 继续轮询。
+
     Request:
         {
             "emby_username": "name",
-            "emby_password": "Pwd1234X",
-            "days": 30   // 可选，自由注册市场选择天数
+            "emby_password": "Pwd1234X"
         }
+
+    开通天数由管理员在 ``[SAR].emby_direct_register_days`` 统一固定，用户不再选择。
+    老版本前端继续传 ``days`` 字段时由本接口静默忽略，不再报错。
     """
     user = g.current_user
     if user.EMBYID:
@@ -147,29 +153,56 @@ async def complete_emby_account_for_me():
     data = request.get_json() or {}
     emby_username = (data.get('emby_username') or '').strip()
     emby_password = data.get('emby_password') or ''
-    raw_days = data.get('days')
-    requested_days = None
-    if raw_days is not None and raw_days != '':
-        try:
-            requested_days = int(raw_days)
-        except (TypeError, ValueError):
-            return api_response(False, "days 必须是整数", code=400)
 
-    result = await UserService.complete_emby_registration(
+    if not emby_username:
+        return api_response(False, "请输入 Emby 用户名", code=400)
+    ok, msg = UserService.validate_password_strength(emby_password, label="Emby 密码")
+    if not ok:
+        return api_response(False, msg, code=400)
+
+    from src.services import EmbyRegisterQueueService
+
+    status = await EmbyRegisterQueueService.enqueue_and_wait(
         user,
         emby_username,
         emby_password,
-        requested_days=requested_days,
+        timeout=60.0,
     )
 
-    if result.result.value == 'success':
-        user_info = await UserService.get_user_info(result.user)
-        return api_response(True, result.message, {
+    final_state = status.get("status")
+    request_id = status.get("request_id")
+    status_token = status.get("status_token") or status.get("token")
+    message = status.get("message") or ""
+
+    if final_state == "success":
+        # 拿最新 user（complete_emby_registration 已经写过库），刷新返回信息
+        refreshed = await UserOperate.get_user_by_uid(user.UID) or user
+        user_info = await UserService.get_user_info(refreshed)
+        return api_response(True, message or "Emby 账号已开通", {
             'user': user_info,
+            'request_id': request_id,
         })
 
-    code = 409 if result.result.value in ('emby_exists', 'user_limit_reached') else 400
-    return api_response(False, result.message, code=code)
+    if final_state == "failed":
+        # 失败 + 名额满 / 用户名冲突时按 409，其它一律 400
+        text = (message or "").lower()
+        code = 409 if any(k in text for k in ("已达上限", "已被占用", "已存在", "限")) else 400
+        return api_response(False, message or "Emby 注册失败", {
+            'request_id': request_id,
+        }, code=code)
+
+    if final_state == "rejected":
+        # 队列前置拒绝（注册关闭 / 队列满 / 容量上限）
+        return api_response(False, message or "Emby 注册请求被拒绝", code=400)
+
+    # queued / processing：等待超时仍未结束，前端继续轮询
+    return api_response(True, message or "Emby 注册已加入队列，请稍后查询结果", {
+        'pending': True,
+        'request_id': request_id,
+        'status_token': status_token,
+        'status': final_state,
+        'queue_position': status.get('queue_position'),
+    })
 
 
 @users_bp.route('/register/emby/status', methods=['GET'])
@@ -212,9 +245,11 @@ async def check_registration_available():
     current_count = await UserService.get_registered_user_count()
     emby_bound_count = await UserService.get_emby_bound_user_count()
     emby_user_limit = UserService.get_emby_user_limit()
-    day_options = UserService.get_emby_direct_register_day_options()
-    custom_min, custom_max = UserService.get_emby_direct_register_custom_days_range()
-    
+
+    # 自由注册天数现在由管理员单值固定，不再返回候选/自定义区间字段；
+    # 老版本前端仍可能读取这些字段，回传一个等值的单项数组兜底，避免 UI 报错。
+    direct_days = int(RegisterConfig.EMBY_DIRECT_REGISTER_DAYS or 30)
+
     return api_response(True, msg, {
         'available': available,
         'message': msg,
@@ -223,11 +258,10 @@ async def check_registration_available():
         'register_mode': RegisterConfig.REGISTER_MODE,
         'allow_pending_register': RegisterConfig.ALLOW_PENDING_REGISTER,
         'emby_direct_register_enabled': RegisterConfig.EMBY_DIRECT_REGISTER_ENABLED,
-        'emby_direct_register_days': RegisterConfig.EMBY_DIRECT_REGISTER_DAYS,
-        'emby_direct_register_day_options': day_options,
-        'emby_direct_register_allow_custom_days': RegisterConfig.EMBY_DIRECT_REGISTER_ALLOW_CUSTOM_DAYS,
-        'emby_direct_register_custom_days_min': custom_min,
-        'emby_direct_register_custom_days_max': custom_max,
+        'emby_direct_register_days': direct_days,
+        # 下面两个字段是兼容老前端的兜底，永远固定为单值 + 不允许自定义。
+        'emby_direct_register_day_options': [direct_days],
+        'emby_direct_register_allow_custom_days': False,
         'emby_user_limit': emby_user_limit,
         'emby_bound_users': emby_bound_count,
     })
@@ -513,10 +547,16 @@ async def bind_emby_account():
         if existing_bind and existing_bind.UID != user.UID:
             return api_response(False, "该 Emby 账号已被其他用户绑定", code=400)
 
-        cap_ok, cap_msg = await UserService.check_emby_user_capacity()
+        # 绑定路径与自由注册队列共享同一个"已绑 Emby 用户上限"——
+        # 这里再叠加队列里 in-flight 的人头，避免恰好打满的场景被并发挤爆。
+        from src.services import EmbyRegisterQueueService
+        extra_pending = EmbyRegisterQueueService.in_flight_count()
+        cap_ok, cap_msg = await UserService.check_emby_user_capacity(
+            extra_pending=extra_pending,
+        )
         if not cap_ok:
             return api_response(False, cap_msg, code=400)
-        
+
         # 绑定账号
         user.EMBYID = emby_user.id
         import json

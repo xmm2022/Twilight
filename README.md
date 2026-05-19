@@ -8,7 +8,16 @@
 
 # !!须知!!
 
-## **!!该项目绝大部分由 Claude Code Opus 4.6/4.7 与 ChatGPT Codex 5.3 完成，仅有少量人工修改和润色。主贡献者对该项目安全性等不做任何保证，使用前请务必仔细审查代码。如出现问题，本项目不会承担任何责任。请了解以上信息后再决定是否使用。!!**
+## **!!该项目绝大部分由如下列出的LLM完成，仅有少量人工修改和润色。主贡献者对该项目安全性等不做任何保证，使用前请务必仔细审查代码。如出现问题，本项目不会承担任何责任。请了解以上信息后再决定是否使用。!!**
+
+</div>
+
+> - Claude Code Opus 4.6 / Claude Code Opus 4.6-Thinking
+> - Claude Code Opus 4.7 / Claude Code Opus 4.7-Thinking
+> - ChatGPT 5.3 CodeX
+> - ChatGPT 5.5
+
+<div align="center">
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white)](https://www.python.org/) [![Flask](https://img.shields.io/badge/Flask-3.x-green?logo=flask&logoColor=white)](https://flask.palletsprojects.com/) [![Next.js](https://img.shields.io/badge/Next.js-16.0+-black?logo=next.js&logoColor=white)](https://nextjs.org/) [![SQLite](https://img.shields.io/badge/SQLite-3-blue?logo=sqlite&logoColor=white)](https://www.sqlite.org/) [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
@@ -24,9 +33,9 @@
 | 模块 | 说明 |
 | ---- | ---- |
 | **Emby/Jellyfin 管理** | 用户注册/续期/禁用、账号绑定 |
-| **求片功能** | TMDB + Bangumi 多源搜索、库存自动检查（含季度）、请求-审核流程 |
+| **求片功能** | TMDB + Bangumi 多源搜索、库存自动检查、请求-审核流程 |
 | **Bangumi 同步** | 支持账号绑定与条目同步能力，便于统一追番状态 |
-| **安全** | 设备数/播放数限制、IP 黑名单、登录日志、API Key |
+| **安全** | IP 黑名单、登录日志、API Key |
 | **Web 管理界面** | 基于 Next.js 16 的响应式 UI，可视化配置编辑器 |
 | **扩展集成** | RESTful API、API Key 外部接口、可选 Telegram Bot |
 

@@ -4,6 +4,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# 防 CRLF：上游 env / .env 可能携带 \r，导致 [[ $X == "1" ]] 这种条件统统判错，
+# 历史上就因此让 Scheduler 整段被跳过。所有外部变量都走一遍 strip_cr。
+strip_cr() { printf '%s' "${1//$'\r'/}"; }
+
 if [[ -x ".venv/bin/python" ]]; then
   PYTHON=".venv/bin/python"
 elif [[ -x "venv/bin/python" ]]; then
@@ -14,15 +18,18 @@ else
   PYTHON="python"
 fi
 
-HOST="${TWILIGHT_API_HOST:-0.0.0.0}"
-PORT="${TWILIGHT_API_PORT:-5000}"
-WORKERS="${TWILIGHT_UVICORN_WORKERS:-1}"
-WITH_BOT="${TWILIGHT_WITH_BOT:-1}"
-FORCE_RESTART_BOT="${TWILIGHT_FORCE_RESTART_BOT:-0}"
-BOT_LOCK_FILE="${TWILIGHT_BOT_LOCK_FILE:-$SCRIPT_DIR/db/telegram_bot.lock}"
-WITH_SCHEDULER="${TWILIGHT_WITH_SCHEDULER:-1}"
-FORCE_RESTART_SCHEDULER="${TWILIGHT_FORCE_RESTART_SCHEDULER:-0}"
-SCHEDULER_LOCK_FILE="${TWILIGHT_SCHEDULER_LOCK_FILE:-$SCRIPT_DIR/db/scheduler.lock}"
+HOST="$(strip_cr "${TWILIGHT_API_HOST:-0.0.0.0}")"
+PORT="$(strip_cr "${TWILIGHT_API_PORT:-5000}")"
+WORKERS="$(strip_cr "${TWILIGHT_UVICORN_WORKERS:-1}")"
+WITH_BOT="$(strip_cr "${TWILIGHT_WITH_BOT:-1}")"
+FORCE_RESTART_BOT="$(strip_cr "${TWILIGHT_FORCE_RESTART_BOT:-0}")"
+BOT_LOCK_FILE="$(strip_cr "${TWILIGHT_BOT_LOCK_FILE:-$SCRIPT_DIR/db/telegram_bot.lock}")"
+WITH_SCHEDULER="$(strip_cr "${TWILIGHT_WITH_SCHEDULER:-1}")"
+FORCE_RESTART_SCHEDULER="$(strip_cr "${TWILIGHT_FORCE_RESTART_SCHEDULER:-0}")"
+SCHEDULER_LOCK_FILE="$(strip_cr "${TWILIGHT_SCHEDULER_LOCK_FILE:-$SCRIPT_DIR/db/scheduler.lock}")"
+
+# 子进程要往锁目录写文件，提前 mkdir 一次
+mkdir -p "$(dirname "$BOT_LOCK_FILE")" "$(dirname "$SCHEDULER_LOCK_FILE")"
 
 echo "=========================================="
 echo "   Twilight Backend (Production)"
@@ -56,17 +63,21 @@ if [[ "$WITH_BOT" == "1" ]]; then
         echo "Found running Bot PID: $EXISTING_BOT_PID, force restarting..."
         kill "$EXISTING_BOT_PID" 2>/dev/null || true
         sleep 1
+        EXISTING_BOT_PID=""
       else
         echo "Found running Bot PID: $EXISTING_BOT_PID, skip starting duplicate instance"
       fi
     else
       echo "Found stale Bot lock, cleaning: $BOT_LOCK_FILE"
       rm -f "$BOT_LOCK_FILE" || true
+      EXISTING_BOT_PID=""
     fi
   fi
 
-  if [[ "$FORCE_RESTART_BOT" == "1" || -z "$EXISTING_BOT_PID" || ! -f "$BOT_LOCK_FILE" ]]; then
-    "$PYTHON" main.py bot &
+  if [[ -z "$EXISTING_BOT_PID" ]]; then
+    TWILIGHT_BOT_LOCK_FILE="$BOT_LOCK_FILE" \
+    TWILIGHT_FORCE_RESTART_BOT="$FORCE_RESTART_BOT" \
+      "$PYTHON" main.py bot &
     BOT_PID=$!
     BOT_STARTED=1
     echo "Started Bot PID: $BOT_PID"
@@ -82,18 +93,25 @@ if [[ "$WITH_SCHEDULER" == "1" ]]; then
       if [[ "$FORCE_RESTART_SCHEDULER" == "1" ]]; then
         echo "Found running Scheduler PID: $EXISTING_SCHEDULER_PID, force restarting..."
         kill "$EXISTING_SCHEDULER_PID" 2>/dev/null || true
-        sleep 1
+        for _ in 1 2 3 4 5; do
+          [[ -f "$SCHEDULER_LOCK_FILE" ]] || break
+          sleep 1
+        done
+        EXISTING_SCHEDULER_PID=""
       else
         echo "Found running Scheduler PID: $EXISTING_SCHEDULER_PID, skip starting duplicate instance"
       fi
     else
       echo "Found stale Scheduler lock, cleaning: $SCHEDULER_LOCK_FILE"
       rm -f "$SCHEDULER_LOCK_FILE" || true
+      EXISTING_SCHEDULER_PID=""
     fi
   fi
 
-  if [[ "$FORCE_RESTART_SCHEDULER" == "1" || -z "$EXISTING_SCHEDULER_PID" || ! -f "$SCHEDULER_LOCK_FILE" ]]; then
-    "$PYTHON" main.py scheduler &
+  if [[ -z "$EXISTING_SCHEDULER_PID" ]]; then
+    TWILIGHT_SCHEDULER_LOCK_FILE="$SCHEDULER_LOCK_FILE" \
+    TWILIGHT_FORCE_RESTART_SCHEDULER="$FORCE_RESTART_SCHEDULER" \
+      "$PYTHON" main.py scheduler &
     SCHEDULER_PID=$!
     SCHEDULER_STARTED=1
     echo "Started Scheduler PID: $SCHEDULER_PID"

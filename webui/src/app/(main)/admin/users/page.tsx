@@ -150,6 +150,13 @@ export default function AdminUsersPage() {
   const [kickConfirmText, setKickConfirmText] = useState("");
   const [kickResult, setKickResult] = useState<KickPreview | null>(null);
 
+  // 一键踢出所有未绑定 Emby 的系统账号（无视注册时间）
+  type NoEmbyPreview = NonNullable<Awaited<ReturnType<typeof api.kickNoEmbyUsers>>["data"]>;
+  const [noEmbyOpen, setNoEmbyOpen] = useState(false);
+  const [noEmbyLoading, setNoEmbyLoading] = useState(false);
+  const [noEmbyPreview, setNoEmbyPreview] = useState<NoEmbyPreview | null>(null);
+  const [noEmbyConfirmText, setNoEmbyConfirmText] = useState("");
+
   const usersCacheRef = useRef<
     Map<string, { users: UserInfo[]; total: number; pages: number }>
   >(new Map());
@@ -663,6 +670,54 @@ export default function AdminUsersPage() {
     }
   };
 
+  // ============== 一键踢出未绑定 Emby 的系统账号 ==============
+  const handleNoEmbyPreview = async () => {
+    setNoEmbyLoading(true);
+    try {
+      const res = await api.kickNoEmbyUsers({ dryRun: true });
+      if (res.success && res.data) {
+        setNoEmbyPreview(res.data);
+      } else {
+        toast({ title: "预览失败", description: res.message, variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "预览失败", description: err.message || "网络异常", variant: "destructive" });
+    } finally {
+      setNoEmbyLoading(false);
+    }
+  };
+
+  const handleNoEmbyConfirm = async () => {
+    if (noEmbyConfirmText.trim() !== "确认") {
+      toast({ title: "请在输入框中输入「确认」以执行", variant: "destructive" });
+      return;
+    }
+    setNoEmbyLoading(true);
+    try {
+      const res = await api.kickNoEmbyUsers({ dryRun: false });
+      if (res.success && res.data) {
+        toast({
+          title: "清理完成",
+          description: `已删除 ${res.data.deleted_count} 个未绑 Emby 账号` + (
+            res.data.failed.length ? `，失败 ${res.data.failed.length} 个` : ""
+          ),
+          variant: "success",
+        });
+        setNoEmbyOpen(false);
+        setNoEmbyPreview(null);
+        setNoEmbyConfirmText("");
+        invalidateUsersCache();
+        loadUsers();
+      } else {
+        toast({ title: "清理失败", description: res.message, variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "清理失败", description: err.message || "网络异常", variant: "destructive" });
+    } finally {
+      setNoEmbyLoading(false);
+    }
+  };
+
   if (error) {
     return <PageError message={error} onRetry={() => void loadUsers()} />;
   }
@@ -806,6 +861,18 @@ export default function AdminUsersPage() {
           >
             <UserX className="mr-2 h-4 w-4" />
             清理无效用户
+          </Button>
+          <Button
+            variant="outline"
+            className="text-destructive hover:text-destructive"
+            onClick={() => {
+              setNoEmbyPreview(null);
+              setNoEmbyConfirmText("");
+              setNoEmbyOpen(true);
+            }}
+          >
+            <UserX className="mr-2 h-4 w-4" />
+            踢出未绑 Emby 账号
           </Button>
           <Button
             variant="outline"
@@ -1272,6 +1339,113 @@ export default function AdminUsersPage() {
             >
               {cleanupLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               确认清理
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 一键踢出未绑定 Emby 的系统账号 */}
+      <Dialog
+        open={noEmbyOpen}
+        onOpenChange={(open) => {
+          setNoEmbyOpen(open);
+          if (!open) {
+            setNoEmbyPreview(null);
+            setNoEmbyConfirmText("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>踢出所有未绑 Emby 账号</DialogTitle>
+            <DialogDescription>
+              无视注册时间，删除所有未绑定 Emby 的系统账号。管理员 / 白名单 / 未识别角色会被强制跳过。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 text-sm">
+            <p className="rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-amber-700 dark:text-amber-300">
+              ⚠️ 包括待激活账号（PENDING_EMBY=true）。请先「预览」确认范围后再确认执行。
+            </p>
+
+            {noEmbyPreview && (
+              <div className="space-y-2">
+                <Label>
+                  匹配到 {noEmbyPreview.candidate_count} 个待清理账号
+                  （跳过 管理员 {noEmbyPreview.skipped_admins} · 白名单 {noEmbyPreview.skipped_whitelist} · 未识别 {noEmbyPreview.skipped_unrecognized}）
+                </Label>
+                {noEmbyPreview.candidate_count > 0 ? (
+                  <div className="max-h-56 overflow-y-auto rounded-md border">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b bg-muted/50">
+                          <th className="px-3 py-2 text-left">UID</th>
+                          <th className="px-3 py-2 text-left">用户名</th>
+                          <th className="px-3 py-2 text-left">注册时间</th>
+                          <th className="px-3 py-2 text-left">状态</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {noEmbyPreview.candidates.slice(0, 200).map((u) => (
+                          <tr key={u.uid} className="border-b">
+                            <td className="px-3 py-1.5 font-mono text-xs">{u.uid}</td>
+                            <td className="px-3 py-1.5">{u.username}</td>
+                            <td className="px-3 py-1.5 text-muted-foreground">
+                              {u.register_time ? new Date(u.register_time * 1000).toLocaleDateString() : "-"}
+                            </td>
+                            <td className="px-3 py-1.5 text-xs">
+                              {u.pending_emby ? "待激活" : "未绑定"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {noEmbyPreview.candidates.length > 200 && (
+                      <p className="px-3 py-1.5 text-xs text-muted-foreground">
+                        仅展示前 200 个，实际仍会按候选总数执行
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">没有需要清理的账号</p>
+                )}
+              </div>
+            )}
+
+            {noEmbyPreview && noEmbyPreview.candidate_count > 0 && (
+              <div className="space-y-2">
+                <Label>输入「确认」以执行</Label>
+                <Input
+                  value={noEmbyConfirmText}
+                  onChange={(e) => setNoEmbyConfirmText(e.target.value)}
+                  placeholder="确认"
+                />
+              </div>
+            )}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setNoEmbyOpen(false)}>
+              取消
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleNoEmbyPreview}
+              disabled={noEmbyLoading}
+            >
+              {noEmbyLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              预览
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleNoEmbyConfirm}
+              disabled={
+                noEmbyLoading ||
+                !noEmbyPreview ||
+                noEmbyPreview.candidate_count === 0 ||
+                noEmbyConfirmText.trim() !== "确认"
+              }
+            >
+              {noEmbyLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              确认踢出
             </Button>
           </DialogFooter>
         </DialogContent>

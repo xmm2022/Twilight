@@ -307,18 +307,15 @@ class ApiClient {
     });
   }
 
-  async completeEmbyRegistration(embyUsername: string, embyPassword: string, days?: number) {
-    const payload: Record<string, unknown> = {
-      emby_username: embyUsername,
-      emby_password: embyPassword,
-    };
-    if (typeof days === "number") {
-      payload.days = days;
-    }
-
+  async completeEmbyRegistration(embyUsername: string, embyPassword: string) {
+    // 自由注册的开通天数由管理员在配置里固定（[SAR].emby_direct_register_days），
+    // 客户端不再上传 days；老调用方传值也由后端静默丢弃。
     return this.request<{ user: UserInfo }>("/users/me/emby/register", {
       method: "POST",
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        emby_username: embyUsername,
+        emby_password: embyPassword,
+      }),
     });
   }
 
@@ -835,6 +832,33 @@ class ApiClient {
     }>("/admin/users/cleanup-invalid", {
       method: "POST",
       body: JSON.stringify({ min_days: minDays, dry_run: dryRun }),
+    });
+  }
+
+  async kickNoEmbyUsers(opts?: { dryRun?: boolean; confirm?: string }) {
+    const dryRun = Boolean(opts?.dryRun);
+    const body: Record<string, unknown> = { dry_run: dryRun };
+    if (!dryRun) {
+      body.confirm = opts?.confirm || "KICK_NO_EMBY_OK";
+    }
+    return this.request<{
+      candidates: Array<{
+        uid: number;
+        username: string;
+        role: number;
+        register_time: number | null;
+        pending_emby: boolean;
+      }>;
+      candidate_count: number;
+      deleted_count: number;
+      failed: Array<{ uid: number; username: string; error: string }>;
+      skipped_admins: number;
+      skipped_whitelist: number;
+      skipped_unrecognized: number;
+      dry_run: boolean;
+    }>("/admin/users/kick-no-emby", {
+      method: "POST",
+      body: JSON.stringify(body),
     });
   }
 
@@ -1525,11 +1549,11 @@ export interface RegisterAvailability {
   register_mode: boolean;
   allow_pending_register: boolean;
   emby_direct_register_enabled: boolean;
+  // 管理员单值固定的开通天数（-1 永久）；客户端只读
   emby_direct_register_days: number;
+  // 兼容老前端：等值单项数组，恒不允许自定义
   emby_direct_register_day_options?: number[];
   emby_direct_register_allow_custom_days?: boolean;
-  emby_direct_register_custom_days_min?: number;
-  emby_direct_register_custom_days_max?: number;
   emby_user_limit?: number;
   emby_bound_users?: number;
 }

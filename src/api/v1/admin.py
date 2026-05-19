@@ -1921,6 +1921,165 @@ async def cleanup_invalid_users():
     })
 
 
+@admin_bp.route('/users/kick-no-emby', methods=['POST'])
+@require_auth
+@require_admin
+async def admin_kick_no_emby_users():
+    """一键踢出所有未绑定 Emby 的系统账号（无视注册时间）。
+
+    与 ``/users/cleanup-invalid`` 的区别：
+      - 不要求"同时无 TG 绑定"，只看 ``EMBYID`` 是否为空（兼顾 PENDING_EMBY=True 的待激活账号）。
+      - 不看注册时间长短，即注/即清都行。
+      - 管理员 / 白名单 / 未识别角色 强制跳过，避免误伤；操作者自身也强制跳过。
+
+    Request:
+        {
+            "dry_run": false,             // true 时只返回候选列表，不实际删除
+            "confirm": "KICK_NO_EMBY_OK"  // 实际删除时必填确认串
+        }
+
+    Response data:
+        {
+            "candidates": [{uid, username, role, register_time}, ...],
+            "candidate_count": <int>,
+            "deleted_count": <int>,
+            "failed": [{uid, username, error}, ...],
+            "skipped_admins": <int>,
+            "skipped_whitelist": <int>,
+            "skipped_unrecognized": <int>,
+            "dry_run": bool
+        }
+    """
+    from src.core.utils import rate_limit_check
+
+    data = request.get_json(silent=True) or {}
+    dry_run = bool(data.get('dry_run', False))
+
+    if not dry_run:
+        confirm = (data.get('confirm') or '').strip()
+        if confirm != 'KICK_NO_EMBY_OK':
+            return api_response(
+                False,
+                "需要提供 confirm=\"KICK_NO_EMBY_OK\" 以确认实际删除",
+                code=400,
+            )
+
+    # 速率限制：5 分钟内最多 3 次（防误连点）
+    allowed, retry_after = rate_limit_check(
+        "admin_kick_no_emby", str(g.current_user.UID),
+        max_requests=3, window_seconds=300,
+    )
+    if not allowed:
+        return api_response(
+            False,
+            f"操作过于频繁，请 {retry_after} 秒后再试",
+            code=429,
+        )
+
+    # 拉全量用户后筛 EMBYID 为空 / PENDING_EMBY=True 的；这里不带分页
+    # 配合上限保护以免单次清扫数据库爆炸
+    all_users, _ = await UserOperate.get_all_users(
+        include_inactive=True,
+        has_emby=False,  # 仓库层直接过滤 EMBYID is None
+        limit=100000,
+        offset=0,
+    )
+
+    skipped_admins = 0
+    skipped_whitelist = 0
+    skipped_unrecognized = 0
+    candidates: list[UserModel] = []
+    for u in all_users:
+        if u.UID == g.current_user.UID:
+            # 自己永远不能踢自己
+            skipped_admins += 1
+            continue
+        if u.ROLE == Role.ADMIN.value:
+            skipped_admins += 1
+            continue
+        if u.ROLE == Role.WHITE_LIST.value:
+            skipped_whitelist += 1
+            continue
+        if u.ROLE == Role.UNRECOGNIZED.value:
+            # 未识别角色保留人工核对，避免一刀切
+            skipped_unrecognized += 1
+            continue
+        # 双重保险：has_emby=False 已经过滤过 EMBYID 是 None 的，但还可能存在
+        # EMBYID 为空字符串等历史脏数据，这里再判一次
+        if u.EMBYID:
+            continue
+        candidates.append(u)
+
+    candidate_view = [
+        {
+            'uid': int(u.UID),
+            'username': u.USERNAME,
+            'role': u.ROLE,
+            'register_time': u.REGISTER_TIME,
+            'pending_emby': bool(getattr(u, 'PENDING_EMBY', False)),
+        }
+        for u in candidates
+    ]
+
+    if dry_run:
+        return api_response(True, f"干跑结束：匹配 {len(candidates)} 个未绑 Emby 账号", {
+            'candidates': candidate_view,
+            'candidate_count': len(candidates),
+            'deleted_count': 0,
+            'failed': [],
+            'skipped_admins': skipped_admins,
+            'skipped_whitelist': skipped_whitelist,
+            'skipped_unrecognized': skipped_unrecognized,
+            'dry_run': True,
+        })
+
+    if not candidates:
+        return api_response(True, "没有需要清理的账号", {
+            'candidates': [],
+            'candidate_count': 0,
+            'deleted_count': 0,
+            'failed': [],
+            'skipped_admins': skipped_admins,
+            'skipped_whitelist': skipped_whitelist,
+            'skipped_unrecognized': skipped_unrecognized,
+            'dry_run': False,
+        })
+
+    deleted_count = 0
+    failed: list[dict] = []
+    for u in candidates:
+        try:
+            # delete_emby=False：本就没绑 Emby，避免无谓的 Emby API 调用
+            success, msg = await UserService.delete_user(u, delete_emby=False)
+            if success:
+                deleted_count += 1
+            else:
+                failed.append({'uid': int(u.UID), 'username': u.USERNAME, 'error': msg})
+        except Exception as exc:
+            logger.warning(
+                f"踢出未绑 Emby 账号失败: uid={u.UID} username={u.USERNAME}: {exc}"
+            )
+            failed.append({'uid': int(u.UID), 'username': u.USERNAME, 'error': str(exc)})
+
+    logger.warning(
+        "管理员 %s 一键踢出未绑 Emby 账号: 候选=%d 已删除=%d 失败=%d "
+        "(skip admin=%d white=%d unknown=%d)",
+        g.current_user.USERNAME, len(candidates), deleted_count, len(failed),
+        skipped_admins, skipped_whitelist, skipped_unrecognized,
+    )
+
+    return api_response(True, f"已删除 {deleted_count} 个未绑 Emby 的系统账号", {
+        'candidates': candidate_view,
+        'candidate_count': len(candidates),
+        'deleted_count': deleted_count,
+        'failed': failed,
+        'skipped_admins': skipped_admins,
+        'skipped_whitelist': skipped_whitelist,
+        'skipped_unrecognized': skipped_unrecognized,
+        'dry_run': False,
+    })
+
+
 # ==================== 邀请树管理 ====================
 
 
@@ -2367,7 +2526,10 @@ async def bind_emby_to_user(uid: int):
     # Emby 绑定上限检查：只在"目标账号还没有 EMBYID 且这次会净增一个绑定"时强制
     # （从占用者那里夺取 → 净增 0；目标已经有 EMBYID → 替换；目标无 EMBYID → 净增 1）
     if not target_user.EMBYID and (occupant is None or occupant.UID == target_user.UID):
-        cap_ok, cap_msg = await UserService.check_emby_user_capacity()
+        from src.services import EmbyRegisterQueueService
+        cap_ok, cap_msg = await UserService.check_emby_user_capacity(
+            extra_pending=EmbyRegisterQueueService.in_flight_count(),
+        )
         if not cap_ok:
             return api_response(False, cap_msg, code=409)
     if occupant and occupant.UID != target_user.UID:

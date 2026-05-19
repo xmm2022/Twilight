@@ -194,3 +194,4 @@ fixtures/local/
 # VS Code/Copilot local session artifacts
 .copilot/
 /.github/copilot-instructions.local.md
+opencode.json

@@ -1,0 +1,9 @@
+# 强制 .sh / .bash 脚本以 LF 行尾保存，避免在 Windows 上被改成 CRLF
+# 后导致 bash 把 `$'\r'` 拼进变量值（典型表现：start_backend_prod.sh 调度器子进程拒绝启动）
+*.sh   text eol=lf
+*.bash text eol=lf
+
+# Windows 批处理 / PowerShell 脚本保留 CRLF
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf

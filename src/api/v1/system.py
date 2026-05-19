@@ -477,10 +477,6 @@ async def get_admin_config():
             'register_code_limit': RegisterConfig.REGISTER_CODE_LIMIT,
             'emby_direct_register_enabled': RegisterConfig.EMBY_DIRECT_REGISTER_ENABLED,
             'emby_direct_register_days': RegisterConfig.EMBY_DIRECT_REGISTER_DAYS,
-            'emby_direct_register_day_options': RegisterConfig.EMBY_DIRECT_REGISTER_DAY_OPTIONS,
-            'emby_direct_register_allow_custom_days': RegisterConfig.EMBY_DIRECT_REGISTER_ALLOW_CUSTOM_DAYS,
-            'emby_direct_register_custom_days_min': RegisterConfig.EMBY_DIRECT_REGISTER_CUSTOM_DAYS_MIN,
-            'emby_direct_register_custom_days_max': RegisterConfig.EMBY_DIRECT_REGISTER_CUSTOM_DAYS_MAX,
             'emby_user_limit': RegisterConfig.EMBY_USER_LIMIT,
             'emby_direct_register_workers': RegisterConfig.EMBY_DIRECT_REGISTER_WORKERS,
             'emby_direct_register_max_queue': RegisterConfig.EMBY_DIRECT_REGISTER_MAX_QUEUE,
@@ -538,6 +534,11 @@ async def get_system_stats():
     except Exception:
         emby_status = {'online': False}
     
+    # 把注册队列里 in-flight 的请求也算进 Emby 占用统计，便于运维一眼看到真实余量
+    from src.services import EmbyRegisterQueueService
+    emby_pending = EmbyRegisterQueueService.in_flight_count()
+    emby_projected = emby_bound_users + emby_pending
+
     return api_response(True, "获取成功", {
         'users': {
             'total': total_users,
@@ -545,7 +546,13 @@ async def get_system_stats():
             'limit': RegisterConfig.USER_LIMIT,
             'usage_percent': round(total_users / RegisterConfig.USER_LIMIT * 100, 1) if RegisterConfig.USER_LIMIT > 0 else 0,
             'emby_bound': emby_bound_users,
+            'emby_pending': emby_pending,
+            'emby_projected': emby_projected,
             'emby_limit': RegisterConfig.EMBY_USER_LIMIT,
+            'emby_usage_percent': (
+                round(emby_projected / RegisterConfig.EMBY_USER_LIMIT * 100, 1)
+                if RegisterConfig.EMBY_USER_LIMIT > 0 else 0
+            ),
         },
         'regcodes': regcode_stats,
         'emby': emby_status,
@@ -733,12 +740,8 @@ async def get_config_schema():
                     {'key': 'allow_pending_register', 'label': '允许无码注册', 'type': 'bool', 'description': '是否允许无注册码注册（待激活状态）', 'value': RegisterConfig.ALLOW_PENDING_REGISTER},
                     {'key': 'allow_no_emby_view', 'label': '无Emby查看', 'type': 'bool', 'description': '是否允许未激活 Emby 账户的用户查看部分信息', 'value': RegisterConfig.ALLOW_NO_EMBY_VIEW},
                     {'key': 'emby_direct_register_enabled', 'label': '开启 Emby 自由注册', 'type': 'bool', 'description': '开启后用户可直接申请 Emby 账号（需先完成 Telegram 绑定）', 'value': RegisterConfig.EMBY_DIRECT_REGISTER_ENABLED},
-                    {'key': 'emby_direct_register_days', 'label': '自由注册开通天数', 'type': 'int', 'description': 'Emby 自由注册成功后默认开通天数', 'value': RegisterConfig.EMBY_DIRECT_REGISTER_DAYS},
-                    {'key': 'emby_direct_register_day_options', 'label': '自由注册套餐天数', 'type': 'list', 'description': '自由注册可选天数列表，-1 表示永久（如 [3,7,30,-1]）', 'value': RegisterConfig.EMBY_DIRECT_REGISTER_DAY_OPTIONS},
-                    {'key': 'emby_direct_register_allow_custom_days', 'label': '允许自定义天数', 'type': 'bool', 'description': '开启后用户可输入自定义开通天数（受最小/最大值限制）', 'value': RegisterConfig.EMBY_DIRECT_REGISTER_ALLOW_CUSTOM_DAYS},
-                    {'key': 'emby_direct_register_custom_days_min', 'label': '自定义最小天数', 'type': 'int', 'description': '自由注册自定义天数下限', 'value': RegisterConfig.EMBY_DIRECT_REGISTER_CUSTOM_DAYS_MIN},
-                    {'key': 'emby_direct_register_custom_days_max', 'label': '自定义最大天数', 'type': 'int', 'description': '自由注册自定义天数上限', 'value': RegisterConfig.EMBY_DIRECT_REGISTER_CUSTOM_DAYS_MAX},
-                    {'key': 'emby_user_limit', 'label': 'Emby 用户上限', 'type': 'int', 'description': '系统中已绑定 Emby 的用户总上限，-1 表示不限制', 'value': RegisterConfig.EMBY_USER_LIMIT},
+                    {'key': 'emby_direct_register_days', 'label': '自由注册开通天数', 'type': 'int', 'description': '所有自由注册账号统一使用的开通天数（管理员固定，-1=永久）', 'value': RegisterConfig.EMBY_DIRECT_REGISTER_DAYS},
+                    {'key': 'emby_user_limit', 'label': 'Emby 用户上限', 'type': 'int', 'description': '已绑定 Emby 的本站用户总上限，-1 表示不限制（自由注册队列、绑定已有 Emby 账户、管理员强制绑定都受此上限管控；同时会把注册队列里 in-flight 的请求计入名额）', 'value': RegisterConfig.EMBY_USER_LIMIT},
                     {'key': 'emby_direct_register_workers', 'label': '自由注册并发 Worker', 'type': 'int', 'description': '队列并发处理 worker 数（建议 4-16）', 'value': RegisterConfig.EMBY_DIRECT_REGISTER_WORKERS},
                     {'key': 'emby_direct_register_max_queue', 'label': '自由注册队列上限', 'type': 'int', 'description': '允许排队的最大请求数，超过后直接拒绝', 'value': RegisterConfig.EMBY_DIRECT_REGISTER_MAX_QUEUE},
                     {'key': 'emby_direct_register_status_ttl', 'label': '注册状态保留秒数', 'type': 'int', 'description': '注册完成后状态保留秒数，便于前端查询结果', 'value': RegisterConfig.EMBY_DIRECT_REGISTER_STATUS_TTL},
@@ -920,6 +923,64 @@ async def update_config_by_schema():
                 pass
         
         return api_response(False, f"更新配置文件失败: {e}", code=500)
+
+
+@system_bp.route('/admin/config/sweep', methods=['POST'])
+@require_auth
+@require_admin
+async def admin_trigger_config_sweep():
+    """手动触发 config.toml 整理：迁移历史 section、清理无效字段、补齐缺失默认值。
+
+    Request body (可选):
+        {
+            "auto_backup": true,    // 默认 true；写入前在 config_backups/ 备份
+            "restart": false        // 默认 false；为 true 时整理完成后调度重启进程
+        }
+
+    Response:
+        {
+            "filled": {section: [keys...]},      // 本次补齐的字段
+            "removed": {section: [keys...]},     // 本次删除的字段；__section_removed__ 列整段被删的 section
+            "migrated": [string, ...],           // 本次迁移的历史 section.key → 新归属 描述
+            "backup_path": "<rotated.bak>" | null,
+            "restart": true | false              // 实际是否调度了重启
+        }
+    """
+    data = request.get_json(silent=True) or {}
+    auto_backup = bool(data.get('auto_backup', True))
+    restart = bool(data.get('restart', False))
+
+    try:
+        result = sweep_config_toml(
+            config_classes=_CONFIG_CLASSES,
+            auto_backup=auto_backup,
+        )
+    except Exception as exc:  # pragma: no cover - 防御性
+        _reload_logger.error("管理员触发 sweep 失败: %s", exc, exc_info=True)
+        return api_response(False, f"整理配置失败: {exc}", code=500)
+
+    if result.get('error'):
+        return api_response(False, result['error'], result, code=500)
+
+    # 内存里的 Config 对象同步刷新一次，避免「DB 里改了/没改」前端看到的值滞后
+    _reload_runtime_config()
+
+    payload = {
+        'filled': result.get('filled') or {},
+        'removed': result.get('removed') or {},
+        'migrated': result.get('migrated') or [],
+        'backup_path': result.get('backup_path'),
+        'restart': False,
+    }
+
+    # 整理本身不强求重启；但若调用方显式要求 或 实际产生过变更，则按现有流程退出进程
+    has_change = bool(payload['filled'] or payload['removed'] or payload['migrated'])
+    if restart and has_change:
+        payload['restart'] = True
+        _schedule_process_restart()
+
+    msg = "已整理 config.toml" if has_change else "config.toml 已是最新，无需整理"
+    return api_response(True, msg, payload)
 
 
 @system_bp.route('/admin/apis', methods=['GET'])

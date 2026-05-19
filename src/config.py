@@ -405,12 +405,13 @@ class RegisterConfig(BaseConfig):
     ALLOW_PENDING_REGISTER: bool = True  # 是否允许无码注册（待激活状态）
     ALLOW_NO_EMBY_VIEW: bool = True  # 是否允许无 Emby 账户的用户查看部分信息
     EMBY_DIRECT_REGISTER_ENABLED: bool = False  # 是否开启 Emby 自由注册
-    EMBY_DIRECT_REGISTER_DAYS: int = 30  # Emby 自由注册默认开通天数
-    EMBY_DIRECT_REGISTER_DAY_OPTIONS: List[int] = [3, 7, 30, -1]  # 自由注册可选套餐天数（-1 表示永久）
-    EMBY_DIRECT_REGISTER_ALLOW_CUSTOM_DAYS: bool = False  # 是否允许自定义天数
-    EMBY_DIRECT_REGISTER_CUSTOM_DAYS_MIN: int = 1  # 自定义最小天数
-    EMBY_DIRECT_REGISTER_CUSTOM_DAYS_MAX: int = 365  # 自定义最大天数
-    EMBY_USER_LIMIT: int = -1  # Emby 绑定用户总上限（-1 表示不限制）
+    EMBY_DIRECT_REGISTER_DAYS: int = 30  # Emby 自由注册统一开通天数（管理员单值，-1=永久）
+    # 已绑定 Emby 的本站用户总上限（-1=不限制）。所有路径都走这一个值：
+    #   1) /users/me/emby/register 自由注册队列
+    #   2) /users/me/emby/bind 绑定已有 Emby 账号
+    #   3) 管理员 /admin/users/{uid}/bind-emby 强制绑定
+    # 拒绝再拆出"绑定专属上限"——业务上"已绑用户数"是同一个计数，多上限只会让运维心累。
+    EMBY_USER_LIMIT: int = -1
     EMBY_DIRECT_REGISTER_WORKERS: int = 8  # Emby 自由注册队列 worker 数
     EMBY_DIRECT_REGISTER_MAX_QUEUE: int = 1000  # Emby 自由注册队列最大排队数
     EMBY_DIRECT_REGISTER_STATUS_TTL: int = 1800  # Emby 自由注册状态保留秒数
@@ -802,6 +803,8 @@ def sweep_config_toml(
 
     fill_changed = bool(missing_by_section)
     if not (migrate_changed or prune_changed or fill_changed):
+        # 没有变更也吐一条日志，便于排查"为什么没补全/没清理"
+        logger.info("配置整理: %s 无需变更（所有 section / 字段均与代码声明一致）", primary_path)
         return {
             'migrated': [], 'removed': {}, 'filled': {}, 'backup_path': None,
         }
@@ -844,4 +847,26 @@ def sweep_config_toml(
 
 # 模块加载时序：先把 toml 整理干净（迁移 + 清理 + 补齐），再让各 Config 类读它
 _sweep_result = sweep_config_toml(auto_backup=True)
+if _sweep_result.get('error'):
+    logger.error("启动期 config.toml 整理失败: %s", _sweep_result['error'])
+else:
+    _summary_parts: list[str] = []
+    _filled = _sweep_result.get('filled') or {}
+    if _filled:
+        _summary_parts.append(
+            "补齐 " + ", ".join(f"[{s}] +{len(v)}" for s, v in _filled.items())
+        )
+    _removed = _sweep_result.get('removed') or {}
+    _removed_keys = {k: v for k, v in _removed.items() if k != '__section_removed__'}
+    if _removed_keys:
+        _summary_parts.append(
+            "清理 " + ", ".join(f"[{s}] -{len(v)}" for s, v in _removed_keys.items())
+        )
+    if _removed.get('__section_removed__'):
+        _summary_parts.append("移除整段: " + ", ".join(_removed['__section_removed__']))
+    _migrated = _sweep_result.get('migrated') or []
+    if _migrated:
+        _summary_parts.append(f"迁移 {len(_migrated)} 条历史字段")
+    if _summary_parts:
+        logger.info("启动期 config.toml 整理完成: %s", "；".join(_summary_parts))
 _load_all_configs()
