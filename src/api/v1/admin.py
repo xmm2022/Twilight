@@ -8,6 +8,7 @@ import logging
 from flask import Blueprint, request, g
 
 from src.api.v1.auth import require_auth, require_admin, api_response
+from src.config import RegisterConfig
 from src.db.user import UserOperate, UserModel, Role
 from src.db.regcode import RegCodeOperate
 from src.core.utils import parse_bool
@@ -118,6 +119,7 @@ async def list_users():
                 "emby_id": user.EMBYID,
                 "emby_bound": emby_bound,
                 "pending_emby": bool(getattr(user, "PENDING_EMBY", False)) and not emby_bound,
+                "pending_emby_days": getattr(user, "PENDING_EMBY_DAYS", None) if not emby_bound else None,
                 "expired_at": user.EXPIRED_AT if emby_bound else None,
                 "register_time": user.REGISTER_TIME,
                 "created_at": user.CREATE_AT or user.REGISTER_TIME,
@@ -172,6 +174,201 @@ async def get_user(uid: int):
     }
 
     return api_response(True, "获取成功", user_info)
+
+
+@admin_bp.route("/users/<int:uid>/registration-queue/clear", methods=["POST"])
+@require_auth
+@require_admin
+async def clear_user_registration_queue(uid: int):
+    """清理指定用户残留的注册/卡码队列状态。"""
+    from src.core.utils import rate_limit_check
+    from src.services import EmbyRegisterQueueService, RegcodeUseQueueService
+
+    user = await UserOperate.get_user_by_uid(uid)
+    if not user:
+        return api_response(False, "用户不存在", code=404)
+
+    allowed, retry_after = rate_limit_check(
+        "admin_clear_user_registration_queue",
+        str(g.current_user.UID),
+        max_requests=30,
+        window_seconds=60,
+    )
+    if not allowed:
+        return api_response(False, f"操作过于频繁，请 {retry_after} 秒后再试", code=429)
+
+    emby_result = await EmbyRegisterQueueService.clear_for_uid(uid)
+    regcode_result = await RegcodeUseQueueService.clear_for_uid(uid)
+    logger.warning(
+        "管理员 %s 清理用户注册队列 uid=%s username=%s emby=%s regcode=%s",
+        getattr(g.current_user, "USERNAME", None),
+        uid,
+        user.USERNAME,
+        emby_result,
+        regcode_result,
+    )
+    cleared = bool(emby_result.get("cleared") or regcode_result.get("cleared"))
+    return api_response(
+        True,
+        "已清理该用户的注册队列状态" if cleared else "该用户没有残留的注册队列状态",
+        {
+            "uid": uid,
+            "username": user.USERNAME,
+            "cleared": cleared,
+            "emby_register_queue": emby_result,
+            "regcode_use_queue": regcode_result,
+        },
+    )
+
+
+@admin_bp.route("/users/<int:uid>/registration-entitlement", methods=["POST"])
+@require_auth
+@require_admin
+async def grant_user_registration_entitlement(uid: int):
+    """授予未绑定 Emby 的系统账号一次补建 Emby 的资格。"""
+    from src.core.utils import rate_limit_check
+    from src.services import EmbyRegisterQueueService, RegcodeUseQueueService
+
+    user = await UserOperate.get_user_by_uid(uid)
+    if not user:
+        return api_response(False, "用户不存在", code=404)
+    if user.EMBYID:
+        return api_response(False, "该用户已绑定 Emby 账号，无需授予注册资格", code=400)
+    if not user.ACTIVE_STATUS:
+        return api_response(False, "该用户已被禁用，请先启用账号再授予注册资格", code=400)
+
+    allowed, retry_after = rate_limit_check(
+        "admin_grant_user_registration_entitlement",
+        str(g.current_user.UID),
+        max_requests=30,
+        window_seconds=60,
+    )
+    if not allowed:
+        return api_response(False, f"操作过于频繁，请 {retry_after} 秒后再试", code=429)
+
+    data = request.get_json(silent=True) or {}
+    raw_days = data.get("days", RegisterConfig.EMBY_DIRECT_REGISTER_DAYS)
+    try:
+        days = int(raw_days if raw_days is not None else 30)
+    except (TypeError, ValueError):
+        return api_response(False, "days 必须是整数", code=400)
+    if days == 0:
+        days = -1
+    if days < -1:
+        return api_response(False, "days 不能小于 -1", code=400)
+    if days > 3650:
+        return api_response(False, "days 不能超过 3650", code=400)
+
+    emby_queue = await EmbyRegisterQueueService.clear_for_uid(uid)
+    regcode_queue = await RegcodeUseQueueService.clear_for_uid(uid)
+
+    user.PENDING_EMBY = True
+    user.PENDING_EMBY_DAYS = days
+    if user.ROLE == Role.UNRECOGNIZED.value:
+        user.ROLE = Role.NORMAL.value
+    if not user.CREATE_AT:
+        user.CREATE_AT = user.REGISTER_TIME
+    await UserOperate.update_user(user)
+
+    logger.warning(
+        "管理员 %s 授予用户 Emby 补建资格 uid=%s username=%s days=%s",
+        getattr(g.current_user, "USERNAME", None),
+        uid,
+        user.USERNAME,
+        days,
+    )
+    return api_response(
+        True,
+        "已授予该用户 Emby 注册资格",
+        {
+            "uid": uid,
+            "username": user.USERNAME,
+            "pending_emby": True,
+            "pending_emby_days": days,
+            "queue_cleared": bool(emby_queue.get("cleared") or regcode_queue.get("cleared")),
+            "emby_register_queue": emby_queue,
+            "regcode_use_queue": regcode_queue,
+        },
+    )
+
+
+@admin_bp.route("/users/<int:uid>/registration-entitlement/dequeue", methods=["POST"])
+@require_auth
+@require_admin
+async def grant_user_registration_entitlement_and_dequeue(uid: int):
+    """授予 Emby 补建资格，并仅把该用户从未处理注册队列中移出。"""
+    from src.core.utils import rate_limit_check
+    from src.services import EmbyRegisterQueueService, RegcodeUseQueueService
+
+    user = await UserOperate.get_user_by_uid(uid)
+    if not user:
+        return api_response(False, "用户不存在", code=404)
+    if user.EMBYID:
+        return api_response(False, "该用户已绑定 Emby 账号，无需授予注册资格", code=400)
+    if not user.ACTIVE_STATUS:
+        return api_response(False, "该用户已被禁用，请先启用账号再授予注册资格", code=400)
+
+    allowed, retry_after = rate_limit_check(
+        "admin_grant_user_registration_entitlement_dequeue",
+        str(g.current_user.UID),
+        max_requests=30,
+        window_seconds=60,
+    )
+    if not allowed:
+        return api_response(False, f"操作过于频繁，请 {retry_after} 秒后再试", code=429)
+
+    data = request.get_json(silent=True) or {}
+    raw_days = data.get("days", RegisterConfig.EMBY_DIRECT_REGISTER_DAYS)
+    try:
+        days = int(raw_days if raw_days is not None else 30)
+    except (TypeError, ValueError):
+        return api_response(False, "days 必须是整数", code=400)
+    if days == 0:
+        days = -1
+    if days < -1:
+        return api_response(False, "days 不能小于 -1", code=400)
+    if days > 3650:
+        return api_response(False, "days 不能超过 3650", code=400)
+
+    user.PENDING_EMBY = True
+    user.PENDING_EMBY_DAYS = days
+    if user.ROLE == Role.UNRECOGNIZED.value:
+        user.ROLE = Role.NORMAL.value
+    if not user.CREATE_AT:
+        user.CREATE_AT = user.REGISTER_TIME
+    await UserOperate.update_user(user)
+
+    emby_queue = await EmbyRegisterQueueService.clear_for_uid(uid, queued_only=True)
+    regcode_queue = await RegcodeUseQueueService.clear_for_uid(uid, queued_only=True)
+    processing_blocked = [
+        item.get("reason")
+        for item in (emby_queue, regcode_queue)
+        if item.get("reason")
+    ]
+
+    logger.warning(
+        "管理员 %s 授权并移出未处理队列 uid=%s username=%s days=%s emby=%s regcode=%s",
+        getattr(g.current_user, "USERNAME", None),
+        uid,
+        user.USERNAME,
+        days,
+        emby_queue,
+        regcode_queue,
+    )
+    return api_response(
+        True,
+        "已授予 Emby 注册资格；已移出未处理队列" if not processing_blocked else "已授予 Emby 注册资格；部分请求已开始处理，未强制移出",
+        {
+            "uid": uid,
+            "username": user.USERNAME,
+            "pending_emby": True,
+            "pending_emby_days": days,
+            "dequeued": bool(emby_queue.get("cleared") or regcode_queue.get("cleared")),
+            "processing_blocked": processing_blocked,
+            "emby_register_queue": emby_queue,
+            "regcode_use_queue": regcode_queue,
+        },
+    )
 
 
 async def _cascade_toggle_active(

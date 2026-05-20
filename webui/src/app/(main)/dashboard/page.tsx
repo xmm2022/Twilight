@@ -362,6 +362,7 @@ export default function DashboardPage() {
   const isPending = !user?.emby_id && !user?.active;
   const isPendingEmby = Boolean(user?.pending_emby) && !user?.emby_id;
   const isPendingEmbyFromRegcode = isPendingEmby && user?.pending_emby_days !== null && user?.pending_emby_days !== undefined;
+  const hasGrantedEmbyRegisterEntitlement = isPendingEmbyFromRegcode;
 
   let expiredTimestamp: number | null = null;
   if (user?.expired_at !== undefined && user.expired_at !== null) {
@@ -497,15 +498,19 @@ export default function DashboardPage() {
   // ============== Emby 自由注册（登录后从仪表盘开通） ==============
   // 天数由管理员在配置里固定，前端只读取并展示
   const directRegisterDays = useMemo<number>(() => {
+    if (hasGrantedEmbyRegisterEntitlement && user?.pending_emby_days !== null && user?.pending_emby_days !== undefined) {
+      return Number(user.pending_emby_days);
+    }
     const raw = Number(registerAvailability?.emby_direct_register_days);
     if (!Number.isFinite(raw) || raw === 0) return 30;
     return raw;
-  }, [registerAvailability?.emby_direct_register_days]);
+  }, [hasGrantedEmbyRegisterEntitlement, registerAvailability?.emby_direct_register_days, user?.pending_emby_days]);
 
   const directRegisterDaysLabel = directRegisterDays <= 0 ? "永久" : `${directRegisterDays} 天`;
 
   const directRegisterBlockedReason = useMemo<string | null>(() => {
     if (!registerAvailability) return null;
+    if (hasGrantedEmbyRegisterEntitlement) return null;
     if (!registerAvailability.emby_direct_register_enabled) return "管理员尚未开启自由注册";
     if (user?.emby_id) return "您已经绑定了 Emby 账号";
     if (!user?.telegram_id) return "请先在「设置 → Telegram」中完成 Telegram 绑定";
@@ -513,10 +518,10 @@ export default function DashboardPage() {
     const used = Number(registerAvailability.emby_bound_users ?? 0);
     if (limit > 0 && used >= limit) return `Emby 已绑定用户数已达上限（${used}/${limit}）`;
     return null;
-  }, [registerAvailability, user?.emby_id, user?.telegram_id]);
+  }, [hasGrantedEmbyRegisterEntitlement, registerAvailability, user?.emby_id, user?.telegram_id]);
 
   const showEmbyDirectRegisterCard = Boolean(
-    registerAvailability?.emby_direct_register_enabled && !user?.emby_id,
+    !user?.emby_id && (registerAvailability?.emby_direct_register_enabled || hasGrantedEmbyRegisterEntitlement),
   );
 
   const handleSubmitDirectRegister = async () => {
@@ -1011,7 +1016,7 @@ export default function DashboardPage() {
         </div>
       </motion.div>
 
-      {/* Emby 自由注册：登录后可在仪表盘开通 */}
+      {/* Emby 自由注册 / 管理员授予资格：登录后可在仪表盘开通 */}
       {showEmbyDirectRegisterCard && (
         <motion.div variants={item} className="premium-card p-5 sm:p-6">
           <div className="flex items-center gap-3 mb-4">
@@ -1019,7 +1024,9 @@ export default function DashboardPage() {
               <Gift className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="text-base font-black tracking-tight">当前已开启 Emby 自由注册</h3>
+              <h3 className="text-base font-black tracking-tight">
+                {hasGrantedEmbyRegisterEntitlement ? "你已获得 Emby 注册权利" : "当前已开启 Emby 自由注册"}
+              </h3>
               <p className="text-[11px] text-muted-foreground font-bold uppercase tracking-tighter">
                 Direct Emby Registration
               </p>
@@ -1028,7 +1035,9 @@ export default function DashboardPage() {
 
           <div className="space-y-3 text-sm">
             <p className="text-muted-foreground">
-              {directRegisterBlockedReason
+              {hasGrantedEmbyRegisterEntitlement
+                ? "管理员已为你清理注册队列并授予补建 Emby 资格。请点击下方按钮填写 Emby 用户名和密码完成开通。"
+                : directRegisterBlockedReason
                 ? directRegisterBlockedReason
                 : "当前已开启自由注册，点击按钮填写 Emby 用户名和密码即可开通。"}
             </p>

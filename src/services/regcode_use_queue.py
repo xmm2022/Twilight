@@ -138,6 +138,64 @@ class RegcodeUseQueueService:
             return out
 
     @classmethod
+    async def clear_for_uid(cls, uid: int, *, queued_only: bool = False) -> Dict[str, Any]:
+        """管理员清理指定用户残留的卡码处理队列状态。
+
+        queued_only=True 时只移除尚未被 worker 取走的 queued 任务。
+        """
+        cls._ensure_started()
+        assert cls._state_lock is not None
+        async with cls._state_lock:
+            cls._cleanup_expired_status_locked()
+            uid = int(uid)
+            request_id = cls._pending_by_uid.get(uid)
+            removed_from_queue = 0
+            removed_status = False
+            status_before = None
+
+            item = cls._status.get(request_id) if request_id else None
+            if item:
+                status_before = item.get("status")
+            if queued_only and request_id and status_before != "queued":
+                return {
+                    "request_id": request_id,
+                    "status_before": status_before,
+                    "removed_from_queue": 0,
+                    "removed_status": False,
+                    "cleared": False,
+                    "reason": "该卡码请求已经开始处理，不能按未处理队列移出",
+                }
+
+            if request_id and cls._queue is not None:
+                kept = []
+                for task in list(cls._queue._queue):  # noqa: SLF001
+                    if task.request_id == request_id:
+                        removed_from_queue += 1
+                        continue
+                    kept.append(task)
+                if removed_from_queue:
+                    cls._queue._queue.clear()  # noqa: SLF001
+                    cls._queue._queue.extend(kept)  # noqa: SLF001
+                    for _ in range(removed_from_queue):
+                        try:
+                            cls._queue.task_done()
+                        except ValueError:
+                            break
+
+            if request_id:
+                cls._pending_by_uid.pop(uid, None)
+                item = cls._status.pop(request_id, None)
+                removed_status = item is not None
+
+            return {
+                "request_id": request_id,
+                "status_before": status_before,
+                "removed_from_queue": removed_from_queue,
+                "removed_status": removed_status,
+                "cleared": bool(request_id or removed_from_queue or removed_status),
+            }
+
+    @classmethod
     async def _worker_loop(cls) -> None:
         assert cls._queue is not None
         while True:

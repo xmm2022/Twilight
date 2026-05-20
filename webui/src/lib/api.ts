@@ -589,6 +589,47 @@ class ApiClient {
     );
   }
 
+  async clearUserRegistrationQueue(uid: number) {
+    return this.request<{
+      uid: number;
+      username: string;
+      cleared: boolean;
+      emby_register_queue: Record<string, unknown>;
+      regcode_use_queue: Record<string, unknown>;
+    }>(`/admin/users/${uid}/registration-queue/clear`, { method: "POST" });
+  }
+
+  async grantUserRegistrationEntitlement(uid: number, days?: number) {
+    return this.request<{
+      uid: number;
+      username: string;
+      pending_emby: boolean;
+      pending_emby_days: number;
+      queue_cleared: boolean;
+      emby_register_queue: Record<string, unknown>;
+      regcode_use_queue: Record<string, unknown>;
+    }>(`/admin/users/${uid}/registration-entitlement`, {
+      method: "POST",
+      body: JSON.stringify({ days }),
+    });
+  }
+
+  async grantUserRegistrationEntitlementAndDequeue(uid: number, days?: number) {
+    return this.request<{
+      uid: number;
+      username: string;
+      pending_emby: boolean;
+      pending_emby_days: number;
+      dequeued: boolean;
+      processing_blocked: string[];
+      emby_register_queue: Record<string, unknown>;
+      regcode_use_queue: Record<string, unknown>;
+    }>(`/admin/users/${uid}/registration-entitlement/dequeue`, {
+      method: "POST",
+      body: JSON.stringify({ days }),
+    });
+  }
+
   async syncUserBindings(payload: {
     scope?: "telegram" | "emby" | "both";
     uid?: number;

@@ -427,6 +427,85 @@ class EmbyRegisterQueueService:
                 result["queue_position"] = cls._queue_position_unlocked(request_id)
             return result
 
+    @classmethod
+    async def clear_for_uid(cls, uid: int, *, queued_only: bool = False) -> Dict[str, Any]:
+        """管理员清理指定用户残留的 Emby 注册队列状态。
+
+        queued_only=True 时只移除尚未被 worker 取走的 queued 任务；processing
+        任务可能已经在 Emby 侧创建账号，不能静默摘除。
+        """
+        cls.ensure_started_sync()
+        loop = get_background_loop()
+        fut = asyncio.run_coroutine_threadsafe(cls._clear_for_uid_locked(int(uid), queued_only=queued_only), loop)
+        return await asyncio.wrap_future(fut)
+
+    @classmethod
+    async def _clear_for_uid_locked(cls, uid: int, *, queued_only: bool = False) -> Dict[str, Any]:
+        async with cls._state_lock:
+            await cls._cleanup_expired_status_locked()
+            request_id = cls._pending_by_uid.get(uid)
+            removed_from_queue = 0
+            removed_status = False
+            status_before = None
+            emby_username = None
+
+            item = cls._status.get(request_id) if request_id else None
+            if item:
+                status_before = item.get("status")
+                emby_username = item.get("emby_username")
+            if queued_only and request_id and status_before != "queued":
+                return {
+                    "request_id": request_id,
+                    "status_before": status_before,
+                    "removed_from_queue": 0,
+                    "removed_status": False,
+                    "cleared": False,
+                    "reason": "该 Emby 注册请求已经开始处理，不能按未处理队列移出",
+                }
+
+            if request_id and cls._queue is not None:
+                kept = []
+                for task in list(cls._queue._queue):  # noqa: SLF001
+                    if task.request_id == request_id:
+                        removed_from_queue += 1
+                        continue
+                    kept.append(task)
+                if removed_from_queue:
+                    cls._queue._queue.clear()  # noqa: SLF001
+                    cls._queue._queue.extend(kept)  # noqa: SLF001
+                    for _ in range(removed_from_queue):
+                        try:
+                            cls._queue.task_done()
+                        except ValueError:
+                            break
+
+            if request_id:
+                cls._pending_by_uid.pop(uid, None)
+                item = cls._status.pop(request_id, None)
+                removed_status = item is not None
+                event = cls._events.pop(request_id, None)
+                if event is not None:
+                    event.set()
+
+            if emby_username:
+                cls._pending_by_username.pop(str(emby_username).lower(), None)
+            else:
+                stale_usernames = [
+                    name
+                    for name, rid in cls._pending_by_username.items()
+                    if rid == request_id
+                ]
+                for name in stale_usernames:
+                    cls._pending_by_username.pop(name, None)
+
+            return {
+                "request_id": request_id,
+                "status_before": status_before,
+                "removed_from_queue": removed_from_queue,
+                "removed_status": removed_status,
+                "cleared": bool(request_id or removed_from_queue or removed_status),
+            }
+
     # —— Worker 内部 ——
 
     @classmethod

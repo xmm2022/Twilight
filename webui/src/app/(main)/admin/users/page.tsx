@@ -485,6 +485,84 @@ export default function AdminUsersPage() {
     }
   };
 
+  const handleClearRegistrationQueue = async (user: UserInfo) => {
+    const ok = await confirmAction({
+      title: `清理 ${user.username} 的注册队列状态`,
+      description: "会清理该用户残留的注册码处理队列和 Emby 注册队列状态，用于修复旧队列堆积导致无法重新使用注册码的问题。正在执行中的外部 Emby 创建请求无法被强制中断。",
+      tone: "warning",
+      confirmLabel: "清理队列",
+    });
+    if (!ok) return;
+    try {
+      const res = await api.clearUserRegistrationQueue(user.uid);
+      if (res.success) {
+        toast({ title: "清理完成", description: res.message, variant: "success" });
+        invalidateUsersCache();
+        await loadUsers();
+      } else {
+        toast({ title: "清理失败", description: res.message, variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "清理失败", description: err.message || "网络异常", variant: "destructive" });
+    }
+  };
+
+  const handleGrantRegistrationEntitlement = async (user: UserInfo) => {
+    const action = await confirmAction({
+      title: `给予 ${user.username} Emby 注册权利`,
+      description: "会清理该用户残留队列，并授予一次待补建 Emby 资格。用户登录后会在仪表盘注册码兑换下方看到开通入口。默认开通时长沿用后端配置。",
+      tone: "warning",
+      actions: [
+        { label: "授予默认时长", value: "default", variant: "default" },
+        { label: "授予永久", value: "permanent", variant: "outline" },
+      ],
+    });
+    if (!action) return;
+    try {
+      const days = action === "permanent" ? -1 : undefined;
+      const res = await api.grantUserRegistrationEntitlement(user.uid, days);
+      if (res.success) {
+        toast({ title: "已授予注册权利", description: res.message, variant: "success" });
+        invalidateUsersCache();
+        await loadUsers();
+      } else {
+        toast({ title: "授予失败", description: res.message, variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "授予失败", description: err.message || "网络异常", variant: "destructive" });
+    }
+  };
+
+  const handleGrantRegistrationEntitlementAndDequeue = async (user: UserInfo) => {
+    const action = await confirmAction({
+      title: `授权并移出 ${user.username} 的未处理队列`,
+      description: "会先授予该用户 Emby 补建资格，然后只把尚未开始处理的注册码/Emby 注册请求从队列移出。若请求已经 processing，将保留执行状态，避免破坏正在创建的 Emby 账号。",
+      tone: "warning",
+      actions: [
+        { label: "授权默认时长并移出", value: "default", variant: "default" },
+        { label: "授权永久并移出", value: "permanent", variant: "outline" },
+      ],
+    });
+    if (!action) return;
+    try {
+      const days = action === "permanent" ? -1 : undefined;
+      const res = await api.grantUserRegistrationEntitlementAndDequeue(user.uid, days);
+      if (res.success) {
+        toast({
+          title: res.data?.dequeued ? "已授权并移出队列" : "已授权",
+          description: res.message,
+          variant: res.data?.processing_blocked?.length ? "default" : "success",
+        });
+        invalidateUsersCache();
+        await loadUsers();
+      } else {
+        toast({ title: "操作失败", description: res.message, variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "操作失败", description: err.message || "网络异常", variant: "destructive" });
+    }
+  };
+
   const handleSyncBindings = async (options: { uid?: number; currentFilter?: boolean } = {}) => {
     const ok = await confirmAction({
       title: options.uid ? "同步该用户绑定状态" : options.currentFilter ? "同步当前筛选用户" : "同步所有用户",
@@ -1012,6 +1090,25 @@ export default function AdminUsersPage() {
         <DropdownMenuItem onClick={() => handleForceUnbind(user)}>
           <Unlink className="mr-2 h-4 w-4" />
           强制解绑
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => handleClearRegistrationQueue(user)}>
+          <CalendarClock className="mr-2 h-4 w-4" />
+          清理注册队列用户
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => handleGrantRegistrationEntitlement(user)}
+          disabled={Boolean(user.emby_id) || !user.active}
+        >
+          <UserPlus className="mr-2 h-4 w-4" />
+          给予队列用户注册权利
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => handleGrantRegistrationEntitlementAndDequeue(user)}
+          disabled={Boolean(user.emby_id) || !user.active}
+        >
+          <UserCheck className="mr-2 h-4 w-4" />
+          授权并移出未处理队列
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => handleToggleActive(user)}>
