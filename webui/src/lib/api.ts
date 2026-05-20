@@ -1794,7 +1794,7 @@ export interface ConfigFieldOption {
 export interface ConfigField {
   key: string;
   label: string;
-  type: 'string' | 'int' | 'float' | 'bool' | 'secret' | 'list' | 'select';
+  type: 'string' | 'textarea' | 'int' | 'float' | 'bool' | 'secret' | 'list' | 'select';
   description: string;
   value: unknown;
   options?: ConfigFieldOption[];
@@ -1824,6 +1824,7 @@ export interface ConfigSchema {
 export interface SchedulerJobRun {
   id?: number;
   job_id?: string;
+  type?: "auto" | "manual";
   trigger?: string;
   status: "running" | "success" | "failed";
   started_at: number;
@@ -1850,6 +1851,9 @@ export interface SchedulerJobItem {
   trigger_spec: SchedulerTriggerSpec;
   default_trigger_spec: SchedulerTriggerSpec;
   is_custom: boolean;
+  last_auto_run_at?: number | null;
+  last_manual_run_at?: number | null;
+  persisted_info?: Record<string, unknown> | null;
   /**
    * 手动专属任务：不接受定时触发器，仅能手动触发。
    * 后端在 JOB_DEFINITIONS 上打的标记，下发到前端用于隐藏"编辑触发器"按钮。

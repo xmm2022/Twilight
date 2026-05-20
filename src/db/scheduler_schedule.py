@@ -11,6 +11,7 @@
 - INTERVAL_SECONDS: interval 时使用，正整数（前端按分钟/小时换算后下发）
 """
 
+import sqlite3
 import time
 from typing import Optional
 
@@ -30,15 +31,56 @@ class SchedulerScheduleModel(SchedulerScheduleDatabaseModel):
     __tablename__ = "scheduler_schedule"
 
     JOB_ID: Mapped[str] = mapped_column(String(64), primary_key=True)
+    NAME: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    DESCRIPTION: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    MANUAL_ONLY: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    ENABLED: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    IS_CUSTOM: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     TRIGGER_TYPE: Mapped[str] = mapped_column(String(16), nullable=False)
     CRON_HOUR: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     CRON_MINUTE: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     INTERVAL_SECONDS: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    DEFAULT_TRIGGER_TYPE: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    DEFAULT_CRON_HOUR: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    DEFAULT_CRON_MINUTE: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    DEFAULT_INTERVAL_SECONDS: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    NEXT_RUN_AT: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    LAST_RUN_AT: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    LAST_AUTO_RUN_AT: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    LAST_MANUAL_RUN_AT: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     UPDATED_AT: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 create_database("scheduler_schedule", SchedulerScheduleDatabaseModel)
 DATABASE_URL = f'sqlite+aiosqlite:///{Config.DATABASES_DIR / "scheduler_schedule.db"}'
+
+
+def _ensure_scheduler_schedule_columns() -> None:
+    db_path = Config.DATABASES_DIR / "scheduler_schedule.db"
+    wanted = {
+        "NAME": "VARCHAR(128)",
+        "DESCRIPTION": "VARCHAR(1024)",
+        "MANUAL_ONLY": "INTEGER NOT NULL DEFAULT 0",
+        "ENABLED": "INTEGER NOT NULL DEFAULT 0",
+        "IS_CUSTOM": "INTEGER NOT NULL DEFAULT 0",
+        "DEFAULT_TRIGGER_TYPE": "VARCHAR(16)",
+        "DEFAULT_CRON_HOUR": "INTEGER",
+        "DEFAULT_CRON_MINUTE": "INTEGER",
+        "DEFAULT_INTERVAL_SECONDS": "INTEGER",
+        "NEXT_RUN_AT": "INTEGER",
+        "LAST_RUN_AT": "INTEGER",
+        "LAST_AUTO_RUN_AT": "INTEGER",
+        "LAST_MANUAL_RUN_AT": "INTEGER",
+    }
+    with sqlite3.connect(db_path) as conn:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(scheduler_schedule)").fetchall()}
+        for name, ddl in wanted.items():
+            if name not in cols:
+                conn.execute(f"ALTER TABLE scheduler_schedule ADD COLUMN {name} {ddl}")
+        conn.commit()
+
+
+_ensure_scheduler_schedule_columns()
 ENGINE = create_async_engine(DATABASE_URL, echo=Config.SQLALCHEMY_LOG)
 SchedulerScheduleSessionFactory = async_sessionmaker(bind=ENGINE, expire_on_commit=False)
 
@@ -55,15 +97,90 @@ MAX_INTERVAL_SECONDS = 7 * 86400
 def serialize_override(record: SchedulerScheduleModel) -> dict:
     return {
         "job_id": record.JOB_ID,
+        "name": record.NAME,
+        "description": record.DESCRIPTION,
+        "manual_only": bool(record.MANUAL_ONLY),
+        "enabled": bool(record.ENABLED),
+        "is_custom": bool(record.IS_CUSTOM),
         "type": record.TRIGGER_TYPE,
         "hour": record.CRON_HOUR,
         "minute": record.CRON_MINUTE,
         "seconds": record.INTERVAL_SECONDS,
+        "default_type": record.DEFAULT_TRIGGER_TYPE,
+        "default_hour": record.DEFAULT_CRON_HOUR,
+        "default_minute": record.DEFAULT_CRON_MINUTE,
+        "default_seconds": record.DEFAULT_INTERVAL_SECONDS,
+        "next_run_at": record.NEXT_RUN_AT,
+        "last_run_at": record.LAST_RUN_AT,
+        "last_auto_run_at": record.LAST_AUTO_RUN_AT,
+        "last_manual_run_at": record.LAST_MANUAL_RUN_AT,
         "updated_at": record.UPDATED_AT,
     }
 
 
 class SchedulerScheduleOperate:
+    @staticmethod
+    async def upsert_job_info(
+        job_id: str,
+        *,
+        name: str,
+        description: str,
+        manual_only: bool,
+        enabled: bool,
+        trigger_spec: dict,
+        default_trigger_spec: dict,
+        next_run_at: Optional[int] = None,
+    ) -> dict:
+        now = int(time.time())
+        async with SchedulerScheduleSessionFactory() as session:
+            async with session.begin():
+                existing = await session.get(SchedulerScheduleModel, job_id)
+                if not existing:
+                    existing = SchedulerScheduleModel(
+                        JOB_ID=job_id,
+                        TRIGGER_TYPE=str(trigger_spec.get("type") or TRIGGER_INTERVAL),
+                        UPDATED_AT=now,
+                    )
+                    session.add(existing)
+
+                existing.NAME = (name or "")[:128]
+                existing.DESCRIPTION = (description or "")[:1024]
+                existing.MANUAL_ONLY = 1 if manual_only else 0
+                existing.ENABLED = 1 if enabled else 0
+                existing.IS_CUSTOM = int(existing.IS_CUSTOM or 0)
+                existing.TRIGGER_TYPE = str(trigger_spec.get("type") or TRIGGER_INTERVAL)
+                existing.CRON_HOUR = trigger_spec.get("hour")
+                existing.CRON_MINUTE = trigger_spec.get("minute")
+                existing.INTERVAL_SECONDS = trigger_spec.get("seconds")
+                existing.DEFAULT_TRIGGER_TYPE = str(default_trigger_spec.get("type") or "manual")
+                existing.DEFAULT_CRON_HOUR = default_trigger_spec.get("hour")
+                existing.DEFAULT_CRON_MINUTE = default_trigger_spec.get("minute")
+                existing.DEFAULT_INTERVAL_SECONDS = default_trigger_spec.get("seconds")
+                existing.NEXT_RUN_AT = next_run_at
+                existing.UPDATED_AT = now
+            await session.refresh(existing)
+            return serialize_override(existing)
+
+    @staticmethod
+    async def mark_run_time(job_id: str, *, run_type: str, run_at: Optional[int] = None) -> None:
+        now = int(run_at or time.time())
+        async with SchedulerScheduleSessionFactory() as session:
+            async with session.begin():
+                existing = await session.get(SchedulerScheduleModel, job_id)
+                if not existing:
+                    existing = SchedulerScheduleModel(
+                        JOB_ID=job_id,
+                        TRIGGER_TYPE=TRIGGER_INTERVAL,
+                        UPDATED_AT=now,
+                    )
+                    session.add(existing)
+                existing.LAST_RUN_AT = now
+                if run_type == "manual":
+                    existing.LAST_MANUAL_RUN_AT = now
+                else:
+                    existing.LAST_AUTO_RUN_AT = now
+                existing.UPDATED_AT = now
+
     @staticmethod
     async def get_override(job_id: str) -> Optional[dict]:
         async with SchedulerScheduleSessionFactory() as session:
@@ -114,6 +231,7 @@ class SchedulerScheduleOperate:
                     existing.CRON_HOUR = payload_hour
                     existing.CRON_MINUTE = payload_minute
                     existing.INTERVAL_SECONDS = payload_seconds
+                    existing.IS_CUSTOM = 1
                     existing.UPDATED_AT = now
                 else:
                     existing = SchedulerScheduleModel(
@@ -122,6 +240,7 @@ class SchedulerScheduleOperate:
                         CRON_HOUR=payload_hour,
                         CRON_MINUTE=payload_minute,
                         INTERVAL_SECONDS=payload_seconds,
+                        IS_CUSTOM=1,
                         UPDATED_AT=now,
                     )
                     session.add(existing)
@@ -132,7 +251,10 @@ class SchedulerScheduleOperate:
     async def delete_override(job_id: str) -> bool:
         async with SchedulerScheduleSessionFactory() as session:
             async with session.begin():
-                result = await session.execute(
-                    delete(SchedulerScheduleModel).where(SchedulerScheduleModel.JOB_ID == job_id)
-                )
+                existing = await session.get(SchedulerScheduleModel, job_id)
+                if existing:
+                    existing.IS_CUSTOM = 0
+                    existing.UPDATED_AT = int(time.time())
+                    return True
+                result = await session.execute(delete(SchedulerScheduleModel).where(SchedulerScheduleModel.JOB_ID == job_id))
                 return bool(result.rowcount)

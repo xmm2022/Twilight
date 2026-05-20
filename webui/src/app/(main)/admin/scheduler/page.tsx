@@ -108,6 +108,11 @@ function formatSummaryValue(value: unknown): string {
   return String(value);
 }
 
+function formatRunType(run?: SchedulerJobRun | null): string {
+  const type = run?.type || (run?.trigger === "manual" ? "manual" : "auto");
+  return type === "manual" ? "手动" : "自动";
+}
+
 function renderSummaryChips(summary: SchedulerJobRun["summary"]) {
   if (!summary || typeof summary !== "object") return null;
   const entries = Object.entries(summary);
@@ -174,6 +179,8 @@ function ScheduleEditor({ job, open, onOpenChange, onSaved }: ScheduleEditorProp
   const [minute, setMinute] = useState(0);
   const [intervalValue, setIntervalValue] = useState(1);
   const [intervalUnit, setIntervalUnit] = useState<IntervalUnit>("hours");
+  const [cleanupDays, setCleanupDays] = useState("7");
+  const [cleanupEnabled, setCleanupEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
 
@@ -187,9 +194,13 @@ function ScheduleEditor({ job, open, onOpenChange, onSaved }: ScheduleEditorProp
       setMinute(0);
       setIntervalValue(1);
       setIntervalUnit("hours");
+      setCleanupDays(String(Number((job.runtime_params || {}).days ?? 7) || 7));
+      setCleanupEnabled(Boolean((job.runtime_params || {}).auto_enabled));
       return;
     }
     setType(spec.type);
+    setCleanupDays(String(Number((job.runtime_params || {}).days ?? 7) || 7));
+    setCleanupEnabled(Boolean((job.runtime_params || {}).auto_enabled));
     if (spec.type === "cron_daily") {
       setHour(spec.hour);
       setMinute(spec.minute);
@@ -230,9 +241,26 @@ function ScheduleEditor({ job, open, onOpenChange, onSaved }: ScheduleEditorProp
         }
         payload = { type: "interval", seconds };
       }
+      if (job.id === "cleanup_no_emby") {
+        const days = Number(cleanupDays);
+        if (!Number.isFinite(days) || days < 1 || days > 3650) {
+          toast({ title: "清理阈值不合法", description: "天数必须在 1-3650 之间", variant: "destructive" });
+          return;
+        }
+        const cfgRes = await api.updateConfigBySchema({
+          SAR: {
+            auto_cleanup_no_emby: cleanupEnabled,
+            auto_cleanup_no_emby_days: Math.trunc(days),
+          },
+        });
+        if (!cfgRes.success) {
+          toast({ title: "配置保存失败", description: cfgRes.message, variant: "destructive" });
+          return;
+        }
+      }
       const res = await api.setSchedulerJobSchedule(job.id, payload);
       if (res.success) {
-        toast({ title: "已更新", description: describeTriggerSpec(res.data?.trigger_spec), variant: "success" });
+        toast({ title: "已更新", description: job.id === "cleanup_no_emby" ? "触发器与清理阈值已保存" : describeTriggerSpec(res.data?.trigger_spec), variant: "success" });
         onOpenChange(false);
         await onSaved();
       } else {
@@ -343,6 +371,38 @@ function ScheduleEditor({ job, open, onOpenChange, onSaved }: ScheduleEditorProp
           <p className="text-xs text-muted-foreground">
             修改后立即生效并落库，重启进程后仍保留。可点击「恢复默认」清除覆盖。
           </p>
+
+          {job.id === "cleanup_no_emby" && (
+            <div className="space-y-3 rounded-xl border border-border/70 bg-muted/30 p-3">
+              <div className="space-y-2">
+                <Label>清理天数阈值</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={3650}
+                  value={cleanupDays}
+                  onChange={(e) => setCleanupDays(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  写入 [SAR].auto_cleanup_no_emby_days。注册超过该天数且仍未绑定 Emby 的系统用户会被清理。
+                </p>
+              </div>
+              <label className="flex items-start gap-2 rounded-lg border border-border/60 bg-background/60 p-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={cleanupEnabled}
+                  onChange={(e) => setCleanupEnabled(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
+                />
+                <span>
+                  启用自动清理
+                  <span className="block text-xs text-muted-foreground">
+                    写入 [SAR].auto_cleanup_no_emby；关闭后定时自动执行会跳过，手动运行仍可临时强制执行。
+                  </span>
+                </span>
+              </label>
+            </div>
+          )}
         </div>
 
         <DialogFooter className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
@@ -602,7 +662,7 @@ export default function AdminSchedulerPage() {
             手动触发后台定时任务并查看最近一次的执行情况。任务在后台异步执行，本页面会自动轮询状态。
           </p>
         </div>
-        <Button variant="outline" onClick={() => void refresh()} disabled={isLoading}>
+        <Button variant="outline" onClick={() => void refresh()} disabled={isLoading} className="w-full sm:w-auto">
           {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
           刷新
         </Button>
@@ -630,13 +690,13 @@ export default function AdminSchedulerPage() {
             const isRunning = job.is_running || lr?.status === "running" || triggering;
               const rejoinCandidates = Number((lr?.summary as Record<string, unknown> | null | undefined)?.["rejoin_candidates"] ?? 0);
             return (
-              <Card key={job.id} className="flex flex-col">
+              <Card key={job.id} className="flex min-h-[360px] flex-col overflow-hidden">
                 <CardHeader className="space-y-2">
                   <div className="flex items-start justify-between gap-3">
-                    <CardTitle className="text-base">{job.name}</CardTitle>
+                    <CardTitle className="min-w-0 text-base leading-snug">{job.name}</CardTitle>
                     <StatusBadge job={job} />
                   </div>
-                  <CardDescription className="break-words">
+                  <CardDescription className="min-h-10 break-words leading-relaxed">
                     {job.description}
                   </CardDescription>
                 </CardHeader>
@@ -680,8 +740,16 @@ export default function AdminSchedulerPage() {
                       </p>
                       {lr.trigger && lr.trigger !== "scheduled" && (
                         <p>
-                          <span className="text-muted-foreground">触发：</span>
-                          {lr.trigger === "manual" ? "手动" : lr.trigger === "startup" ? "启动时" : lr.trigger}
+                          <span className="text-muted-foreground">类型：</span>
+                          {formatRunType(lr)}{lr.trigger === "startup" ? "（启动时）" : ""}
+                        </p>
+                      )}
+                      {lr.trigger === "scheduled" && (
+                        <p><span className="text-muted-foreground">类型：</span>{formatRunType(lr)}</p>
+                      )}
+                      {(job.last_auto_run_at || job.last_manual_run_at) && (
+                        <p className="text-muted-foreground">
+                          自动: {formatTimestamp(job.last_auto_run_at)} · 手动: {formatTimestamp(job.last_manual_run_at)}
                         </p>
                       )}
                       {lr.error && (
@@ -714,7 +782,7 @@ export default function AdminSchedulerPage() {
                     </div>
                   )}
 
-                  <div className="flex gap-2">
+                  <div className={job.manual_only ? "grid grid-cols-[1fr_auto] gap-2" : "grid grid-cols-[1fr_auto_auto] gap-2"}>
                     <Button
                       onClick={() => void handleTrigger(job)}
                       disabled={isRunning}
@@ -793,7 +861,7 @@ export default function AdminSchedulerPage() {
                   type="checkbox"
                   checked={paramPreserveTg}
                   onChange={(e) => setParamPreserveTg(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded border-gray-300"
+                  className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
                 />
                 <span>
                   保留已绑 Telegram 的待激活账号
@@ -807,7 +875,7 @@ export default function AdminSchedulerPage() {
                   type="checkbox"
                   checked={paramIgnoreEnabled}
                   onChange={(e) => setParamIgnoreEnabled(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded border-gray-300"
+                  className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
                 />
                 <span>
                   忽略 AUTO_CLEANUP_NO_EMBY 总开关
@@ -826,7 +894,7 @@ export default function AdminSchedulerPage() {
                   type="checkbox"
                   checked={paramKickDryRun}
                   onChange={(e) => setParamKickDryRun(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded border-gray-300"
+                  className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
                 />
                 <span>
                   仅试运行 (dry_run)
@@ -883,9 +951,7 @@ export default function AdminSchedulerPage() {
                   <p><span className="text-muted-foreground">开始：</span>{formatTimestamp(logsDetail.started_at)}</p>
                   <p><span className="text-muted-foreground">结束：</span>{formatTimestamp(logsDetail.finished_at)}</p>
                   <p><span className="text-muted-foreground">耗时：</span>{formatDuration(logsDetail.started_at, logsDetail.finished_at)}</p>
-                  {logsDetail.trigger && (
-                    <p><span className="text-muted-foreground">触发：</span>{logsDetail.trigger}</p>
-                  )}
+                  <p><span className="text-muted-foreground">类型：</span>{formatRunType(logsDetail)}</p>
                   {logsDetail.error && (
                     <p className="break-words text-destructive">错误：{logsDetail.error}</p>
                   )}
@@ -923,9 +989,7 @@ export default function AdminSchedulerPage() {
                               {run.status}
                             </Badge>
                             <span className="text-muted-foreground">{formatDuration(run.started_at, run.finished_at)}</span>
-                            {run.trigger && run.trigger !== "scheduled" && (
-                              <span className="text-muted-foreground">[{run.trigger}]</span>
-                            )}
+                            <span className="text-muted-foreground">[{formatRunType(run)}]</span>
                           </span>
                         </div>
                       ))}

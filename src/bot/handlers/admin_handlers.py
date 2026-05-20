@@ -27,6 +27,7 @@ from src.services.user_service import UserService, RegisterResult
 from src.services.emby_service import EmbyService
 from src.services.emby import get_emby_client
 from src.core.utils import generate_random_string, generate_password, days_to_seconds, timestamp
+from src.config import Config, TelegramConfig
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,15 @@ def _clear_admin_state(uid: int) -> bool:
     return _admin_states.pop(uid, None) is not None
 
 
+def _render_custom_text(template: str) -> str:
+    if not template:
+        return ""
+    try:
+        return template.format(server_name=Config.SERVER_NAME or "Twilight")
+    except (KeyError, IndexError, ValueError):
+        return template
+
+
 def register(bot):
     """注册处理器"""
     app = bot.application
@@ -69,7 +79,7 @@ def register(bot):
     @require_private
     @require_admin
     async def cmd_twishelp(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        text = (
+        text = _render_custom_text(TelegramConfig.BOT_ADMIN_HELP_TEXT or "") or (
             "🔧 **管理员命令**\n\n"
             "• /admin - 打开管理面板\n"
             "• /twfind <关键词> - 按系统用户名/UID/TGID/TG用户名/Emby标识搜索\n"

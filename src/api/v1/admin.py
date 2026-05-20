@@ -2976,6 +2976,21 @@ async def admin_trigger_scheduler_job(job_id: str):
     data = request.get_json(silent=True) or {}
     raw_params = data.get("params")
     params = raw_params if isinstance(raw_params, dict) else None
+    if params is not None:
+        if len(params) > 10:
+            return api_response(False, "params 字段过多", code=400)
+        allowed_params = {
+            "cleanup_no_emby": {"days", "preserve_tg_bound", "ignore_enabled_flag"},
+            "kick_unknown_group_members": {"dry_run", "max_per_run"},
+        }.get(job_id)
+        if allowed_params is None:
+            return api_response(False, "该任务不支持自定义参数", code=400)
+        unknown = set(params.keys()) - allowed_params
+        if unknown:
+            return api_response(False, f"不支持的参数: {', '.join(sorted(map(str, unknown)))}", code=400)
+        for key, value in params.items():
+            if isinstance(value, str) and len(value) > 100:
+                return api_response(False, f"参数 {key} 过长", code=400)
 
     ok, message, record = await SchedulerService.trigger_job(job_id, params=params)
     logger.info(

@@ -201,8 +201,10 @@ class SchedulerService:
     @classmethod
     def _record_run_start(cls, job_id: str, trigger: str) -> int:
         started = int(time.time())
+        run_type = "manual" if trigger == "manual" else "auto"
         cls._last_runs[job_id] = {
             "status": "running",
+            "type": run_type,
             "started_at": started,
             "finished_at": None,
             "error": None,
@@ -221,8 +223,10 @@ class SchedulerService:
         error: Optional[str],
         summary: Optional[dict],
     ) -> None:
+        run_type = "manual" if trigger == "manual" else "auto"
         cls._last_runs[job_id] = {
             "status": "failed" if error else "success",
+            "type": run_type,
             "started_at": started,
             "finished_at": int(time.time()),
             "error": (error or None) and str(error)[:500],
@@ -249,6 +253,7 @@ class SchedulerService:
             return cls._last_runs.get(job_id, {"status": "running"})
 
         started = cls._record_run_start(job_id, trigger)
+        run_type = "manual" if trigger == "manual" else "auto"
         logger.info(f"▶️ 任务 {job_id} 开始执行 ({trigger})")
 
         # 落库一条「运行中」记录，结束后回填
@@ -286,6 +291,10 @@ class SchedulerService:
                     await SchedulerRunOperate.trim_history(job_id)
                 except Exception as exc:  # pragma: no cover
                     logger.warning(f"无法回填 scheduler_run #{run_id}: {exc}")
+            try:
+                await SchedulerScheduleOperate.mark_run_time(job_id, run_type=run_type, run_at=started)
+            except Exception as exc:  # pragma: no cover
+                logger.warning(f"无法更新 scheduler 固定信息运行时间: {exc}")
 
         result = cls._last_runs[job_id]
         elapsed = (result["finished_at"] or started) - started
@@ -359,7 +368,7 @@ class SchedulerService:
         if definition.get("manual_only"):
             return {"type": "manual"}, False
         override = await SchedulerScheduleOperate.get_override(definition["id"])
-        if override:
+        if override and override.get("is_custom"):
             if override["type"] == TRIGGER_CRON_DAILY and override.get("hour") is not None:
                 return (
                     {
@@ -531,6 +540,10 @@ class SchedulerService:
         scheduler.remove_all_jobs()
         if SchedulerConfig.ENABLED:
             await cls._install_all_jobs()
+            try:
+                await cls.list_jobs()
+            except Exception as exc:  # pragma: no cover
+                logger.warning("重载后同步 scheduler 固定信息失败: %s", exc)
             return True, f"已重载 {len(scheduler.get_jobs())} 个定时任务"
         return True, "调度器全局开关已关闭，已移除所有定时任务"
 
@@ -646,6 +659,21 @@ class SchedulerService:
                 except Exception as exc:  # pragma: no cover
                     logger.debug("计算外部 Scheduler 下次执行时间失败 (%s): %s", jid, exc)
 
+            try:
+                persisted_info = await SchedulerScheduleOperate.upsert_job_info(
+                    jid,
+                    name=str(definition.get("name") or jid),
+                    description=str(definition.get("description") or ""),
+                    manual_only=bool(definition.get("manual_only")),
+                    enabled=bool(enabled),
+                    trigger_spec=trigger_spec,
+                    default_trigger_spec=default_spec,
+                    next_run_at=next_run,
+                )
+            except Exception as exc:  # pragma: no cover
+                logger.warning("写入 scheduler 固定信息失败 (%s): %s", jid, exc)
+                persisted_info = None
+
             items.append(
                 {
                     **{k: v for k, v in definition.items() if k != "default_trigger"},
@@ -658,6 +686,9 @@ class SchedulerService:
                     "trigger_spec": trigger_spec,
                     "default_trigger_spec": default_spec,
                     "is_custom": is_custom,
+                    "persisted_info": persisted_info,
+                    "last_auto_run_at": (persisted_info or {}).get("last_auto_run_at"),
+                    "last_manual_run_at": (persisted_info or {}).get("last_manual_run_at"),
                     "runtime_params": (
                         {
                             "days": int(RegisterConfig.AUTO_CLEANUP_NO_EMBY_DAYS),
@@ -1318,6 +1349,10 @@ class SchedulerService:
             logger.info("ℹ️ 调度器全局开关已关闭：保持空调度器运行，用于监听配置热重载")
         scheduler.start()
         cls._ensure_config_watcher()
+        try:
+            await cls.list_jobs()
+        except Exception as exc:  # pragma: no cover
+            logger.warning("同步 scheduler 固定信息到数据库失败: %s", exc)
 
         logger.info("=" * 50)
         logger.info(f"🌙 Twilight Scheduler 已启动 ({SchedulerConfig.TIMEZONE})")

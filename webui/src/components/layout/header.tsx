@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTheme } from "next-themes";
 import { useAuthStore } from "@/store/auth";
+import { useSystemStore } from "@/store/system";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -12,14 +14,29 @@ import { cn } from "@/lib/utils";
 import { adminNavItems, userNavItems } from "@/components/layout/sidebar";
 import { Menu, Moon, Sparkles, Sun } from "lucide-react";
 
+const SAFE_IMAGE_URL = /^(https?:\/\/|\/|data:image\/(png|jpe?g|gif|webp|avif|bmp)(;|,))/i;
+
+function sanitizeImageUrl(url?: string | null): string | undefined {
+  const value = (url || "").trim();
+  if (!value || !SAFE_IMAGE_URL.test(value)) return undefined;
+  return value;
+}
+
 export function Header() {
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
+  const { info: systemInfo, fetchInfo: fetchSystemInfo } = useSystemStore();
   const { theme, resolvedTheme, setTheme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
   const isAdmin = user?.role === 0;
   const activeTheme = resolvedTheme || theme || "light";
   const isDark = activeTheme === "dark";
+  const systemIcon = useMemo(() => sanitizeImageUrl(systemInfo?.icon), [systemInfo?.icon]);
+  const displaySiteName = systemInfo?.name || "Twilight";
+
+  useEffect(() => {
+    void fetchSystemInfo();
+  }, [fetchSystemInfo]);
 
   return (
     <header className="sticky top-0 z-30 px-2 pt-3 sm:px-4 sm:pt-4 md:px-6 md:pt-6 xl:px-8">
@@ -106,9 +123,21 @@ export function Header() {
             </DialogContent>
           </Dialog>
 
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/15 text-primary">
-            <Sparkles className="h-5 w-5" />
-          </div>
+          {systemIcon ? (
+            <Image
+              src={systemIcon}
+              alt={displaySiteName}
+              width={40}
+              height={40}
+              className="h-10 w-10 shrink-0 rounded-2xl border border-border/70 object-cover shadow-sm"
+              unoptimized
+              referrerPolicy="no-referrer"
+            />
+          ) : (
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+              <Sparkles className="h-5 w-5" />
+            </div>
+          )}
           <div className="min-w-0">
             <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">DashBoard</p>
             <h1 className="truncate text-base font-semibold md:text-lg">

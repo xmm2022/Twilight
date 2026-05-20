@@ -30,8 +30,8 @@ interface BackgroundConfig {
 function normalizeBgImageValue(raw: string): string {
   const value = (raw || "").trim();
   if (!value) return "";
-  // 已经是 url(...) / linear-gradient / image-set 等 CSS 函数，直接用
-  if (/^(url|linear-gradient|radial-gradient|conic-gradient|repeating-|image-set)\s*\(/i.test(value)) {
+  // 已经是 url(...) / 渐变等受控 CSS 函数，直接用
+  if (/^(url|linear-gradient|radial-gradient|conic-gradient|repeating-)\s*\(/i.test(value)) {
     return value;
   }
   // 显式包含双引号或单引号，按裸 URL 处理

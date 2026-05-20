@@ -60,6 +60,10 @@ def register(bot):
     app = bot.application
 
     def _build_help_text(panel_on: bool, admin_mode: bool = False) -> str:
+        custom_full = _render_custom_text(TelegramConfig.BOT_HELP_TEXT or "")
+        if custom_full:
+            return custom_full
+
         custom_header = _render_custom_text(TelegramConfig.BOT_HELP_HEADER or "")
         custom_footer = _render_custom_text(TelegramConfig.BOT_HELP_FOOTER or "")
 

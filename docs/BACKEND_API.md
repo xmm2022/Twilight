@@ -1446,8 +1446,12 @@ curl -X POST "http://localhost:5000/api/v1/admin/users/cleanup-invalid" \
 
 ### 9.4 定时任务管理
 
-所有定时任务的执行历史会持久化到 `db/scheduler_run.db` 的 `scheduler_run` 表，
-每个 `job_id` 默认保留最近 50 条记录；超出后自动按 ID 升序裁剪。
+定时任务持久化分为两类表：
+
+- 固定信息 / 计划信息：`db/scheduler_schedule.db` 的 `scheduler_schedule` 表，记录任务名称、描述、是否手动任务、当前触发器、默认触发器、下次执行时间、最近自动/手动执行时间等。
+- 执行信息 / 状态日志：`db/scheduler_run.db` 的 `scheduler_run` 表，记录每次执行的状态、日志、summary、开始/结束时间。
+
+每个 `job_id` 的执行历史默认保留最近 50 条记录；超出后自动按 ID 升序裁剪。
 
 进程启动时会调用 `reconcile_orphans()`：把所有起始于 6 小时前仍处于 `running`
 状态的记录改判为 `failed`（避免崩溃后前端永远转圈）。
@@ -1459,6 +1463,8 @@ curl -X POST "http://localhost:5000/api/v1/admin/users/cleanup-invalid" \
 | `trigger_spec`         | 当前生效的触发规则，结构同上述 PUT 请求体                       |
 | `default_trigger_spec` | config.toml 算出的默认值（用于"恢复默认"按钮显示）              |
 | `is_custom`            | 是否已被管理员覆盖（true 时前端显示"已自定义"徽章）             |
+| `last_auto_run_at`     | 最近一次自动执行开始时间                                         |
+| `last_manual_run_at`   | 最近一次手动执行开始时间                                         |
 
 `SchedulerJobRun` 字段：
 
@@ -1466,6 +1472,7 @@ curl -X POST "http://localhost:5000/api/v1/admin/users/cleanup-invalid" \
 | ------------- | --------------------------------------------------------------------- |
 | `id`          | 数据库主键                                                            |
 | `job_id`      | 任务标识（如 `check_expired`、`emby_sync`）                           |
+| `type`        | 执行类型：`auto` / `manual`                                           |
 | `trigger`     | 触发来源：`scheduled` / `manual` / `startup`                          |
 | `status`      | `running` / `success` / `failed`                                      |
 | `started_at`  | 起始时间戳（秒）                                                      |
@@ -1499,6 +1506,7 @@ curl -X POST "http://localhost:5000/api/v1/admin/users/cleanup-invalid" \
           "status": "success",
           "started_at": 1715904000,
           "finished_at": 1715904005,
+          "type": "auto",
           "trigger": "scheduled",
           "error": null,
           "summary": {"scanned": 12, "disabled": 3, "failed": 0}

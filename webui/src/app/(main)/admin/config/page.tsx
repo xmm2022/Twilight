@@ -315,6 +315,15 @@ function ConfigFieldEditor({
         />
       );
 
+    case "textarea":
+      return (
+        <Textarea
+          value={(value as string) ?? ""}
+          onChange={(e) => onChange(e.target.value)}
+          className="min-h-32 font-mono text-sm"
+        />
+      );
+
     case "list":
       return (
         <ListField

@@ -6,6 +6,7 @@
 """
 
 import json
+import sqlite3
 import time
 from typing import Any, Optional
 
@@ -28,6 +29,7 @@ class SchedulerRunModel(SchedulerRunDatabaseModel):
 
     ID: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, index=True)
     JOB_ID: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    TYPE: Mapped[str] = mapped_column(String(16), nullable=False, default="auto")
     TRIGGER: Mapped[str] = mapped_column(String(16), nullable=False, default="scheduled")
     STATUS: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
     STARTED_AT: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
@@ -39,6 +41,20 @@ class SchedulerRunModel(SchedulerRunDatabaseModel):
 
 create_database("scheduler_run", SchedulerRunDatabaseModel)
 DATABASE_URL = f'sqlite+aiosqlite:///{Config.DATABASES_DIR / "scheduler_run.db"}'
+
+
+def _ensure_scheduler_run_columns() -> None:
+    db_path = Config.DATABASES_DIR / "scheduler_run.db"
+    with sqlite3.connect(db_path) as conn:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(scheduler_run)").fetchall()}
+        if "TYPE" not in cols:
+            conn.execute("ALTER TABLE scheduler_run ADD COLUMN TYPE VARCHAR(16) NOT NULL DEFAULT 'auto'")
+            conn.execute("UPDATE scheduler_run SET TYPE = CASE WHEN TRIGGER = 'manual' THEN 'manual' ELSE 'auto' END")
+        conn.execute("CREATE INDEX IF NOT EXISTS ix_scheduler_run_type ON scheduler_run (TYPE)")
+        conn.commit()
+
+
+_ensure_scheduler_run_columns()
 ENGINE = create_async_engine(DATABASE_URL, echo=Config.SQLALCHEMY_LOG)
 SchedulerRunSessionFactory = async_sessionmaker(bind=ENGINE, expire_on_commit=False)
 
@@ -87,6 +103,7 @@ def serialize_run(record: SchedulerRunModel) -> dict:
     return {
         "id": record.ID,
         "job_id": record.JOB_ID,
+        "type": getattr(record, "TYPE", None) or ("manual" if record.TRIGGER == "manual" else "auto"),
         "trigger": record.TRIGGER,
         "status": record.STATUS,
         "started_at": record.STARTED_AT,
@@ -106,10 +123,12 @@ class SchedulerRunOperate:
     @staticmethod
     async def start_run(job_id: str, *, trigger: str = "scheduled") -> int:
         """插入一条「运行中」记录，返回主键 ID。"""
+        run_type = "manual" if trigger == "manual" else "auto"
         async with SchedulerRunSessionFactory() as session:
             async with session.begin():
                 record = SchedulerRunModel(
                     JOB_ID=job_id,
+                    TYPE=run_type,
                     TRIGGER=trigger,
                     STATUS="running",
                     STARTED_AT=int(time.time()),

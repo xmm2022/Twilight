@@ -51,7 +51,7 @@ type MaybeStartViewTransition = {
   startViewTransition?: (updateCallback: () => void | Promise<void>) => ViewTransitionLike;
 };
 
-const SAFE_IMAGE_URL = /^(https?:\/\/|\/|data:image\/(png|jpe?g|gif|webp|avif|bmp)(;|,)|blob:|[a-zA-Z]:[\\/])/i;
+const SAFE_IMAGE_URL = /^(https?:\/\/|\/|data:image\/(png|jpe?g|gif|webp|avif|bmp)(;|,)|[a-zA-Z]:[\\/])/i;
 
 function sanitizeImageUrl(url?: string | null): string | undefined {
   if (!url) return undefined;

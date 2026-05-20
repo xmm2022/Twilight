@@ -434,8 +434,10 @@ class TelegramConfig(BaseConfig):
     # 注意自行转义 _ * [ 等特殊字符；其中可以用 {server_name} 占位符。
     BOT_START_TITLE: str = ""  # /start 标题行，例如 "🌙 {server_name} 控制中心"
     BOT_START_INTRO: str = ""  # /start 简介段，例如 "欢迎使用 Emby 管理机器人"
-    BOT_HELP_HEADER: str = ""  # /help 顶部段（命令列表前），可用于公告
-    BOT_HELP_FOOTER: str = ""  # /help 底部段，可放群组链接、规则等
+    BOT_HELP_TEXT: str = ""  # /twihelp 完整文本，留空使用内置默认
+    BOT_ADMIN_HELP_TEXT: str = ""  # /twishelp 完整文本，留空使用内置默认
+    BOT_HELP_HEADER: str = ""  # /help 顶部段（旧配置，命令列表前），可用于公告
+    BOT_HELP_FOOTER: str = ""  # /help 底部段（旧配置），可放群组链接、规则等
     BOT_ABOUT: str = ""  # 关于 Bot / 站点说明（暂留给将来 /about 使用）
 
 

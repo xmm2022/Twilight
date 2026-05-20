@@ -9,7 +9,7 @@ import asyncio
 import logging
 import os
 from pathlib import Path
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Any
 
 from telegram import Bot, Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.error import TimedOut, NetworkError, RetryAfter, BadRequest
@@ -25,6 +25,20 @@ _bot_instance: Optional["TelegramBot"] = None
 _bot_loop: Optional[asyncio.AbstractEventLoop] = None
 _bot_lock_fd: Optional[int] = None
 _bot_lock_path: Optional[Path] = None
+
+
+def _bot_config_signature() -> tuple[Any, ...]:
+    """Configuration values that require the live Bot instance to refresh."""
+    return (
+        bool(Config.TELEGRAM_MODE),
+        str(TelegramConfig.BOT_TOKEN or ""),
+        str(TelegramConfig.TELEGRAM_API_URL or ""),
+        str(TelegramConfig.PROXY_URL or ""),
+        tuple(TelegramBot._normalize_ids(TelegramConfig.ADMIN_ID)) if "TelegramBot" in globals() else str(TelegramConfig.ADMIN_ID),
+        tuple(TelegramBot._normalize_ids(TelegramConfig.GROUP_ID)) if "TelegramBot" in globals() else str(TelegramConfig.GROUP_ID),
+        tuple(TelegramBot._normalize_ids(TelegramConfig.CHANNEL_ID)) if "TelegramBot" in globals() else str(TelegramConfig.CHANNEL_ID),
+        bool(TelegramConfig.FORCE_SUBSCRIBE),
+    )
 
 
 def get_bot_loop() -> Optional[asyncio.AbstractEventLoop]:
@@ -214,6 +228,7 @@ class TelegramBot:
         self.group_ids = self._normalize_ids(TelegramConfig.GROUP_ID)
         self.channel_ids = self._normalize_ids(TelegramConfig.CHANNEL_ID)
         self.force_subscribe = TelegramConfig.FORCE_SUBSCRIBE
+        self.config_signature = _bot_config_signature()
         self._running = False
 
         # 创建 python-telegram-bot Application
@@ -486,3 +501,53 @@ async def stop_bot():
 
     _set_bot_loop(None)
     _release_bot_lock()
+
+
+async def _reload_bot_from_config_on_current_loop(*, allow_start: bool = False) -> tuple[bool, str]:
+    global _bot_instance
+
+    should_run = bool(Config.TELEGRAM_MODE and TelegramConfig.BOT_TOKEN)
+    running = bool(_bot_instance and _bot_instance.is_running)
+    was_running = running
+
+    if not should_run:
+        if running:
+            await stop_bot()
+            return True, "Bot 配置已关闭，已停止当前进程 Bot"
+        return True, "Bot 未启用，无需重载"
+
+    new_signature = _bot_config_signature()
+    if running and getattr(_bot_instance, "config_signature", None) == new_signature:
+        return True, "Bot 配置未变化"
+
+    if running:
+        await stop_bot()
+
+    if not allow_start and not was_running:
+        return True, "当前进程没有运行中的 Bot，已跳过自动启动"
+
+    bot = await start_bot()
+    if not bot:
+        return False, "Bot 重载失败：无法启动新实例，可能被其他进程锁定或配置无效"
+    return True, "Bot 已按最新配置重载"
+
+
+async def reload_bot_from_config(*, allow_start: bool = False) -> tuple[bool, str]:
+    """Reload the in-process Telegram Bot after runtime config refresh.
+
+    If the Bot is running on a dedicated loop/thread, restart it on that loop.
+    """
+    bot_loop = get_bot_loop()
+    try:
+        current_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        current_loop = None
+
+    if bot_loop is not None and bot_loop.is_running() and bot_loop is not current_loop:
+        future = asyncio.run_coroutine_threadsafe(
+            _reload_bot_from_config_on_current_loop(allow_start=allow_start),
+            bot_loop,
+        )
+        return await asyncio.wrap_future(future)
+
+    return await _reload_bot_from_config_on_current_loop(allow_start=allow_start)

@@ -20,13 +20,44 @@ import sys
 from pathlib import Path
 
 from src import __version__
-from src.config import Config, RegisterConfig, TelegramConfig, APIConfig
+from src.config import Config, RegisterConfig, TelegramConfig, APIConfig, get_primary_config_path, reload_runtime_config
 from src.core.utils import setup_logging, format_duration
 
 logger = logging.getLogger(__name__)
 
 # main.py 仅作为命令行入口，无论是单独启动 API、Bot、调度器，还是全功能模式，
 # 这里的任务都负责协调各项服务的生命周期。
+
+
+def _config_files_mtime() -> float:
+    paths = [get_primary_config_path()]
+    local_override = os.getenv("TWILIGHT_CONFIG_LOCAL_FILE")
+    if local_override:
+        paths.append(Path(local_override).expanduser())
+    else:
+        paths.append(get_primary_config_path().with_name("config.local.toml"))
+    mtimes: list[float] = []
+    for path in paths:
+        try:
+            mtimes.append(path.stat().st_mtime)
+        except OSError:
+            continue
+    return max(mtimes) if mtimes else 0.0
+
+
+async def _maybe_reload_bot_on_config_change(last_mtime: float) -> float:
+    current_mtime = _config_files_mtime()
+    if current_mtime <= last_mtime:
+        return last_mtime
+    reload_runtime_config()
+    from src.bot import reload_bot_from_config
+
+    ok, message = await reload_bot_from_config(allow_start=True)
+    if ok:
+        logger.info("Bot 配置热重载完成: %s", message)
+    else:
+        logger.warning("Bot 配置热重载失败: %s", message)
+    return current_mtime
 
 
 def run_api_server(host: str = "0.0.0.0", port: int = 5000, debug: bool = False):
@@ -118,10 +149,13 @@ async def run_bot():
         logger.error("❌ Bot 启动失败")
         return
 
-    # 保持运行
+    # 保持运行，并监听配置文件变化。独立 Bot 进程无法被 API 进程直接热重载，
+    # 因此这里自行观察 config.toml/config.local.toml 并重建 Bot。
+    last_config_mtime = _config_files_mtime()
     try:
         while True:
             await asyncio.sleep(1)
+            last_config_mtime = await _maybe_reload_bot_on_config_change(last_config_mtime)
     except (KeyboardInterrupt, SystemExit):
         logger.info("🛑 正在关闭 Bot...")
         await stop_bot()
@@ -168,9 +202,11 @@ async def run_all():
 
             logger.info("✅ Telegram Bot 已在线程中启动")
 
+            last_config_mtime = _config_files_mtime()
             try:
                 while not bot_stop_event.is_set():
                     await asyncio.sleep(1)
+                    last_config_mtime = await _maybe_reload_bot_on_config_change(last_config_mtime)
             finally:
                 await stop_bot()
                 logger.info("👋 Telegram Bot 线程已关闭")

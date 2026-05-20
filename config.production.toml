@@ -96,8 +96,10 @@ bind_confirm_api_url = ""
 #   • 可用占位符: {server_name}
 bot_start_title = ""    # /start 第一行标题
 bot_start_intro = ""    # /start 简介段
-bot_help_header = ""    # /help 命令列表前段（适合放公告 / 群规）
-bot_help_footer = ""    # /help 末尾（适合放群组邀请链接 / 客服）
+bot_help_text = ""      # /twihelp 完整文本；留空使用内置默认
+bot_admin_help_text = "" # /twishelp 完整文本；留空使用内置默认
+bot_help_header = ""    # 旧配置：内置 /twihelp 命令列表前段
+bot_help_footer = ""    # 旧配置：内置 /twihelp 末尾段
 bot_about = ""          # 关于 Bot / 服务说明（预留 /about 用）
 
 # ───────── 注册 / 用户策略 ─────────

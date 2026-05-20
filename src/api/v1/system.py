@@ -103,7 +103,7 @@ def _reload_runtime_config() -> None:
 async def _apply_runtime_hot_reload() -> dict:
     """刷新当前进程配置，并在本进程调度器存在时重装任务。"""
     _reload_runtime_config()
-    payload = {"config": True, "scheduler": None}
+    payload = {"config": True, "scheduler": None, "bot": None}
     try:
         from src.services.scheduler_service import SchedulerService
 
@@ -112,6 +112,14 @@ async def _apply_runtime_hot_reload() -> dict:
     except Exception as exc:  # pragma: no cover
         _reload_logger.warning("调度器热重载失败: %s", exc, exc_info=True)
         payload["scheduler"] = {"success": False, "message": str(exc)}
+    try:
+        from src.bot.bot import reload_bot_from_config
+
+        ok, message = await reload_bot_from_config()
+        payload["bot"] = {"success": ok, "message": message}
+    except Exception as exc:  # pragma: no cover
+        _reload_logger.warning("Bot 热重载失败: %s", exc, exc_info=True)
+        payload["bot"] = {"success": False, "message": str(exc)}
     return payload
 
 
@@ -1027,17 +1035,31 @@ async def get_config_schema():
                         "value": TelegramConfig.BOT_START_INTRO,
                     },
                     {
+                        "key": "bot_help_text",
+                        "label": "/twihelp 完整文本",
+                        "type": "textarea",
+                        "description": "完整覆盖普通帮助文本（Markdown），留空使用内置默认；支持 {server_name} 占位符",
+                        "value": TelegramConfig.BOT_HELP_TEXT,
+                    },
+                    {
+                        "key": "bot_admin_help_text",
+                        "label": "/twishelp 完整文本",
+                        "type": "textarea",
+                        "description": "完整覆盖管理员帮助文本（Markdown），留空使用内置默认；支持 {server_name} 占位符",
+                        "value": TelegramConfig.BOT_ADMIN_HELP_TEXT,
+                    },
+                    {
                         "key": "bot_help_header",
                         "label": "/help 顶部段",
-                        "type": "string",
-                        "description": "/help 命令列表前的自定义内容，可用来挂公告 / 群规",
+                        "type": "textarea",
+                        "description": "旧配置：仅追加到内置普通帮助命令列表前；bot_help_text 非空时不会使用",
                         "value": TelegramConfig.BOT_HELP_HEADER,
                     },
                     {
                         "key": "bot_help_footer",
                         "label": "/help 底部段",
-                        "type": "string",
-                        "description": "/help 末尾的自定义内容，可放群组链接、客服等",
+                        "type": "textarea",
+                        "description": "旧配置：仅追加到内置普通帮助命令列表末尾；bot_help_text 非空时不会使用",
                         "value": TelegramConfig.BOT_HELP_FOOTER,
                     },
                     {

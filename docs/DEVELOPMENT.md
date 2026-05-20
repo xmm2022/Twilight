@@ -115,12 +115,16 @@ Twilight/
 
 参考实现：[Sakura_embyboss](https://github.com/berry8838/Sakura_embyboss) `update_user_enabled_folder`。
 
-### 2. 配置变更走整进程重启（不再热重载）
+### 2. 配置变更与运行时重载
 
-`src/api/v1/system.py::_schedule_process_restart` 在保存 `config.toml` 后向进程组发 SIGTERM，
-再 `os._exit(0)` 兜底。**禁止**再为 config 改动新增"热重载"逻辑。
+配置管理保存后会调用 `src/api/v1/system.py::_apply_runtime_hot_reload` 刷新运行时配置，并尝试重载调度器与当前进程内 Bot。
 
-部署侧要求：必须由 systemd / docker / `start_backend_prod.sh` 外层守护脚本拉起，否则进程退出后无法自启。
+Bot 特殊规则：
+
+- `main.py bot` 独立 Bot 进程会监听 `config.toml` / `config.local.toml` 的 mtime，变更后自行 `reload_runtime_config()` 并重建 Bot。
+- API 进程只会重载当前进程内已经运行的 Bot；不会因为配置里启用了 Telegram 就主动在 API worker 里新启动 Bot，避免多 worker 抢同一个 token。
+- 修改 `bot_token`、`telegram_api_url`、`proxy_url`、管理员/群组/频道 ID、订阅开关等都会触发 Bot 重建或刷新。
+- `/twihelp` 与 `/twishelp` 支持通过 `Telegram.bot_help_text` / `Telegram.bot_admin_help_text` 完整覆盖文本；留空时使用内置默认。旧的 `bot_help_header/footer` 只作为内置普通帮助文本的附加段保留。
 
 ### 3. Bot 连通性测试不复用全局 Bot
 
