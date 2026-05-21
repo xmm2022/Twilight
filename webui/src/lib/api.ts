@@ -86,6 +86,31 @@ function buildParseErrorMessage(status: number, endpoint: string, method: string
   return `服务器响应解析失败 (${status})：${target}\n接口没有返回标准 JSON。`;
 }
 
+async function parseApiResponse<T>(
+  response: Response,
+  endpoint: string,
+  method: string,
+): Promise<ApiResponse<T>> {
+  if (response.status === 204) {
+    return { success: true, message: "OK" };
+  }
+
+  const text = await response.text();
+  if (!text) {
+    return { success: response.ok, message: response.ok ? "OK" : response.statusText };
+  }
+
+  try {
+    return JSON.parse(text) as ApiResponse<T>;
+  } catch (error) {
+    if (!response.ok) {
+      return { success: false, message: response.statusText || `HTTP ${response.status}` };
+    }
+    console.error("JSON parse error:", error);
+    throw new Error(buildParseErrorMessage(response.status, endpoint, method));
+  }
+}
+
 class ApiClient {
   private normalizeRequestStatus(status?: string | null, mode: "user" | "admin" = "user"): string {
     const raw = (status || "").trim().toLowerCase();
@@ -183,15 +208,7 @@ class ApiClient {
       );
     }
 
-    let data: ApiResponse<T>;
-    
-    // 尝试解析JSON，即使content-type不匹配
-    try {
-      data = await response.json();
-    } catch (error) {
-      console.error("JSON parse error:", error);
-      throw new Error(buildParseErrorMessage(response.status, endpoint, method));
-    }
+    const data = await parseApiResponse<T>(response, endpoint, method);
 
     if (!response.ok) {
       throw new Error(buildHttpErrorMessage(response.status, endpoint, method, data?.message));
@@ -221,18 +238,16 @@ class ApiClient {
         credentials: "include",
       });
     } catch (error) {
+      if (isAbortError(error)) {
+        throw error;
+      }
       console.error("Network error:", error);
       throw new Error(
         `无法连接后端接口：${describeApiTarget(endpoint, methodName)}\n请检查后端服务是否启动、API 地址是否正确、反向代理是否可达。`
       );
     }
 
-    let data: ApiResponse<T>;
-    try {
-      data = await response.json();
-    } catch {
-      throw new Error(buildParseErrorMessage(response.status, endpoint, methodName));
-    }
+    const data = await parseApiResponse<T>(response, endpoint, methodName);
 
     if (!response.ok) {
       throw new Error(buildHttpErrorMessage(response.status, endpoint, methodName, data?.message));
@@ -591,7 +606,7 @@ class ApiClient {
   }
 
   async removeDevice(deviceId: string) {
-    return this.request(`/users/me/devices/${deviceId}`, {
+    return this.request(`/users/me/devices/${encodeURIComponent(deviceId)}`, {
       method: "DELETE",
     });
   }
