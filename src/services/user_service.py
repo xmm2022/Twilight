@@ -527,7 +527,8 @@ class UserService:
                 emby_capacity_lock = await UserService.acquire_emby_capacity_lock()
                 if emby_capacity_lock is None:
                     return RegisterResponse(RegisterResult.ERROR, "Emby 名额检查繁忙，请稍后重试")
-                cap_ok, cap_msg = await UserService.check_emby_user_capacity(exclude_uid=user.UID)
+                # 注意：此时用户尚未创建，不需要排除自身
+                cap_ok, cap_msg = await UserService.check_emby_user_capacity(exclude_uid=None)
                 if not cap_ok:
                     return RegisterResponse(RegisterResult.USER_LIMIT_REACHED, cap_msg)
 

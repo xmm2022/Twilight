@@ -1369,7 +1369,8 @@ async def admin_force_set_emby_password():
             "emby_id": emby_user.id,
             "emby_username": emby_user.name,
             "linked_local_user": bool(local),
-            "new_password": new_password if auto_generated else new_password,
+            "new_password": new_password if auto_generated else None,
+            "auto_generated": auto_generated,
         },
     )
 

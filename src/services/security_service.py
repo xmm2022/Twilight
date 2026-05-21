@@ -120,8 +120,8 @@ class SecurityService:
 
             if len(user_streams) >= DeviceLimitConfig.MAX_STREAMS:
                 if DeviceLimitConfig.KICK_OLDEST_SESSION and user_streams:
-                    # 踢掉最早的会话
-                    oldest = min(user_streams, key=lambda s: s.last_activity_date or 0)
+                    # 踢掉最早的会话（按 device_id 字典序作为 fallback 排序）
+                    oldest = min(user_streams, key=lambda s: s.device_id or "")
                     await emby.kill_session(oldest.id)
                     logger.info(f"踢出用户 {uid} 的旧会话: {oldest.device_name}")
 
@@ -134,7 +134,13 @@ class SecurityService:
                         data={"current_streams": len(user_streams)},
                     )
         except Exception as e:
-            logger.error(f"检查播放限制失败: {e}")
+            # fail-closed: 安全检查异常时拒绝访问，而非放行
+            logger.error(f"检查播放限制失败 (fail-closed): {e}")
+            return LoginCheckResponse(
+                result=LoginCheckResult.STREAM_LIMIT_EXCEEDED,
+                allowed=False,
+                message="播放限制检查暂时不可用，请稍后重试",
+            )
 
         return LoginCheckResponse(result=LoginCheckResult.ALLOWED, allowed=True, message="允许")
 
