@@ -845,6 +845,19 @@ class ApiClient {
     });
   }
 
+  async batchReviewTelegramRebindRequests(ids: number[], action: "approve" | "reject", admin_note?: string) {
+    return this.request<{
+      action: "approve" | "reject";
+      total: number;
+      success: number;
+      failed: number;
+      results: Array<{ id: number; success: boolean; message: string }>;
+    }>(`/admin/telegram/rebind-requests/batch`, {
+      method: "POST",
+      body: JSON.stringify({ ids, action, admin_note }),
+    });
+  }
+
   async getSystemStats() {
     return this.request<SystemStats>("/system/admin/stats");
   }
@@ -1569,6 +1582,20 @@ class ApiClient {
     });
   }
 
+  async createInviteRenewCode(payload: { target_uid: number; days: number; validity_hours?: number; note?: string }) {
+    return this.request<{
+      code: string;
+      target_uid: number;
+      target_username: string;
+      days: number;
+      validity_hours: number;
+      max_code_days: number;
+    }>("/invite/renew-codes", {
+      method: "POST",
+      body: JSON.stringify(payload || {}),
+    });
+  }
+
   async revokeInviteCode(code: string) {
     return this.request(`/invite/codes/${encodeURIComponent(code)}`, {
       method: "DELETE",
@@ -2140,6 +2167,7 @@ export interface InviteConfig {
   invite_limit: number;
   require_emby: boolean;
   default_days: number;
+  permanent_invite_max_days?: number;
 }
 
 export interface InviteCodeItem {
@@ -2160,11 +2188,22 @@ export interface InviteMyStatus {
   enabled: boolean;
   is_root: boolean;
   parent: { uid: number; username: string } | null;
-  children: Array<{ uid: number; username: string; active: boolean; has_emby: boolean }>;
+  children: Array<{
+    uid: number;
+    username: string;
+    active: boolean;
+    has_emby: boolean;
+    expired_at?: number | null;
+    expire_status?: string;
+    emby_expired?: boolean;
+    can_generate_renew_code?: boolean;
+  }>;
   depth: number;
   max_depth: number;
   can_invite: boolean;
   invite_block_reason?: string;
+  max_code_days?: number;
+  max_code_days_reason?: string;
 }
 
 export interface InviteForestNode {

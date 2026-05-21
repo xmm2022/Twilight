@@ -133,9 +133,11 @@ class EmbyService:
                         user.OTHER = json.dumps(other_data)
                         await UserOperate.update_user(user)
 
-                    # 同步启用/禁用状态：如果 Emby 已禁用但本地仍启用，则修正本地状态；否则按本地状态同步到 Emby
+                    from src.services.user_service import UserService
+
+                    # 同步启用/禁用状态：过期导致的 Emby 禁用不应反向禁用系统账号。
                     emby_disabled = bool(emby_user.policy.get("IsDisabled", False))
-                    if emby_disabled and user.ACTIVE_STATUS:
+                    if emby_disabled and user.ACTIVE_STATUS and not UserService.is_emby_access_expired(user):
                         logger.info(f"Emby 账户已被禁用，更新本地状态: {user.USERNAME} (UID: {user.UID})")
                         user.ACTIVE_STATUS = False
                         await UserOperate.update_user(user)
@@ -150,8 +152,6 @@ class EmbyService:
                                 logger.info(f"已关闭下载权限: {user.USERNAME} (UID: {user.UID})")
                         except EmbyError as exc:
                             logger.warning(f"关闭下载权限失败 {user.USERNAME} (UID: {user.UID}): {exc}")
-
-                    from src.services.user_service import UserService
 
                     ok, msg = await UserService.sync_user_to_emby(user)
                     if ok:
@@ -191,10 +191,13 @@ class EmbyService:
                 if emby_user:
                     # 检查同步状态
                     emby_disabled = bool(emby_user.policy.get("IsDisabled", False))
+                    from src.services.user_service import UserService
+
+                    expected_disabled = not UserService.should_enable_emby_access(user)
                     if emby_user.name != user.USERNAME:
                         is_synced = False
                         message = "用户名不同步"
-                    elif emby_disabled != (not user.ACTIVE_STATUS):
+                    elif emby_disabled != expected_disabled:
                         is_synced = False
                         message = "账户启用状态与 Emby 不一致"
 
@@ -237,8 +240,6 @@ class EmbyService:
             if user.EMBYID:
                 try:
                     await emby.set_user_enabled(user.EMBYID, False)
-                    user.ACTIVE_STATUS = False
-                    await UserOperate.update_user(user)
                     disabled_count += 1
                 except EmbyError as e:
                     logger.error(f"禁用用户 {user.USERNAME} 失败: {e}")

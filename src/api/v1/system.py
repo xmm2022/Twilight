@@ -667,7 +667,7 @@ async def get_system_stats():
     """获取系统统计信息（管理员）"""
     from src.db.user import UserOperate
     from src.db.regcode import RegCodeOperate
-    from src.services import EmbyService
+    from src.services import EmbyService, UserService
 
     # 用户统计
     total_users = await UserOperate.get_registered_users_count()
@@ -683,10 +683,8 @@ async def get_system_stats():
     except Exception:
         emby_status = {"online": False}
 
-    # 把注册队列里 in-flight 的请求也算进 Emby 占用统计，便于运维一眼看到真实余量
-    from src.services import EmbyRegisterQueueService
-
-    emby_pending = EmbyRegisterQueueService.in_flight_count()
+    # 把自由注册/卡码队列里 in-flight 的待创建请求也算进 Emby 占用统计，便于运维一眼看到真实余量
+    emby_pending = UserService.get_emby_capacity_queue_pending_count()
     emby_projected = emby_bound_users + emby_pending
 
     return api_response(
@@ -1127,6 +1125,13 @@ async def get_config_schema():
                         "value": TelegramConfig.BAN_ON_LEAVE,
                     },
                     {
+                        "key": "auto_enable_rejoined",
+                        "label": "回群后自动启用",
+                        "type": "bool",
+                        "description": "开启后定时巡检发现已禁用用户重新加入必需群组且账号未到期时，会自动启用系统账号并按到期状态恢复 Emby；退群完全封禁模式开启时不会生效",
+                        "value": TelegramConfig.AUTO_ENABLE_REJOINED,
+                    },
+                    {
                         "key": "proxy_url",
                         "label": "代理地址",
                         "type": "string",
@@ -1318,7 +1323,7 @@ async def get_config_schema():
                         "key": "emby_user_limit",
                         "label": "Emby 用户上限",
                         "type": "int",
-                        "description": "已绑定 Emby 的本站用户总上限，-1 表示不限制（自由注册队列、绑定已有 Emby 账户、管理员强制绑定都受此上限管控；同时会把注册队列里 in-flight 的请求计入名额）",
+                        "description": "已绑定、待开通和队列待创建 Emby 的本站用户总上限，-1 表示不限制（自由注册队列、卡码队列、绑定已有 Emby 账户、管理员强制绑定都受此上限管控）",
                         "value": RegisterConfig.EMBY_USER_LIMIT,
                     },
                     {

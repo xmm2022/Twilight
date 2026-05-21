@@ -820,6 +820,7 @@ async def bind_emby_account():
 
     # 验证 Emby 用户名和密码
     emby = get_emby_client()
+    capacity_lock = None
     try:
         # 首先验证用户名和密码
         emby_user = await emby.authenticate_by_name(emby_username, emby_password)
@@ -835,16 +836,20 @@ async def bind_emby_account():
         if existing_bind and existing_bind.UID != user.UID:
             return api_response(False, "该 Emby 账号已被其他用户绑定", code=400)
 
-        # 绑定路径与自由注册队列共享同一个"已绑 Emby 用户上限"——
-        # 这里再叠加队列里 in-flight 的人头，避免恰好打满的场景被并发挤爆。
-        from src.services import EmbyRegisterQueueService
+        # 绑定路径与自由注册队列/卡码队列共享同一个 Emby 用户上限。
+        capacity_lock = await UserService.acquire_emby_capacity_lock()
+        if capacity_lock is None:
+            return api_response(False, "Emby 名额检查繁忙，请稍后重试", code=409)
+        user_limit_ok, user_limit_msg = await UserService.check_normal_user_capacity_for_grant(user)
+        if not user_limit_ok:
+            return api_response(False, user_limit_msg, code=409)
 
-        extra_pending = EmbyRegisterQueueService.in_flight_count()
-        cap_ok, cap_msg = await UserService.check_emby_user_capacity(
-            extra_pending=extra_pending,
-        )
-        if not cap_ok:
-            return api_response(False, cap_msg, code=400)
+        if not getattr(user, "PENDING_EMBY", False):
+            cap_ok, cap_msg = await UserService.check_emby_user_capacity(
+                exclude_uid=user.UID,
+            )
+            if not cap_ok:
+                return api_response(False, cap_msg, code=409)
 
         # 绑定账号
         user.EMBYID = emby_user.id
@@ -916,6 +921,8 @@ async def bind_emby_account():
     except Exception as e:
         logger.error(f"绑定 Emby 账号失败: {e}")
         return api_response(False, "绑定失败，请稍后重试", code=500)
+    finally:
+        await UserService.release_emby_capacity_lock(capacity_lock)
 
 
 @users_bp.route("/me/emby/unbind", methods=["POST"])

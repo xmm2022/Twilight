@@ -29,6 +29,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -75,6 +76,8 @@ export default function SettingsPage() {
   const [bindCodeExpiry, setBindCodeExpiry] = useState<number>(0);
   const [isTgLoading, setIsTgLoading] = useState(false);
   const [isRebindLoading, setIsRebindLoading] = useState(false);
+  const [rebindDialogOpen, setRebindDialogOpen] = useState(false);
+  const [rebindReason, setRebindReason] = useState("");
 
   // Emby dialogs
   const [bindEmbyOpen, setBindEmbyOpen] = useState(false);
@@ -321,11 +324,17 @@ export default function SettingsPage() {
   };
 
   const handleRequestTelegramRebind = async () => {
+    if (rebindReason.length > 500) {
+      toast({ title: "备注过长", description: "最多 500 字符", variant: "destructive" });
+      return;
+    }
     setIsRebindLoading(true);
     try {
-      const res = await api.requestTelegramRebind();
+      const res = await api.requestTelegramRebind(rebindReason.trim() || undefined);
       if (res.success) {
         toast({ title: "换绑请求已提交", description: res.message, variant: "success" });
+        setRebindDialogOpen(false);
+        setRebindReason("");
         loadData();
       } else {
         toast({ title: "换绑请求提交失败", description: res.message, variant: "destructive" });
@@ -700,7 +709,7 @@ export default function SettingsPage() {
                     {telegramStatus.can_change && (
                       <Button
                         variant="outline"
-                        onClick={handleRequestTelegramRebind}
+                        onClick={() => setRebindDialogOpen(true)}
                         disabled={isRebindLoading}
                       >
                         {isRebindLoading ? (
@@ -1398,6 +1407,36 @@ export default function SettingsPage() {
             >
               {isEmbyPwdLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               确认修改
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={rebindDialogOpen} onOpenChange={setRebindDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>提交 Telegram 换绑请求</DialogTitle>
+            <DialogDescription>
+              管理员批准后会解绑当前 Telegram，你可以重新绑定新的 Telegram 账号。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label>备注给管理员（可选）</Label>
+            <Textarea
+              value={rebindReason}
+              onChange={(event) => setRebindReason(event.target.value.slice(0, 500))}
+              placeholder="例如：原 Telegram 账号无法登录，需要换绑到新账号"
+              rows={4}
+            />
+            <p className="text-xs text-muted-foreground">{rebindReason.length}/500</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRebindDialogOpen(false)} disabled={isRebindLoading}>
+              取消
+            </Button>
+            <Button onClick={handleRequestTelegramRebind} disabled={isRebindLoading}>
+              {isRebindLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              提交申请
             </Button>
           </DialogFooter>
         </DialogContent>

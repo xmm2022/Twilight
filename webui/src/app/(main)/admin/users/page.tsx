@@ -256,9 +256,12 @@ export default function AdminUsersPage() {
   } = useAsyncResource(loadUsersResource, { immediate: true });
 
   const handleSearch = () => {
-    setPage(1);
     invalidateUsersCache();
     setExpandedUserIds(new Set());
+    if (page !== 1) {
+      setPage(1);
+      return;
+    }
     void loadUsers();
   };
 
@@ -1422,9 +1425,13 @@ export default function AdminUsersPage() {
                   <SelectItem value="100">100 / 页</SelectItem>
                 </SelectContent>
               </Select>
-              <Button onClick={handleSearch} className="flex-1 md:flex-none">
-                <Search className="mr-2 h-4 w-4" />
-                搜索
+              <Button onClick={handleSearch} disabled={isLoading} className="flex-1 md:flex-none">
+                {isLoading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Search className="mr-2 h-4 w-4" />
+                )}
+                {isLoading ? "加载中" : "搜索"}
               </Button>
             </div>
           </div>

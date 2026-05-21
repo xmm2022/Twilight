@@ -357,29 +357,46 @@ async def grant_registration_queue_users_entitlement_and_clear():
     if confirm != "GRANT_AND_CLEAR_REGISTRATION_QUEUE":
         return api_response(False, "缺少确认标记", code=400)
 
+    capacity_lock = await UserService.acquire_emby_capacity_lock()
+    if capacity_lock is None:
+        return api_response(False, "Emby 名额检查繁忙，请稍后重试", code=409)
+
     granted = 0
     dequeued = 0
     blocked = 0
     failed = []
-    for user in users:
-        try:
-            user.PENDING_EMBY = True
-            user.PENDING_EMBY_DAYS = days
-            if user.ROLE == Role.UNRECOGNIZED.value:
-                user.ROLE = Role.NORMAL.value
-            if not user.CREATE_AT:
-                user.CREATE_AT = user.REGISTER_TIME
-            await UserOperate.update_user(user)
-            granted += 1
+    try:
+        for user in users:
+            try:
+                if not getattr(user, "PENDING_EMBY", False):
+                    cap_ok, cap_msg = await UserService.check_emby_user_capacity(exclude_uid=user.UID)
+                    if not cap_ok:
+                        failed.append({"uid": user.UID, "username": user.USERNAME, "reason": cap_msg})
+                        continue
+                user_limit_ok, user_limit_msg = await UserService.check_normal_user_capacity_for_grant(user)
+                if not user_limit_ok:
+                    failed.append({"uid": user.UID, "username": user.USERNAME, "reason": user_limit_msg})
+                    continue
 
-            emby_result = await EmbyRegisterQueueService.clear_for_uid(user.UID, queued_only=True)
-            regcode_result = await RegcodeUseQueueService.clear_for_uid(user.UID, queued_only=True)
-            if emby_result.get("cleared") or regcode_result.get("cleared"):
-                dequeued += 1
-            if emby_result.get("reason") or regcode_result.get("reason"):
-                blocked += 1
-        except Exception as exc:  # pragma: no cover
-            failed.append({"uid": user.UID, "username": user.USERNAME, "reason": str(exc)})
+                user.PENDING_EMBY = True
+                user.PENDING_EMBY_DAYS = days
+                if user.ROLE == Role.UNRECOGNIZED.value:
+                    user.ROLE = Role.NORMAL.value
+                if not user.CREATE_AT:
+                    user.CREATE_AT = user.REGISTER_TIME
+                await UserOperate.update_user(user)
+                granted += 1
+
+                emby_result = await EmbyRegisterQueueService.clear_for_uid(user.UID, queued_only=True)
+                regcode_result = await RegcodeUseQueueService.clear_for_uid(user.UID, queued_only=True)
+                if emby_result.get("cleared") or regcode_result.get("cleared"):
+                    dequeued += 1
+                if emby_result.get("reason") or regcode_result.get("reason"):
+                    blocked += 1
+            except Exception as exc:  # pragma: no cover
+                failed.append({"uid": user.UID, "username": user.USERNAME, "reason": str(exc)})
+    finally:
+        await UserService.release_emby_capacity_lock(capacity_lock)
 
     logger.warning(
         "管理员 %s 批量授权注册队列用户: matched=%d eligible=%d granted=%d dequeued=%d blocked=%d failed=%d days=%s",
@@ -447,16 +464,30 @@ async def grant_user_registration_entitlement(uid: int):
     if days > 3650:
         return api_response(False, "days 不能超过 3650", code=400)
 
-    emby_queue = await EmbyRegisterQueueService.clear_for_uid(uid)
-    regcode_queue = await RegcodeUseQueueService.clear_for_uid(uid)
+    capacity_lock = await UserService.acquire_emby_capacity_lock()
+    if capacity_lock is None:
+        return api_response(False, "Emby 名额检查繁忙，请稍后重试", code=409)
+    try:
+        if not getattr(user, "PENDING_EMBY", False):
+            cap_ok, cap_msg = await UserService.check_emby_user_capacity(exclude_uid=user.UID)
+            if not cap_ok:
+                return api_response(False, cap_msg, code=409)
+        user_limit_ok, user_limit_msg = await UserService.check_normal_user_capacity_for_grant(user)
+        if not user_limit_ok:
+            return api_response(False, user_limit_msg, code=409)
 
-    user.PENDING_EMBY = True
-    user.PENDING_EMBY_DAYS = days
-    if user.ROLE == Role.UNRECOGNIZED.value:
-        user.ROLE = Role.NORMAL.value
-    if not user.CREATE_AT:
-        user.CREATE_AT = user.REGISTER_TIME
-    await UserOperate.update_user(user)
+        emby_queue = await EmbyRegisterQueueService.clear_for_uid(uid)
+        regcode_queue = await RegcodeUseQueueService.clear_for_uid(uid)
+
+        user.PENDING_EMBY = True
+        user.PENDING_EMBY_DAYS = days
+        if user.ROLE == Role.UNRECOGNIZED.value:
+            user.ROLE = Role.NORMAL.value
+        if not user.CREATE_AT:
+            user.CREATE_AT = user.REGISTER_TIME
+        await UserOperate.update_user(user)
+    finally:
+        await UserService.release_emby_capacity_lock(capacity_lock)
 
     logger.warning(
         "管理员 %s 授予用户 Emby 补建资格 uid=%s username=%s days=%s",
@@ -518,16 +549,30 @@ async def grant_user_registration_entitlement_and_dequeue(uid: int):
     if days > 3650:
         return api_response(False, "days 不能超过 3650", code=400)
 
-    user.PENDING_EMBY = True
-    user.PENDING_EMBY_DAYS = days
-    if user.ROLE == Role.UNRECOGNIZED.value:
-        user.ROLE = Role.NORMAL.value
-    if not user.CREATE_AT:
-        user.CREATE_AT = user.REGISTER_TIME
-    await UserOperate.update_user(user)
+    capacity_lock = await UserService.acquire_emby_capacity_lock()
+    if capacity_lock is None:
+        return api_response(False, "Emby 名额检查繁忙，请稍后重试", code=409)
+    try:
+        if not getattr(user, "PENDING_EMBY", False):
+            cap_ok, cap_msg = await UserService.check_emby_user_capacity(exclude_uid=user.UID)
+            if not cap_ok:
+                return api_response(False, cap_msg, code=409)
+        user_limit_ok, user_limit_msg = await UserService.check_normal_user_capacity_for_grant(user)
+        if not user_limit_ok:
+            return api_response(False, user_limit_msg, code=409)
 
-    emby_queue = await EmbyRegisterQueueService.clear_for_uid(uid, queued_only=True)
-    regcode_queue = await RegcodeUseQueueService.clear_for_uid(uid, queued_only=True)
+        user.PENDING_EMBY = True
+        user.PENDING_EMBY_DAYS = days
+        if user.ROLE == Role.UNRECOGNIZED.value:
+            user.ROLE = Role.NORMAL.value
+        if not user.CREATE_AT:
+            user.CREATE_AT = user.REGISTER_TIME
+        await UserOperate.update_user(user)
+
+        emby_queue = await EmbyRegisterQueueService.clear_for_uid(uid, queued_only=True)
+        regcode_queue = await RegcodeUseQueueService.clear_for_uid(uid, queued_only=True)
+    finally:
+        await UserService.release_emby_capacity_lock(capacity_lock)
     processing_blocked = [
         item.get("reason")
         for item in (emby_queue, regcode_queue)
@@ -579,6 +624,8 @@ async def _cascade_toggle_active(
     root_user = await UserOperate.get_user_by_uid(root_uid)
     if not root_user:
         return False, "用户不存在", {"code": 404}
+    if root_user.ROLE == Role.ADMIN.value and root_user.UID != g.current_user.UID:
+        return False, "不允许启停其他管理员账号", {"code": 403}
 
     if cascade_depth_raw <= 0 or cascade_depth_raw >= 999:
         cascade_depth: int | None = None
@@ -728,17 +775,51 @@ async def update_user(uid: int):
     if "role" in data and data["role"] == Role.ADMIN.value and uid != g.current_user.UID:
         return api_response(False, "不允许将其他用户设置为管理员", code=403)
 
+    capacity_lock = None
     try:
         # 更新角色
         if "role" in data:
             role = data["role"]
             if role not in [r.value for r in Role]:
                 return api_response(False, "无效的角色值", code=400)
+            if role == Role.NORMAL.value and target_user.ROLE == Role.UNRECOGNIZED.value:
+                user_limit_ok, user_limit_msg = await UserService.check_normal_user_capacity_for_grant(target_user)
+                if not user_limit_ok:
+                    return api_response(False, user_limit_msg, code=409)
             target_user.ROLE = role
 
+        emby_changed = False
+        old_emby_id = (target_user.EMBYID or "").strip()
         # 更新 Emby ID
         if "emby_id" in data:
-            target_user.EMBYID = data["emby_id"] or None
+            new_emby_id = (data.get("emby_id") or "").strip()
+            if new_emby_id != old_emby_id:
+                emby_changed = True
+                if new_emby_id:
+                    emby = get_emby_client()
+                    try:
+                        remote_user = await emby.get_user(new_emby_id)
+                    except EmbyError as exc:
+                        return api_response(False, f"无法校验 Emby 用户: {exc}", code=502)
+                    if not remote_user:
+                        return api_response(False, "目标 Emby ID 不存在", code=404)
+                    occupant = await UserOperate.get_user_by_embyid(new_emby_id)
+                    if occupant and occupant.UID != target_user.UID:
+                        return api_response(False, f"该 Emby ID 已绑定 UID {occupant.UID}", code=409)
+                    if not old_emby_id and not getattr(target_user, "PENDING_EMBY", False):
+                        capacity_lock = await UserService.acquire_emby_capacity_lock()
+                        if capacity_lock is None:
+                            return api_response(False, "Emby 名额检查繁忙，请稍后重试", code=409)
+                        cap_ok, cap_msg = await UserService.check_emby_user_capacity(exclude_uid=target_user.UID)
+                        if not cap_ok:
+                            return api_response(False, cap_msg, code=409)
+                    target_user.PENDING_EMBY = False
+                    target_user.PENDING_EMBY_DAYS = None
+                    target_user.EMBYID = new_emby_id
+                else:
+                    target_user.EMBYID = None
+                    target_user.PENDING_EMBY = False
+                    target_user.PENDING_EMBY_DAYS = None
 
         # 更新启用状态
         active_changed = False
@@ -753,10 +834,11 @@ async def update_user(uid: int):
 
         # 启用/禁用变更时同步 Emby 账户
         emby_sync_msg = ""
-        if active_changed and target_user.EMBYID:
+        if (active_changed or emby_changed) and target_user.EMBYID:
             try:
-                emby = get_emby_client()
-                await emby.set_user_enabled(target_user.EMBYID, new_active)
+                ok, sync_msg = await UserService.sync_user_to_emby(target_user)
+                if not ok:
+                    emby_sync_msg = f"，但同步 Emby 账户状态失败：{sync_msg}"
             except Exception as emby_err:
                 logger.error(
                     f"同步 Emby 启用状态失败 (uid={target_user.UID}): {emby_err}",
@@ -768,6 +850,8 @@ async def update_user(uid: int):
     except Exception as e:
         logger.error(f"更新用户信息失败: {e}", exc_info=True)
         return api_response(False, f"更新失败: {e}", code=500)
+    finally:
+        await UserService.release_emby_capacity_lock(capacity_lock)
 
 
 @admin_bp.route("/users/<int:uid>", methods=["DELETE"])
@@ -790,6 +874,8 @@ async def delete_user(uid: int):
     user = await UserOperate.get_user_by_uid(uid)
     if not user:
         return api_response(False, "用户不存在", code=404)
+    if user.ROLE == Role.ADMIN.value and user.UID != g.current_user.UID:
+        return api_response(False, "不允许删除其他管理员账号", code=403)
 
     body = request.get_json(silent=True) or {}
 
@@ -1555,9 +1641,11 @@ async def bind_user_telegram(uid: int):
 @require_admin
 async def list_telegram_rebind_requests():
     """获取 Telegram 换绑请求列表"""
-    page = request.args.get("page", 1, type=int)
-    per_page = min(request.args.get("per_page", 20, type=int), 100)
-    status = request.args.get("status")
+    page = max(request.args.get("page", 1, type=int) or 1, 1)
+    per_page = min(max(request.args.get("per_page", 20, type=int) or 20, 1), 100)
+    status = (request.args.get("status") or "").strip().lower() or None
+    if status and status not in {"pending", "approved", "rejected"}:
+        return api_response(False, "无效状态", code=400)
 
     requests, total = await UserService.list_telegram_rebind_requests(status=status, page=page, per_page=per_page)
     payload = []
@@ -1595,7 +1683,7 @@ async def approve_telegram_rebind_request(request_id: int):
     data = request.get_json() or {}
     admin_note = data.get("admin_note")
     success, message = await UserService.approve_telegram_rebind_request(request_id, g.current_user.UID, admin_note)
-    return api_response(success, message)
+    return api_response(success, message, code=200 if success else 400)
 
 
 @admin_bp.route("/telegram/rebind-requests/<int:request_id>/reject", methods=["POST"])
@@ -1605,7 +1693,31 @@ async def reject_telegram_rebind_request(request_id: int):
     data = request.get_json() or {}
     admin_note = data.get("admin_note")
     success, message = await UserService.reject_telegram_rebind_request(request_id, g.current_user.UID, admin_note)
-    return api_response(success, message)
+    return api_response(success, message, code=200 if success else 400)
+
+
+@admin_bp.route("/telegram/rebind-requests/batch", methods=["POST"])
+@require_auth
+@require_admin
+async def batch_review_telegram_rebind_requests():
+    data = request.get_json(silent=True) or {}
+    action = (data.get("action") or "").strip().lower()
+    if action not in {"approve", "reject"}:
+        return api_response(False, "action 仅支持 approve/reject", code=400)
+    ids = data.get("ids")
+    if not isinstance(ids, list) or not ids:
+        return api_response(False, "ids 必须是非空数组", code=400)
+    if len(ids) > 100:
+        return api_response(False, "单次最多处理 100 条换绑请求", code=400)
+
+    result = await UserService.batch_review_telegram_rebind_requests(
+        ids,
+        action,
+        g.current_user.UID,
+        data.get("admin_note"),
+    )
+    message = f"批量处理完成：成功 {result['success']}，失败 {result['failed']}"
+    return api_response(True, message, result)
 
 
 @admin_bp.route("/users/by-telegram/<int:telegram_id>", methods=["GET"])
@@ -3843,16 +3955,39 @@ async def create_standalone_emby_user():
     if existing:
         return api_response(False, "该 Emby 用户名已存在", code=409)
 
+    capacity_lock = await UserService.acquire_emby_capacity_lock()
+    if capacity_lock is None:
+        return api_response(False, "Emby 名额检查繁忙，请稍后重试", code=409)
+
+    cap_ok, cap_msg = await UserService.check_emby_user_capacity()
+    if not cap_ok:
+        await UserService.release_emby_capacity_lock(capacity_lock)
+        return api_response(False, cap_msg, code=409)
+
+    emby_limit = UserService.get_emby_user_limit()
+    if emby_limit > 0:
+        try:
+            remote_users = await emby.get_users()
+        except EmbyError as e:
+            await UserService.release_emby_capacity_lock(capacity_lock)
+            return api_response(False, f"无法读取 Emby 用户数: {e}", code=502)
+        if len(remote_users) >= emby_limit:
+            await UserService.release_emby_capacity_lock(capacity_lock)
+            return api_response(False, f"Emby 全局用户数已达上限（{len(remote_users)}/{emby_limit}）", code=409)
+
     try:
         emby_user = await emby.create_user(username, password)
     except EmbyError as e:
+        await UserService.release_emby_capacity_lock(capacity_lock)
         logger.error(f"管理员 {g.current_user.USERNAME} 创建独立 Emby 账号失败: {e}")
         return api_response(False, f"创建 Emby 账号失败: {e}", code=502)
 
     if not emby_user:
+        await UserService.release_emby_capacity_lock(capacity_lock)
         return api_response(False, "创建 Emby 账号失败：未返回用户信息", code=502)
 
     logger.info(f"管理员 {g.current_user.USERNAME} 创建独立 Emby 账号: " f"name={emby_user.name}, id={emby_user.id}")
+    await UserService.release_emby_capacity_lock(capacity_lock)
     return api_response(
         True,
         "Emby 账号创建成功",
@@ -3903,17 +4038,20 @@ async def bind_emby_to_user(uid: int):
     if emby_user is None:
         return api_response(False, "目标 Emby 用户不存在", code=404)
 
+    capacity_lock = None
     # 已被其他系统账号占用？
     occupant = await UserOperate.get_user_by_embyid(emby_user.id)
     # Emby 绑定上限检查：只在"目标账号还没有 EMBYID 且这次会净增一个绑定"时强制
     # （从占用者那里夺取 → 净增 0；目标已经有 EMBYID → 替换；目标无 EMBYID → 净增 1）
-    if not target_user.EMBYID and (occupant is None or occupant.UID == target_user.UID):
-        from src.services import EmbyRegisterQueueService
-
+    if not target_user.EMBYID and not getattr(target_user, "PENDING_EMBY", False) and (occupant is None or occupant.UID == target_user.UID):
+        capacity_lock = await UserService.acquire_emby_capacity_lock()
+        if capacity_lock is None:
+            return api_response(False, "Emby 名额检查繁忙，请稍后重试", code=409)
         cap_ok, cap_msg = await UserService.check_emby_user_capacity(
-            extra_pending=EmbyRegisterQueueService.in_flight_count(),
+            exclude_uid=target_user.UID,
         )
         if not cap_ok:
+            await UserService.release_emby_capacity_lock(capacity_lock)
             return api_response(False, cap_msg, code=409)
     if occupant and occupant.UID != target_user.UID:
         if not force:
@@ -3961,8 +4099,6 @@ async def bind_emby_to_user(uid: int):
 
     # 同步状态到 Emby（按本地启用/到期状态调整 Emby 的 IsDisabled）
     try:
-        from src.services import UserService
-
         await UserService.sync_user_to_emby(target_user)
     except Exception as exc:
         logger.warning(f"绑定后同步 Emby 状态失败: {exc}")
@@ -3971,6 +4107,7 @@ async def bind_emby_to_user(uid: int):
         f"管理员 {g.current_user.USERNAME} 绑定 Emby 到系统账号: "
         f"uid={target_user.UID} emby_id={emby_user.id} emby_name={emby_user.name} force={force}"
     )
+    await UserService.release_emby_capacity_lock(capacity_lock)
     return api_response(
         True,
         "绑定成功",
