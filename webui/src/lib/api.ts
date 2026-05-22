@@ -934,17 +934,73 @@ class ApiClient {
     });
   }
 
+  async getDatabaseStatus() {
+    return this.request<DatabaseStatus>("/system/admin/database/status");
+  }
+
+  async listDatabaseBackups() {
+    return this.request<{ backups: DatabaseBackup[] }>("/system/admin/database/backups");
+  }
+
+  async createDatabaseBackup() {
+    return this.request<{ backup: DatabaseBackup }>("/system/admin/database/backup", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }
+
+  async restoreDatabaseBackup(name: string) {
+    return this.request<{ restored: string; pre_restore_backup: DatabaseBackup }>("/system/admin/database/restore", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  async migrateDatabase(payload: {
+    target_driver: "json" | "postgres";
+    dry_run?: boolean;
+    database_url?: string;
+    postgres_dsn?: string;
+    state_file?: string;
+  }) {
+    return this.request<DatabaseMigrationResult>("/system/admin/database/migrate", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  }
+
   async updateFromGit(payload: {
     repo_url: string;
     branch?: string;
     restart_services?: boolean;
+    dry_run?: boolean;
+    allow_dirty?: boolean;
   }) {
     return this.request<{
       project_root: string;
       repo_url: string;
       branch: string;
-      restart_scheduled: boolean;
+      dry_run?: boolean;
+      updated?: boolean;
+      restart_scheduled?: boolean;
+      restart_available?: boolean;
       services?: string[];
+      before?: {
+        branch: string;
+        commit: string;
+        remote_url: string;
+        dirty: boolean;
+        dirty_count: number;
+        dirty_files: string[];
+      };
+      after?: {
+        branch: string;
+        commit: string;
+        remote_url: string;
+        dirty: boolean;
+        dirty_count: number;
+        dirty_files: string[];
+      };
       results: Array<{
         command: string;
         returncode: number;
@@ -2202,6 +2258,42 @@ export interface ConfigSchema {
   categories?: ConfigCategory[];
 }
 
+
+export interface DatabaseBackup {
+  name: string;
+  path: string;
+  size: number;
+  created_at: number;
+}
+
+export interface DatabaseStatus {
+  active_driver: string;
+  configured_driver: string;
+  state_file: string;
+  backup_dir: string;
+  backup_count: number;
+  postgres_configured: boolean;
+  redis_enabled: boolean;
+  user_count: number;
+}
+
+export interface DatabaseMigrationResult {
+  source_driver?: string;
+  configured_driver?: string;
+  target_driver: string;
+  dry_run: boolean;
+  snapshot_bytes?: number;
+  target_ready?: Record<string, unknown>;
+  warnings?: string[];
+  counts?: Record<string, number>;
+  users: number;
+  api_keys: number;
+  regcodes: number;
+  invite_codes: number;
+  media_requests: number;
+  announcements: number;
+  state_file?: string;
+}
 
 export interface SchedulerJobRun {
   id?: number;

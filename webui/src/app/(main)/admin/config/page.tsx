@@ -31,6 +31,9 @@ import {
   CircleDot,
   Github,
   GitPullRequest,
+  Database,
+  Archive,
+  UploadCloud,
 } from "lucide-react";
 import {
   Card,
@@ -69,7 +72,15 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { ConfigSchema, ConfigSection, ConfigField, ConfigCategory } from "@/lib/api";
+import type {
+  ConfigSchema,
+  ConfigSection,
+  ConfigField,
+  ConfigCategory,
+  DatabaseBackup,
+  DatabaseStatus,
+  DatabaseMigrationResult,
+} from "@/lib/api";
 
 // 没有声明 categories 时的回退：所有 section 归到「全部」一类，保持原来的扁平体验
 const FALLBACK_CATEGORY: ConfigCategory = { key: "_all", title: "全部" };
@@ -148,6 +159,18 @@ function serializeFieldValue(
   return editedValue;
 }
 
+function formatBytes(value?: number): string {
+  const size = Number(value || 0);
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / 1024 / 1024).toFixed(2)} MB`;
+}
+
+function formatUnixTime(value?: number): string {
+  if (!value) return "-";
+  return new Date(value * 1000).toLocaleString("zh-CN");
+}
+
 // ==================== 动画 ====================
 
 const container = {
@@ -172,6 +195,7 @@ const SECTION_ICONS: Record<string, React.ElementType> = {
   SAR: Coins,
   DeviceLimit: Monitor,
   API: Server,
+  Database,
   Security: Shield,
   Scheduler: Clock,
   Notification: Bell,
@@ -703,6 +727,12 @@ export default function AdminConfigPage() {
   const [updateRestartServices, setUpdateRestartServices] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateOutput, setUpdateOutput] = useState<string[]>([]);
+  const [dbStatus, setDbStatus] = useState<DatabaseStatus | null>(null);
+  const [dbBackups, setDbBackups] = useState<DatabaseBackup[]>([]);
+  const [isLoadingDatabase, setIsLoadingDatabase] = useState(false);
+  const [isDatabaseBusy, setIsDatabaseBusy] = useState(false);
+  const [migrationTarget, setMigrationTarget] = useState<"json" | "postgres">("postgres");
+  const [migrationResult, setMigrationResult] = useState<DatabaseMigrationResult | null>(null);
 
   // 初始化时展开所有 sections
   useEffect(() => {
@@ -963,7 +993,89 @@ export default function AdminConfigPage() {
     }
   };
 
-  const handleGitUpdate = async () => {
+  const loadDatabase = useCallback(async () => {
+    setIsLoadingDatabase(true);
+    try {
+      const [statusRes, backupsRes] = await Promise.all([
+        api.getDatabaseStatus(),
+        api.listDatabaseBackups(),
+      ]);
+      if (statusRes.success && statusRes.data) {
+        setDbStatus(statusRes.data);
+      }
+      if (backupsRes.success && backupsRes.data) {
+        setDbBackups(backupsRes.data.backups || []);
+      }
+    } catch (error: any) {
+      toast({
+        title: "加载数据库状态失败",
+        description: error.message || "请检查后端连接",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingDatabase(false);
+    }
+  }, [toast]);
+
+  const handleCreateBackup = async () => {
+    setIsDatabaseBusy(true);
+    try {
+      const res = await api.createDatabaseBackup();
+      if (res.success) {
+        toast({ title: "备份已创建", variant: "success" });
+        await loadDatabase();
+      } else {
+        toast({ title: "备份失败", description: res.message, variant: "destructive" });
+      }
+    } catch (error: any) {
+      toast({ title: "备份失败", description: error.message, variant: "destructive" });
+    } finally {
+      setIsDatabaseBusy(false);
+    }
+  };
+
+  const handleRestoreBackup = async (backup: DatabaseBackup) => {
+    if (!window.confirm(`恢复备份 ${backup.name}？当前状态会先自动备份。`)) return;
+    setIsDatabaseBusy(true);
+    try {
+      const res = await api.restoreDatabaseBackup(backup.name);
+      if (res.success) {
+        toast({ title: "恢复完成", description: `已恢复 ${backup.name}`, variant: "success" });
+        await loadDatabase();
+      } else {
+        toast({ title: "恢复失败", description: res.message, variant: "destructive" });
+      }
+    } catch (error: any) {
+      toast({ title: "恢复失败", description: error.message, variant: "destructive" });
+    } finally {
+      setIsDatabaseBusy(false);
+    }
+  };
+
+  const handleDatabaseMigrate = async (dryRun: boolean) => {
+    setIsDatabaseBusy(true);
+    setMigrationResult(null);
+    try {
+      const res = await api.migrateDatabase({ target_driver: migrationTarget, dry_run: dryRun });
+      if (res.success && res.data) {
+        setMigrationResult(res.data);
+        toast({
+          title: dryRun ? "迁移预检通过" : "迁移完成",
+          description: `${res.data.users} 用户，${res.data.regcodes} 卡码，${res.data.invite_codes} 邀请码`,
+          variant: "success",
+        });
+        await loadDatabase();
+      } else {
+        toast({ title: "迁移失败", description: res.message, variant: "destructive" });
+      }
+    } catch (error: any) {
+      toast({ title: "迁移失败", description: error.message, variant: "destructive" });
+    } finally {
+      setIsDatabaseBusy(false);
+    }
+  };
+
+  const handleGitUpdate = async (dryRun = false) => {
     setIsUpdating(true);
     setUpdateOutput([]);
     try {
@@ -971,22 +1083,37 @@ export default function AdminConfigPage() {
         repo_url: updateRepoUrl.trim(),
         branch: updateBranch.trim() || "main",
         restart_services: updateRestartServices,
+        dry_run: dryRun,
       });
       if (res.success) {
+        const before = res.data?.before;
+        const after = res.data?.after;
+        const summary = [
+          `mode=${dryRun ? "preflight" : "update"}`,
+          before ? `before=${before.branch}@${before.commit.slice(0, 12)} dirty=${before.dirty_count}` : "",
+          after ? `after=${after.branch}@${after.commit.slice(0, 12)} dirty=${after.dirty_count}` : "",
+          res.data?.repo_url ? `repo=${res.data.repo_url}` : "",
+        ].filter(Boolean);
         const logs = (res.data?.results || []).map((item) => {
           const output = [item.stdout, item.stderr].filter(Boolean).join("\n").trim();
           return `$ ${item.command}\nexit=${item.returncode} duration=${item.duration_ms}ms${output ? `\n${output}` : ""}`;
         });
-        setUpdateOutput(logs);
+        setUpdateOutput([...summary, ...logs]);
         toast({
-          title: "更新完成",
+          title: dryRun ? "预检通过" : "更新完成",
           description: res.message || "代码已更新，服务将按设置重启",
           variant: "success",
         });
       } else {
-        setUpdateOutput((res.data?.results || []).map((item) => `$ ${item.command}\n${item.stderr || item.stdout}`));
+        const dirty = res.data?.before?.dirty_files?.length
+          ? [`dirty files (${res.data.before.dirty_count}):`, ...res.data.before.dirty_files]
+          : [];
+        setUpdateOutput([
+          ...dirty,
+          ...(res.data?.results || []).map((item) => `$ ${item.command}\n${item.stderr || item.stdout}`),
+        ]);
         toast({
-          title: "更新失败",
+          title: dryRun ? "预检失败" : "更新失败",
           description: res.message || "请查看命令输出",
           variant: "destructive",
         });
@@ -1032,6 +1159,9 @@ export default function AdminConfigPage() {
             if (v === "toml" && !configContent) {
               void loadConfig();
             }
+            if (v === "database" && !dbStatus) {
+              void loadDatabase();
+            }
           }}
         >
           <div className="flex items-center justify-between">
@@ -1043,6 +1173,10 @@ export default function AdminConfigPage() {
               <TabsTrigger value="toml" className="gap-1.5">
                 <FileText className="h-4 w-4" />
                 源文件编辑
+              </TabsTrigger>
+              <TabsTrigger value="database" className="gap-1.5">
+                <Database className="h-4 w-4" />
+                数据库
               </TabsTrigger>
               <TabsTrigger value="update" className="gap-1.5">
                 <GitPullRequest className="h-4 w-4" />
@@ -1357,6 +1491,168 @@ export default function AdminConfigPage() {
             </motion.div>
           </TabsContent>
 
+          <TabsContent value="database" className="mt-4">
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold flex items-center gap-2">
+                    <Database className="h-5 w-5" />
+                    数据库管理
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    备份、恢复和迁移当前 Go 后端状态；PostgreSQL 连接信息在可视化配置的 Database 分组中维护。
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => void loadDatabase()} disabled={isLoadingDatabase}>
+                  {isLoadingDatabase ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-2 h-4 w-4" />}
+                  刷新
+                </Button>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-4">
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-xs text-muted-foreground">当前后端</p>
+                    <p className="mt-1 text-xl font-semibold">{dbStatus?.active_driver || "-"}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-xs text-muted-foreground">配置后端</p>
+                    <p className="mt-1 text-xl font-semibold">{dbStatus?.configured_driver || "-"}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-xs text-muted-foreground">用户数</p>
+                    <p className="mt-1 text-xl font-semibold">{dbStatus?.user_count ?? "-"}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-xs text-muted-foreground">备份数</p>
+                    <p className="mt-1 text-xl font-semibold">{dbStatus?.backup_count ?? dbBackups.length}</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {dbStatus && (
+                <Alert>
+                  <Info className="h-4 w-4" />
+                  <AlertTitle>运行状态</AlertTitle>
+                  <AlertDescription>
+                    状态文件：{dbStatus.state_file}；备份目录：{dbStatus.backup_dir}；PostgreSQL {dbStatus.postgres_configured ? "已配置" : "未配置"}。
+                    切换存储后端需要先迁移数据，然后重启后端进程使新 driver 生效。
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <CardTitle className="flex items-center gap-2">
+                          <Archive className="h-5 w-5" />
+                          备份
+                        </CardTitle>
+                        <CardDescription>恢复前会自动生成保护性备份。</CardDescription>
+                      </div>
+                      <Button onClick={handleCreateBackup} disabled={isDatabaseBusy}>
+                        {isDatabaseBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Archive className="mr-2 h-4 w-4" />}
+                        创建备份
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {dbBackups.length === 0 ? (
+                      <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
+                        暂无备份
+                      </div>
+                    ) : (
+                      <div className="divide-y rounded-md border">
+                        {dbBackups.map((backup) => (
+                          <div key={backup.name} className="flex items-center justify-between gap-3 px-3 py-2">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium">{backup.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {formatBytes(backup.size)} · {formatUnixTime(backup.created_at)}
+                              </p>
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void handleRestoreBackup(backup)}
+                              disabled={isDatabaseBusy}
+                            >
+                              恢复
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <UploadCloud className="h-5 w-5" />
+                      迁移
+                    </CardTitle>
+                    <CardDescription>将当前状态快照写入目标后端。</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button
+                        variant={migrationTarget === "postgres" ? "default" : "outline"}
+                        onClick={() => setMigrationTarget("postgres")}
+                      >
+                        PostgreSQL
+                      </Button>
+                      <Button
+                        variant={migrationTarget === "json" ? "default" : "outline"}
+                        onClick={() => setMigrationTarget("json")}
+                      >
+                        JSON
+                      </Button>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button variant="outline" className="flex-1" onClick={() => void handleDatabaseMigrate(true)} disabled={isDatabaseBusy}>
+                        预检
+                      </Button>
+                      <Button className="flex-1" onClick={() => void handleDatabaseMigrate(false)} disabled={isDatabaseBusy}>
+                        {isDatabaseBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                        执行
+                      </Button>
+                    </div>
+                    {migrationResult && (
+                      <div className="rounded-md border bg-muted/40 p-3 text-xs space-y-1">
+                        <div className="flex justify-between"><span>来源</span><strong>{migrationResult.source_driver || "-"}</strong></div>
+                        <div className="flex justify-between"><span>目标</span><strong>{migrationResult.target_driver}</strong></div>
+                        <div className="flex justify-between"><span>快照</span><strong>{formatBytes(migrationResult.snapshot_bytes || 0)}</strong></div>
+                        <div className="flex justify-between"><span>用户</span><strong>{migrationResult.users}</strong></div>
+                        <div className="flex justify-between"><span>卡码</span><strong>{migrationResult.regcodes}</strong></div>
+                        <div className="flex justify-between"><span>邀请</span><strong>{migrationResult.invite_codes}</strong></div>
+                        <div className="flex justify-between"><span>求片</span><strong>{migrationResult.media_requests}</strong></div>
+                        {migrationResult.target_ready && (
+                          <div className="pt-2 text-muted-foreground">
+                            目标状态：{JSON.stringify(migrationResult.target_ready)}
+                          </div>
+                        )}
+                        {migrationResult.warnings && migrationResult.warnings.length > 0 && (
+                          <div className="pt-2 text-amber-600 dark:text-amber-400">
+                            {migrationResult.warnings.join("；")}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </TabsContent>
+
           <TabsContent value="update" className="mt-4">
             <Card>
               <CardHeader>
@@ -1409,7 +1705,11 @@ export default function AdminConfigPage() {
                 </div>
 
                 <div className="flex flex-wrap gap-2">
-                  <Button onClick={handleGitUpdate} disabled={isUpdating || !updateRepoUrl.trim()}>
+                  <Button variant="outline" onClick={() => void handleGitUpdate(true)} disabled={isUpdating || !updateRepoUrl.trim()}>
+                    {isUpdating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Shield className="mr-2 h-4 w-4" />}
+                    安全预检
+                  </Button>
+                  <Button onClick={() => void handleGitUpdate(false)} disabled={isUpdating || !updateRepoUrl.trim()}>
                     {isUpdating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <GitPullRequest className="mr-2 h-4 w-4" />}
                     拉取并更新
                   </Button>

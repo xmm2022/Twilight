@@ -100,11 +100,11 @@ Authorization: ApiKey <api_key>
 
 ### 3.1 速率限制
 
-为了防止暴力破解与公开端点被刷，部分接口启用了基于 IP / UID / 资源 key 的滑动窗口限流（实现：`src/core/utils.py::rate_limit_check`）。被限流时返回 HTTP `429`，响应体的 `message` 会包含建议的等待秒数。
+为了防止暴力破解与公开端点被刷，部分接口启用了基于 IP / UID / 资源 key 的滑动窗口限流（实现：`internal/api/ratelimit.go`）。被限流时返回 HTTP `429`。
 
 | 接口 | 维度 | 阈值 | 说明 |
 | ---- | ---- | ---- | ---- |
-| `POST /auth/login` 系列 | IP | 失败计数式 | 登录失败累计触发临时锁 IP，详见 `src/api/v1/auth.py::_check_login_rate_limit` |
+| `POST /auth/login` 系列 | IP | 滑动窗口 | 登录接口按客户端 IP 限速，详见 `internal/api/handlers.go::handleLogin` |
 | `POST /auth/forgot-password/emby` | IP + Emby 用户名 | 5/10 分钟 + 5/30 分钟 | 验证 Emby 账号密码后重置 Web 密码；新密码只返回一次 |
 | `POST /users/register` | IP | 5 / 10 分钟 | 防批量注册 |
 | `GET  /users/check-available` | IP | 60 / 60 秒 | 防扫描可用用户名 |
@@ -125,7 +125,7 @@ Authorization: ApiKey <api_key>
 #### `bind-code/status` 的三层防御
 
 线上观测到攻击者会盯着一个 8 位 code 反复刷（每次都是 404），所以这个端点
-在普通双层限速之上又加了两层（实现：`src/api/v1/users.py`）：
+在普通双层限速之上又加了两层（实现：`internal/api/handlers.go`）：
 
 1. **失效 code 短路缓存**：第一次 DB 查不到该 code 时，写入 `_INVALID_CODE_CACHE`（TTL 5 分钟）。期间同 code 任何请求 → 直接 404，**不查 DB、不消费 code 维度限速配额**。
 2. **IP 累计 404 封禁**：同 IP 60s 内累计 ≥60 次 404（包括短路命中的）→ 把 IP 加入 `_IP_404_BAN`（5 分钟）。期间该 IP 任何请求 → 直接 429。
@@ -1786,12 +1786,11 @@ curl -X GET "http://localhost:5000/api/v1/system/admin/config/toml" \
   -H "Authorization: Bearer <admin_token>"
 ```
 
-### 写入 config.toml（写入后进程自动重启）
+### 写入 config.toml（保存后热重载）
 
 `PUT /system/admin/config/toml`
 
-- 说明：写入 config.toml；保存成功后**进程会自动重启**（依赖 systemd / docker /
-  守护脚本拉起），响应体含 `"restart": true`。请勿在客户端使用旧的"热重载"假设。
+- 说明：写入 config.toml；保存前会创建备份，保存后会热重载可在线生效字段。监听端口、数据库 driver 等启动期字段仍需重启进程。
 - 认证：管理员 Token
 - 请求体：
 
@@ -1828,7 +1827,7 @@ curl -X GET "http://localhost:5000/api/v1/system/admin/config/schema" \
 
 `PUT /system/admin/config/schema`
 
-- 说明：按结构化 schema 写入配置；同样**进程自动重启**生效，依赖外部进程管理器拉起。
+- 说明：按结构化 schema 写入配置；保存前会创建备份，保存后会热重载可在线生效字段。
 - 认证：管理员 Token
 - 请求体：
 
@@ -1851,6 +1850,68 @@ curl -X PUT "http://localhost:5000/api/v1/system/admin/config/schema" \
   -H "Content-Type: application/json" \
   -d '{"sections":{"BangumiSync":{"enabled":true,"min_progress_percent":80}}}'
 ```
+
+### 数据库状态、备份、恢复、迁移
+
+`GET /system/admin/database/status`
+
+- 说明：返回当前 active driver、配置 driver、状态文件、备份目录、PostgreSQL 配置状态和用户数。
+- 认证：管理员 Token
+
+`GET /system/admin/database/backups`
+
+- 说明：列出备份目录中的数据库快照。
+- 认证：管理员 Token
+
+`POST /system/admin/database/backup`
+
+- 说明：创建当前数据库快照备份。
+- 认证：管理员 Token
+
+`POST /system/admin/database/restore`
+
+- 说明：从指定备份恢复。恢复前会自动创建保护性备份；备份名会限制在配置的备份目录内。
+- 认证：管理员 Token
+- 请求体：
+
+```json
+{"name":"twilight-20260522-120000.json"}
+```
+
+`POST /system/admin/database/migrate`
+
+- 说明：迁移当前状态快照到 `json` 或 `postgres`。建议先传 `dry_run: true` 预检。
+- 认证：管理员 Token
+- 请求体：
+
+```json
+{
+  "target_driver": "postgres",
+  "dry_run": true,
+  "database_url": "postgres://user:pass@127.0.0.1:5432/twilight?sslmode=disable"
+}
+```
+
+- 预检响应 `data` 包含 `source_driver`、`configured_driver`、`target_driver`、`snapshot_bytes`、`target_ready`、`warnings`、`counts`，并保留 `users`、`regcodes`、`invite_codes` 等兼容字段。
+
+### Git 自动更新
+
+`POST /system/admin/update`
+
+- 说明：从 HTTPS Git 仓库拉取指定分支。默认拒绝 dirty worktree，使用 `git pull --ff-only`，不会 reset/rebase/merge。
+- 认证：管理员 Token
+- 请求体：
+
+```json
+{
+  "repo_url": "https://github.com/Prejudice-Studio/Twilight.git",
+  "branch": "golang",
+  "dry_run": true,
+  "restart_services": true
+}
+```
+
+- 安全约束：仓库 URL 不允许携带凭据；分支名只允许安全字符；`dry_run` 只做预检；响应中 `repo_url` 与 `before.remote_url` 会移除凭据。
 
 ### 测试 Telegram Bot 连通性
 

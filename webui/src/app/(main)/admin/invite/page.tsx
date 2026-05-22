@@ -21,10 +21,12 @@ import {
   Trash2,
   AlertTriangle,
   ShieldCheck,
+  Search,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { api, type InviteForest, type InviteForestNode } from "@/lib/api";
@@ -208,6 +210,32 @@ function findRoot(forest: InviteForest, uid: number): number {
   return cur;
 }
 
+function subtreeUIDs(root: number, childrenMap: Map<number, number[]>): Set<number> {
+  const visible = new Set<number>([root]);
+  const queue = [root];
+  while (queue.length) {
+    const uid = queue.shift()!;
+    for (const child of childrenMap.get(uid) || []) {
+      if (visible.has(child)) continue;
+      visible.add(child);
+      queue.push(child);
+    }
+  }
+  return visible;
+}
+
+function filterForestByRoot(forest: InviteForest, rootUid: number | null): InviteForest {
+  if (!rootUid) return forest;
+  const childrenMap = buildChildrenMap(forest);
+  const visible = subtreeUIDs(rootUid, childrenMap);
+  return {
+    ...forest,
+    nodes: forest.nodes.filter((node) => visible.has(node.uid)),
+    edges: forest.edges.filter((edge) => visible.has(edge.parent) && visible.has(edge.child)),
+    roots: [rootUid],
+  };
+}
+
 function relationHighlight(forest: InviteForest | null, selectedUid: number | null): Set<string> {
   const highlighted = new Set<string>();
   if (!forest || !selectedUid) return highlighted;
@@ -243,6 +271,8 @@ export default function AdminInviteTreePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedUid, setSelectedUid] = useState<number | null>(null);
+  const [query, setQuery] = useState("");
+  const [rootFilter, setRootFilter] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [scale, setScale] = useState(1);
 
@@ -267,18 +297,45 @@ export default function AdminInviteTreePage() {
     void reload();
   }, [reload]);
 
-  const placed = useMemo(() => (forest ? placeForest(forest) : null), [forest]);
+  const visibleForest = useMemo(() => (forest ? filterForestByRoot(forest, rootFilter) : null), [forest, rootFilter]);
+  const placed = useMemo(() => (visibleForest ? placeForest(visibleForest) : null), [visibleForest]);
   const starfield = useMemo(() => (placed ? makeStarfield(placed.width, placed.height) : []), [placed]);
-  const highlightedEdges = useMemo(() => relationHighlight(forest, selectedUid), [forest, selectedUid]);
+  const highlightedEdges = useMemo(() => relationHighlight(visibleForest, selectedUid), [visibleForest, selectedUid]);
 
   const nodeByUid = useMemo(() => {
     const map = new Map<number, InviteForestNode>();
-    if (forest) for (const n of forest.nodes) map.set(n.uid, n);
+    if (visibleForest) for (const n of visibleForest.nodes) map.set(n.uid, n);
     return map;
-  }, [forest]);
+  }, [visibleForest]);
+
+  const matchingUIDs = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const matches = new Set<number>();
+    if (!q || !visibleForest) return matches;
+    for (const node of visibleForest.nodes) {
+      if (node.username.toLowerCase().includes(q) || String(node.uid).includes(q) || String(node.telegram_id || "").includes(q)) {
+        matches.add(node.uid);
+      }
+    }
+    return matches;
+  }, [query, visibleForest]);
+
+  const showLabels = (visibleForest?.nodes.length || 0) <= 260 && scale >= 0.7;
 
   const selected = selectedUid && nodeByUid.get(selectedUid) ? nodeByUid.get(selectedUid)! : null;
   const selectedPosition = selectedUid && placed ? placed.positions.get(selectedUid) : null;
+
+  useEffect(() => {
+    if (forest && rootFilter && !forest.roots.includes(rootFilter)) {
+      setRootFilter(null);
+    }
+  }, [forest, rootFilter]);
+
+  useEffect(() => {
+    if (selectedUid && visibleForest && !visibleForest.nodes.some((node) => node.uid === selectedUid)) {
+      setSelectedUid(null);
+    }
+  }, [selectedUid, visibleForest]);
 
   const handleDetach = async () => {
     if (!selected) return;
@@ -421,14 +478,47 @@ export default function AdminInviteTreePage() {
       </div>
 
       {forest && (
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+          <div className="relative w-full lg:max-w-sm">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="搜索用户名 / UID / Telegram ID"
+              className="pl-9"
+            />
+          </div>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            <Button size="sm" variant={rootFilter === null ? "default" : "outline"} onClick={() => setRootFilter(null)}>
+              全部
+            </Button>
+            {forest.roots.slice(0, 12).map((root) => {
+              const node = forest.nodes.find((item) => item.uid === root);
+              return (
+                <Button
+                  key={root}
+                  size="sm"
+                  variant={rootFilter === root ? "default" : "outline"}
+                  onClick={() => setRootFilter(root)}
+                  className="shrink-0"
+                >
+                  {node?.username || `#${root}`}
+                </Button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {forest && (
         <div className="grid gap-3 sm:grid-cols-4">
           <Card><CardContent className="p-4">
             <p className="text-[11px] uppercase tracking-widest text-muted-foreground">节点</p>
-            <p className="text-2xl font-bold">{forest.nodes.length}</p>
+            <p className="text-2xl font-bold">{visibleForest?.nodes.length ?? forest.nodes.length}</p>
           </CardContent></Card>
           <Card><CardContent className="p-4">
             <p className="text-[11px] uppercase tracking-widest text-muted-foreground">树根</p>
-            <p className="text-2xl font-bold">{forest.roots.length}</p>
+            <p className="text-2xl font-bold">{visibleForest?.roots.length ?? forest.roots.length}</p>
           </CardContent></Card>
           <Card><CardContent className="p-4">
             <p className="text-[11px] uppercase tracking-widest text-muted-foreground">最大深度</p>
@@ -541,7 +631,7 @@ export default function AdminInviteTreePage() {
                     </g>
                   ))}
                   {/* 边 */}
-                  {forest.edges.map((e) => {
+                  {visibleForest!.edges.map((e) => {
                     const p = placed!.positions.get(e.parent);
                     const c = placed!.positions.get(e.child);
                     if (!p || !c) return null;
@@ -572,10 +662,13 @@ export default function AdminInviteTreePage() {
                     />
                   )}
                   {/* 节点 */}
-                  {forest.nodes.map((n) => {
+                  {visibleForest!.nodes.map((n) => {
                     const pos = placed!.positions.get(n.uid);
                     if (!pos) return null;
                     const isSelected = selectedUid === n.uid;
+                    const searchActive = query.trim().length > 0;
+                    const isMatched = matchingUIDs.has(n.uid);
+                    const dimmed = searchActive && !isMatched && !isSelected;
                     const color = nodeColor(n, pos.depth);
                     const r = nodeRadius(n, pos.depth);
                     return (
@@ -588,33 +681,35 @@ export default function AdminInviteTreePage() {
                         <circle
                           r={r + 14}
                           fill={color}
-                          opacity={isSelected ? 0.28 : pos.depth === 1 ? 0.18 : 0.1}
+                          opacity={dimmed ? 0.04 : isSelected || isMatched ? 0.34 : pos.depth === 1 ? 0.18 : 0.1}
                           filter="url(#invite-soft-glow)"
                         />
                         <circle r={r + 6} fill="none" stroke={color} strokeOpacity={0.25} strokeWidth={1} />
                         <circle
                           r={r}
                           fill={color}
-                          opacity={n.active ? 0.98 : 0.55}
-                          stroke={isSelected ? "#f8fafc" : n.emby_id ? "#e0f2fe" : "#64748b"}
-                          strokeWidth={isSelected ? 2.4 : 1.1}
+                          opacity={dimmed ? 0.24 : n.active ? 0.98 : 0.55}
+                          stroke={isSelected || isMatched ? "#f8fafc" : n.emby_id ? "#e0f2fe" : "#64748b"}
+                          strokeWidth={isSelected || isMatched ? 2.4 : 1.1}
                           filter={n.active ? "url(#invite-soft-glow)" : undefined}
                         />
                         {n.role === 0 && <path d={`M -6 ${-r - 5} L 0 ${-r - 13} L 6 ${-r - 5} Z`} fill="#fbbf24" opacity={0.95} />}
                         {!n.emby_id && <circle r={r + 2} fill="none" stroke="#cbd5e1" strokeOpacity={0.55} strokeDasharray="2 3" />}
-                        <text
-                          textAnchor="middle"
-                          y={r + 14}
-                          fontSize={pos.depth === 1 ? 12 : 10.5}
-                          fontFamily="ui-sans-serif, system-ui"
-                          fill="#e2e8f0"
-                          opacity={n.active ? 0.95 : 0.58}
-                          paintOrder="stroke"
-                          stroke="#020617"
-                          strokeWidth={3}
-                        >
-                          {n.username}
-                        </text>
+                        {(showLabels || isSelected || isMatched || pos.depth === 1) && (
+                          <text
+                            textAnchor="middle"
+                            y={r + 14}
+                            fontSize={pos.depth === 1 ? 12 : 10.5}
+                            fontFamily="ui-sans-serif, system-ui"
+                            fill="#e2e8f0"
+                            opacity={dimmed ? 0.34 : n.active ? 0.95 : 0.58}
+                            paintOrder="stroke"
+                            stroke="#020617"
+                            strokeWidth={3}
+                          >
+                            {n.username}
+                          </text>
+                        )}
                         {pos.depth === 1 && (
                           <text
                             textAnchor="middle"

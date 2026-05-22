@@ -15,6 +15,7 @@
 | 文档 | 用途 |
 | ---- | ---- |
 | [后端 API 参考](./BACKEND_API.md) | REST API 接口规范、认证、错误码 |
+| [Go 后端说明](./GO_BACKEND.md) | Go 后端启动、配置、Redis 与验证说明 |
 | [API 路由索引](./API_INDEX.md) | `/api/v1` 完整路由清单、认证级别、模块归属 |
 | [API Key 外部接入](./API_KEY_API.md) | 第三方系统集成、权限矩阵 |
 | [注册码与卡码说明](./REGCODES.md) | 注册码、续期码、白名单码和诱饵码规则 |
@@ -41,5 +42,5 @@
 ## 说明
 
 - Swagger 交互式文档：服务启动后访问 `/api/v1/docs`
-- 若文档与代码行为冲突，以 `src/api/` 与实际接口返回为准
+- 若文档与代码行为冲突，以 `internal/api/` 与实际接口返回为准
 - 关键架构决策（媒体库策略、配置重启、`.gitignore` 注意点等）见 [DEVELOPMENT.md](./DEVELOPMENT.md#关键架构决策)
