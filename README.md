@@ -109,6 +109,16 @@ NEXT_PUBLIC_API_URL=http://127.0.0.1:5000 npm run dev
 
 </div>
 
-## License
+## Star
 
-MIT © Prejudice Studio
+[![Star History Chart](https://api.star-history.com/svg?repos=Prejudice-Studio/Twilight&type=Date)](https://star-history.com/#Prejudice-Studio/Twilight&Date)
+
+</div>
+
+<div align="center">
+
+如果 Twilight 对你有帮助，欢迎点一个 Star。
+
+Made with ❤️ by [Prejudice Studio](https://github.com/Prejudice-Studio/)
+
+</div>
