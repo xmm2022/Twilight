@@ -115,7 +115,6 @@ export default function AdminUsersPage() {
   const [batchLibraryAction, setBatchLibraryAction] = useState<"show" | "hide" | "enable_all" | "disable_all" | "set">("show");
   const [batchLibrarySelectedIds, setBatchLibrarySelectedIds] = useState<Set<string>>(new Set());
   const [batchLibraryLoading, setBatchLibraryLoading] = useState(false);
-  const [batchDeleteEmby, setBatchDeleteEmby] = useState(true);
 
   // 删除（含邀请树级联）对话框
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -278,6 +277,14 @@ export default function AdminUsersPage() {
     [users, selectedUserIds],
   );
   const selectedUids = useMemo(() => Array.from(selectedUserIds), [selectedUserIds]);
+  const selectedEmbyCount = useMemo(
+    () => selectedUsers.filter((user) => Boolean(user.emby_id)).length,
+    [selectedUsers],
+  );
+  const selectedAdminCount = useMemo(
+    () => selectedUsers.filter((user) => user.role === 0).length,
+    [selectedUsers],
+  );
   const allPageSelected = users.length > 0 && users.every((user) => selectedUserIds.has(user.uid));
 
   const toggleSelectedUser = (uid: number) => {
@@ -898,10 +905,10 @@ export default function AdminUsersPage() {
   const handleSelectedToggleActive = async (enable: boolean) => {
     if (selectedUids.length === 0) return;
     const ok = await confirmAction({
-      title: enable ? "Enable selected users?" : "Disable selected users?",
-      description: `Apply to ${selectedUids.length} selected users. Admin accounts are protected by the backend and will be skipped.`,
+      title: enable ? "启用所选用户？" : "禁用所选用户？",
+      description: `将作用于 ${selectedUids.length} 个已选用户。管理员账号由后端保护，会自动跳过。`,
       tone: enable ? "warning" : "danger",
-      confirmLabel: enable ? "Enable" : "Disable",
+      confirmLabel: enable ? "启用所选" : "禁用所选",
     });
     if (!ok) return;
     setBatchUserLoading(true);
@@ -909,16 +916,16 @@ export default function AdminUsersPage() {
       const res = await api.batchToggleUsers(selectedUids, enable);
       if (res.success && res.data) {
         toast({
-          title: enable ? "Batch enable complete" : "Batch disable complete",
-          description: `Success ${res.data.success}, failed ${res.data.failed}`,
+          title: enable ? "批量启用完成" : "批量禁用完成",
+          description: `成功 ${res.data.success} 个，失败 ${res.data.failed} 个`,
           variant: res.data.failed ? "default" : "success",
         });
         await refreshAfterBatch();
       } else {
-        toast({ title: "Batch action failed", description: res.message, variant: "destructive" });
+        toast({ title: "批量操作失败", description: res.message, variant: "destructive" });
       }
     } catch (error: any) {
-      toast({ title: "Batch action failed", description: error.message, variant: "destructive" });
+      toast({ title: "批量操作失败", description: error.message, variant: "destructive" });
     } finally {
       setBatchUserLoading(false);
     }
@@ -926,21 +933,28 @@ export default function AdminUsersPage() {
 
   const handleSelectedLibrarySelfService = async (enabled: boolean) => {
     if (selectedUids.length === 0) return;
+    const ok = await confirmAction({
+      title: enabled ? "开启媒体库自助显隐？" : "关闭媒体库自助显隐？",
+      description: `将为 ${selectedUids.length} 个已选用户${enabled ? "开启" : "关闭"}媒体库自助显隐入口。不会直接改变用户当前可见的媒体库。`,
+      tone: "warning",
+      confirmLabel: enabled ? "开启" : "关闭",
+    });
+    if (!ok) return;
     setBatchUserLoading(true);
     try {
       const res = await api.batchSetLibrarySelfService(selectedUids, enabled);
       if (res.success && res.data) {
         toast({
-          title: enabled ? "Self-service enabled" : "Self-service disabled",
-          description: `Success ${res.data.success}, failed ${res.data.failed}`,
+          title: enabled ? "已开启自助显隐" : "已关闭自助显隐",
+          description: `成功 ${res.data.success} 个，失败 ${res.data.failed} 个`,
           variant: res.data.failed ? "default" : "success",
         });
         await refreshAfterBatch();
       } else {
-        toast({ title: "Batch action failed", description: res.message, variant: "destructive" });
+        toast({ title: "批量操作失败", description: res.message, variant: "destructive" });
       }
     } catch (error: any) {
-      toast({ title: "Batch action failed", description: error.message, variant: "destructive" });
+      toast({ title: "批量操作失败", description: error.message, variant: "destructive" });
     } finally {
       setBatchUserLoading(false);
     }
@@ -948,28 +962,33 @@ export default function AdminUsersPage() {
 
   const handleSelectedDelete = async () => {
     if (selectedUids.length === 0) return;
-    const ok = await confirmAction({
-      title: "Delete selected users?",
-      description: `Delete ${selectedUids.length} selected users. Admin accounts and the current admin are protected by the backend and will be skipped.`,
+    const action = await confirmAction({
+      title: "删除所选用户？",
+      description: `将删除 ${selectedUids.length} 个已选用户。管理员账号和当前管理员由后端保护，会自动跳过。`,
       tone: "danger",
-      confirmLabel: "Delete selected",
+      cancelLabel: "取消",
+      actions: [
+        { label: "仅删除本地账号", value: "local_only", variant: "destructive" },
+        { label: `同时删除 Emby 账号（${selectedEmbyCount} 个）`, value: "with_emby", variant: "destructive" },
+      ],
     });
-    if (!ok) return;
+    if (!action) return;
+    const deleteEmby = action === "with_emby";
     setBatchUserLoading(true);
     try {
-      const res = await api.batchDeleteUsers(selectedUids, batchDeleteEmby);
+      const res = await api.batchDeleteUsers(selectedUids, deleteEmby);
       if (res.success && res.data) {
         toast({
-          title: "Batch delete complete",
-          description: `Success ${res.data.success}, failed ${res.data.failed}`,
+          title: "批量删除完成",
+          description: `成功 ${res.data.success} 个，失败 ${res.data.failed} 个`,
           variant: res.data.failed ? "default" : "success",
         });
         await refreshAfterBatch();
       } else {
-        toast({ title: "Batch delete failed", description: res.message, variant: "destructive" });
+        toast({ title: "批量删除失败", description: res.message, variant: "destructive" });
       }
     } catch (error: any) {
-      toast({ title: "Batch delete failed", description: error.message, variant: "destructive" });
+      toast({ title: "批量删除失败", description: error.message, variant: "destructive" });
     } finally {
       setBatchUserLoading(false);
     }
@@ -986,10 +1005,10 @@ export default function AdminUsersPage() {
       if (res.success && res.data) {
         setBatchLibraries(res.data);
       } else {
-        toast({ title: "Load libraries failed", description: res.message, variant: "destructive" });
+        toast({ title: "媒体库加载失败", description: res.message, variant: "destructive" });
       }
     } catch (error: any) {
-      toast({ title: "Load libraries failed", description: error.message, variant: "destructive" });
+      toast({ title: "媒体库加载失败", description: error.message, variant: "destructive" });
     } finally {
       setBatchLibraryLoading(false);
     }
@@ -1007,7 +1026,7 @@ export default function AdminUsersPage() {
   const applyBatchLibraryAction = async () => {
     if (selectedUids.length === 0) return;
     if ((batchLibraryAction === "show" || batchLibraryAction === "hide" || batchLibraryAction === "set") && batchLibrarySelectedIds.size === 0) {
-      toast({ title: "Select at least one library", variant: "destructive" });
+      toast({ title: "请至少选择一个媒体库", variant: "destructive" });
       return;
     }
     setBatchLibraryLoading(true);
@@ -1019,17 +1038,17 @@ export default function AdminUsersPage() {
       });
       if (res.success && res.data) {
         toast({
-          title: "Library batch complete",
-          description: `Success ${res.data.success}, failed ${res.data.failed}`,
+          title: "媒体库批量设置完成",
+          description: `成功 ${res.data.success} 个，失败 ${res.data.failed} 个`,
           variant: res.data.failed ? "default" : "success",
         });
         setBatchLibraryOpen(false);
         await refreshAfterBatch();
       } else {
-        toast({ title: "Library batch failed", description: res.message, variant: "destructive" });
+        toast({ title: "媒体库批量设置失败", description: res.message, variant: "destructive" });
       }
     } catch (error: any) {
-      toast({ title: "Library batch failed", description: error.message, variant: "destructive" });
+      toast({ title: "媒体库批量设置失败", description: error.message, variant: "destructive" });
     } finally {
       setBatchLibraryLoading(false);
     }
@@ -1860,45 +1879,56 @@ export default function AdminUsersPage() {
       {/* Users Table */}
       {selectedUserIds.size > 0 && (
         <Card className="border-primary/30">
-          <CardContent className="flex flex-col gap-3 p-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="font-medium">Selected {selectedUserIds.size} users</p>
+          <CardContent className="flex flex-col gap-4 p-4 xl:flex-row xl:items-center xl:justify-between">
+            <div className="space-y-1">
+              <p className="font-medium">已选择 {selectedUserIds.size} 个用户</p>
               <p className="text-xs text-muted-foreground">
-                {selectedUsers.filter((user) => Boolean(user.emby_id)).length} selected users have Emby accounts. Batch active/delete operations skip admin accounts on the backend.
+                其中 {selectedEmbyCount} 个已绑定 Emby{selectedAdminCount > 0 ? `，${selectedAdminCount} 个管理员会被后端自动跳过` : "；管理员账号会被后端自动跳过"}。
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="outline" size="sm" onClick={() => setSelectedUserIds(new Set())} disabled={batchUserLoading || batchLibraryLoading}>
-                Clear
+                清空选择
               </Button>
-              <Button variant="outline" size="sm" onClick={() => void handleSelectedToggleActive(false)} disabled={batchUserLoading}>
-                <Ban className="mr-2 h-4 w-4" />
-                Disable
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => void handleSelectedLibrarySelfService(true)} disabled={batchUserLoading}>
-                <Eye className="mr-2 h-4 w-4" />
-                Enable self-service
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => void handleSelectedLibrarySelfService(false)} disabled={batchUserLoading}>
-                <EyeOff className="mr-2 h-4 w-4" />
-                Disable self-service
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => void openBatchLibraryDialog()} disabled={batchUserLoading || batchLibraryLoading}>
-                <Eye className="mr-2 h-4 w-4" />
-                Libraries
-              </Button>
-              <label className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs text-muted-foreground">
-                <input
-                  type="checkbox"
-                  checked={batchDeleteEmby}
-                  onChange={(event) => setBatchDeleteEmby(event.target.checked)}
-                  className="h-4 w-4"
-                />
-                Delete Emby too
-              </label>
+              <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/20 p-1">
+                <span className="px-2 text-xs text-muted-foreground">账号状态</span>
+                <Button variant="outline" size="sm" onClick={() => void handleSelectedToggleActive(true)} disabled={batchUserLoading}>
+                  <UserCheck className="mr-2 h-4 w-4" />
+                  启用
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => void handleSelectedToggleActive(false)} disabled={batchUserLoading}>
+                  <Ban className="mr-2 h-4 w-4" />
+                  禁用
+                </Button>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/20 p-1">
+                <span className="px-2 text-xs text-muted-foreground">媒体权限</span>
+                <Button variant="outline" size="sm" onClick={() => void openBatchLibraryDialog()} disabled={batchUserLoading || batchLibraryLoading}>
+                  <Eye className="mr-2 h-4 w-4" />
+                  媒体库显隐
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" disabled={batchUserLoading || batchLibraryLoading}>
+                      <MoreHorizontal className="mr-2 h-4 w-4" />
+                      自助显隐
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => void handleSelectedLibrarySelfService(true)}>
+                      <Eye className="mr-2 h-4 w-4" />
+                      开启自助显隐入口
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => void handleSelectedLibrarySelfService(false)}>
+                      <EyeOff className="mr-2 h-4 w-4" />
+                      关闭自助显隐入口
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
               <Button variant="destructive" size="sm" onClick={() => void handleSelectedDelete()} disabled={batchUserLoading}>
                 {batchUserLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-                Delete
+                删除所选
               </Button>
             </div>
           </CardContent>
@@ -1923,7 +1953,7 @@ export default function AdminUsersPage() {
                         checked={selectedUserIds.has(user.uid)}
                         onChange={() => toggleSelectedUser(user.uid)}
                         className="mt-1 h-4 w-4"
-                        aria-label={`Select ${user.username}`}
+                        aria-label={`选择 ${user.username}`}
                       />
                       <div className="min-w-0">
                         <p className="truncate text-base font-medium">{user.username}</p>
@@ -1994,7 +2024,7 @@ export default function AdminUsersPage() {
                         checked={allPageSelected}
                         onChange={toggleSelectCurrentPage}
                         className="h-4 w-4"
-                        aria-label="Select current page"
+                        aria-label="选择当前页用户"
                       />
                     </th>
                     <th className="px-4 py-3 text-left text-sm font-medium">用户</th>
@@ -2015,7 +2045,7 @@ export default function AdminUsersPage() {
                           checked={selectedUserIds.has(user.uid)}
                           onChange={() => toggleSelectedUser(user.uid)}
                           className="h-4 w-4"
-                          aria-label={`Select ${user.username}`}
+                          aria-label={`选择 ${user.username}`}
                         />
                       </td>
                       <td className="px-4 py-3">
@@ -2138,24 +2168,24 @@ export default function AdminUsersPage() {
       <Dialog open={batchLibraryOpen} onOpenChange={(open) => { if (!batchLibraryLoading) setBatchLibraryOpen(open); }}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Batch library visibility</DialogTitle>
+            <DialogTitle>批量设置媒体库显隐</DialogTitle>
             <DialogDescription>
-              Apply Emby library show/hide policy to {selectedUserIds.size} selected users. Users without Emby accounts are skipped.
+              将对 {selectedUserIds.size} 个已选用户应用 Emby 媒体库显示策略。未绑定 Emby 的用户会自动跳过。
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Action</Label>
+              <Label>操作方式</Label>
               <Select value={batchLibraryAction} onValueChange={(value) => setBatchLibraryAction(value as typeof batchLibraryAction)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="show">Show selected libraries</SelectItem>
-                  <SelectItem value="hide">Hide selected libraries</SelectItem>
-                  <SelectItem value="set">Set visible libraries exactly</SelectItem>
-                  <SelectItem value="enable_all">Show all libraries</SelectItem>
-                  <SelectItem value="disable_all">Hide all libraries</SelectItem>
+                  <SelectItem value="show">显示选中的媒体库</SelectItem>
+                  <SelectItem value="hide">隐藏选中的媒体库</SelectItem>
+                  <SelectItem value="set">仅显示选中的媒体库</SelectItem>
+                  <SelectItem value="enable_all">显示全部媒体库</SelectItem>
+                  <SelectItem value="disable_all">隐藏全部媒体库</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -2166,7 +2196,7 @@ export default function AdminUsersPage() {
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                   </div>
                 ) : batchLibraries.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No libraries returned from Emby.</p>
+                  <p className="text-sm text-muted-foreground">Emby 没有返回可操作的媒体库。</p>
                 ) : (
                   batchLibraries.map((library) => (
                     <label key={library.id} className="flex items-center justify-between gap-3 rounded-md px-2 py-2 hover:bg-muted/60">
@@ -2188,11 +2218,11 @@ export default function AdminUsersPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setBatchLibraryOpen(false)} disabled={batchLibraryLoading}>
-              Cancel
+              取消
             </Button>
             <Button onClick={() => void applyBatchLibraryAction()} disabled={batchLibraryLoading}>
               {batchLibraryLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Apply
+              应用设置
             </Button>
           </DialogFooter>
         </DialogContent>
