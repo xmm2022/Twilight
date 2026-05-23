@@ -128,9 +128,9 @@ func (a *App) startManualSchedulerJob(ctx context.Context, jobID string, params 
 			return nil
 		})
 		if err != nil {
-			slog.Warn("manual scheduler job failed", "job_id", jobID, "error", err)
+			zap.L().Warn("manual scheduler job failed", "job_id", jobID, "error", err)
 		} else {
-			slog.Info("manual scheduler job completed", "job_id", jobID)
+			zap.L().Info("manual scheduler job completed", "job_id", jobID)
 		}
 	}()
 	return run, true
