@@ -116,7 +116,7 @@ export default function AdminViolationsPage() {
 
   const totalPages = Math.ceil(total / 20);
 
-  if (error) return <PageError message={error.message} />;
+  if (error) return <PageError message={error} />;
 
   return (
     <div className="space-y-6">
