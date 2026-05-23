@@ -21,8 +21,8 @@
         {
           default = pkgs.mkShell {
             packages = with pkgs; [
-              go
-              nodejs
+              go_1_25
+              nodejs_22
               pnpm
               pkg-config
               openssl

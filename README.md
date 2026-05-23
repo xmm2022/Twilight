@@ -6,7 +6,7 @@
 
 面向 Emby / Jellyfin 的用户、邀请码、注册码、求片与 Telegram Bot 管理面板。
 
-[![Go](https://img.shields.io/badge/Go-1.23+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js&logoColor=white)](https://nextjs.org/)
 [![Version](https://img.shields.io/badge/Version-0.0.4-blue)](docs/VERSION_HISTORY.md)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
@@ -57,7 +57,7 @@ docs/                   中文部署、API、安全、版本历史文档
 ## 环境要求
 
 - Linux 服务器，建议使用 systemd 管理后端服务。
-- Go `1.23+`。
+- Go `1.25+`。
 - Node.js `22+`，用于构建 Next.js 前端。
 - 已部署并可由后端访问的 Emby 或 Jellyfin。
 - 可选：PostgreSQL，用于更好的并发和长期运行性能。
