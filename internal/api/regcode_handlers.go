@@ -53,12 +53,12 @@ func (a *App) handleCreateRegcodes(w http.ResponseWriter, r *http.Request, _ Par
 	}
 	validity := int64(intValue(payload, "validity_time", -1))
 	useLimit := intValue(payload, "use_count_limit", 1)
-	format := firstNonEmpty(stringValue(payload, "format"), "TW-{type}-{random}")
-	algorithm := firstNonEmpty(stringValue(payload, "random_algorithm"), "base32-20")
+	format := firstNonEmpty(stringValue(payload, "format"), a.cfg.RegCodeFormat, "TW-{type}-{random}")
+	algorithm := firstNonEmpty(stringValue(payload, "random_algorithm"), a.cfg.RegCodeRandomAlgorithm, "base32-20")
 	codes := make([]string, 0, count)
 	targetUsername := strings.TrimSpace(stringValue(payload, "target_username"))
 	for i := 0; i < count; i++ {
-		code := generateRegCode(format, codeType, algorithm)
+		code := generateRegCode(format, codeType, algorithm, days, i+1, validity, useLimit)
 		_ = a.store.UpsertRegCode(store.RegCode{Code: code, Type: codeType, ValidityTime: validity, UseCountLimit: useLimit, Days: days, Note: truncateString(stringValue(payload, "note"), 120), IsDecoy: boolValue(payload, "decoy", false), TargetUsername: targetUsername, Active: true})
 		codes = append(codes, code)
 	}

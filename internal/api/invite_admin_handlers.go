@@ -3,9 +3,17 @@ package api
 import "net/http"
 
 func (a *App) handleInviteTree(w http.ResponseWriter, r *http.Request, _ Params) {
+	if !a.cfg.InviteEnabled {
+		fail(w, http.StatusForbidden, "邀请功能未开启")
+		return
+	}
 	ok(w, "OK", a.inviteForest())
 }
 func (a *App) handleAdminInviteCodes(w http.ResponseWriter, r *http.Request, _ Params) {
+	if !a.cfg.InviteEnabled {
+		fail(w, http.StatusForbidden, "邀请功能未开启")
+		return
+	}
 	codes := a.store.ListAllInviteCodes()
 	items := make([]map[string]any, 0, len(codes))
 	for _, code := range codes {

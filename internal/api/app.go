@@ -79,6 +79,29 @@ type principal struct {
 	FromCookie bool
 }
 
+type statusResponseWriter struct {
+	http.ResponseWriter
+	status int
+	bytes  int
+}
+
+func (w *statusResponseWriter) WriteHeader(status int) {
+	if w.status != 0 {
+		return
+	}
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *statusResponseWriter) Write(data []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	n, err := w.ResponseWriter.Write(data)
+	w.bytes += n
+	return n, err
+}
+
 type contextKey string
 
 const principalKey contextKey = "principal"
@@ -263,58 +286,91 @@ func configFileSignature(path string) string {
 }
 
 func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
+	lw := &statusResponseWriter{ResponseWriter: w}
+	var principalLog *principal
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			zap.L().Error("panic in api handler", zap.Any("panic", recovered))
-			fail(w, http.StatusInternalServerError, "服务器内部错误")
+			fail(lw, http.StatusInternalServerError, "服务器内部错误")
+		}
+		status := lw.status
+		if status == 0 {
+			status = http.StatusOK
+		}
+		fields := []zap.Field{
+			zap.String("method", r.Method),
+			zap.String("path", r.URL.Path),
+			zap.Int("status", status),
+			zap.Int("bytes", lw.bytes),
+			zap.Int64("duration_ms", time.Since(started).Milliseconds()),
+			zap.String("ip", a.clientIP(r)),
+		}
+		if principalLog != nil {
+			fields = append(fields, zap.Int64("uid", principalLog.User.UID), zap.String("username", principalLog.User.Username))
+		}
+		switch {
+		case status >= 500:
+			zap.L().Error("http request completed", fields...)
+		case status >= 400:
+			zap.L().Warn("http request completed", fields...)
+		default:
+			zap.L().Info("http request completed", fields...)
 		}
 	}()
 	a.reloadConfigIfChanged()
-	a.applySecurityHeaders(w)
-	if a.applyCORS(w, r) && r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
+	a.applySecurityHeaders(lw)
+	if a.applyCORS(lw, r) && r.Method == http.MethodOptions {
+		lw.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if a.cfg.MaxUploadSize > 0 {
-		r.Body = http.MaxBytesReader(w, r.Body, a.cfg.MaxUploadSize)
+		r.Body = http.MaxBytesReader(lw, r.Body, a.cfg.MaxUploadSize)
 	}
 	if a.store.IsIPBlacklisted(a.clientIP(r)) {
-		fail(w, http.StatusForbidden, "IP 已被封禁")
+		fail(lw, http.StatusForbidden, "IP 已被封禁")
 		return
 	}
 
-	if !a.limiter.Allow(r.Context(), rateKey("global:", a.clientIP(r)), 600, time.Minute) {
-		fail(w, http.StatusTooManyRequests, "请求过于频繁，请稍后再试")
+	if !a.allowRate(r.Context(), rateKey("global:", a.clientIP(r)), a.cfg.RateLimitGlobalPerMinute, time.Minute) {
+		fail(lw, http.StatusTooManyRequests, "请求过于频繁，请稍后再试")
 		return
 	}
 
 	route, params, methodAllowed := a.match(r.Method, r.URL.Path)
 	if route == nil {
 		if methodAllowed {
-			fail(w, http.StatusMethodNotAllowed, "请求方法不允许")
+			fail(lw, http.StatusMethodNotAllowed, "请求方法不允许")
 		} else {
-			fail(w, http.StatusNotFound, "接口不存在")
+			fail(lw, http.StatusNotFound, "接口不存在")
 		}
 		return
 	}
 
-	principal, ok := a.authenticate(w, r, route.Auth)
+	principal, ok := a.authenticate(lw, r, route.Auth)
 	if !ok {
 		return
 	}
+	principalLog = principal
 	if principal != nil && principal.FromCookie && isMutating(r.Method) && r.Header.Get("X-Twilight-Client") != "webui" {
-		fail(w, http.StatusForbidden, "缺少客户端校验头")
+		fail(lw, http.StatusForbidden, "缺少客户端校验头")
 		return
 	}
-	if principal != nil && a.blockRestrictedEmbyAdmin(w, r, route, principal.User) {
+	if principal != nil && a.blockRestrictedEmbyAdmin(lw, r, route, principal.User) {
 		return
 	}
 	if principal != nil {
 		r = r.WithContext(context.WithValue(r.Context(), principalKey, *principal))
 	}
-	route.Handler(w, r, params)
+	route.Handler(lw, r, params)
 }
 
+func (a *App) allowRate(ctx context.Context, key string, limit int, window time.Duration) bool {
+	if !a.cfg.RateLimitEnabled || limit <= 0 {
+		return true
+	}
+	return a.limiter.Allow(ctx, key, limit, window)
+}
 func (a *App) add(method, pattern string, auth AuthLevel, handler HandlerFunc) {
 	a.routes = append(a.routes, Route{Method: method, Pattern: pattern, Auth: auth, Handler: handler})
 }
@@ -440,9 +496,9 @@ func (a *App) authenticateAPIKey(r *http.Request) (*principal, bool) {
 	}
 	limit := ak.RateLimit
 	if limit <= 0 {
-		limit = 100
+		limit = a.cfg.RateLimitAPIKeyDefaultPerMinute
 	}
-	if !a.limiter.Allow(r.Context(), rateKey("apikey:", hash), limit, time.Minute) {
+	if !a.allowRate(r.Context(), rateKey("apikey:", hash), limit, time.Minute) {
 		return nil, false
 	}
 	if ak.ID > 0 {
@@ -723,7 +779,7 @@ func expireStatus(expiredAt int64) string {
 		return "已过期"
 	}
 	days := int((expiredAt - now) / 86400)
-	return fmt.Sprintf("剩余 %d天", days)
+	return fmt.Sprintf("剩余 %d 天", days)
 }
 
 func hashAPIKey(key string) string {

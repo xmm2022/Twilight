@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { adminNavItems, userNavItems } from "@/components/layout/sidebar";
+import { adminNavItems, filterNavItems, userNavItems } from "@/components/layout/sidebar";
 import { Github, Menu, Moon, Sparkles, Sun } from "lucide-react";
 
 const SAFE_IMAGE_URL = /^(https?:\/\/|\/|data:image\/(png|jpe?g|gif|webp|avif|bmp)(;|,))/i;
@@ -33,6 +33,14 @@ export function Header() {
   const isDark = activeTheme === "dark";
   const systemIcon = useMemo(() => sanitizeImageUrl(systemInfo?.icon), [systemInfo?.icon]);
   const displaySiteName = systemInfo?.name || "Twilight";
+  const visibleUserNavItems = useMemo(
+    () => filterNavItems(userNavItems, systemInfo?.features),
+    [systemInfo?.features],
+  );
+  const visibleAdminNavItems = useMemo(
+    () => filterNavItems(adminNavItems, systemInfo?.features),
+    [systemInfo?.features],
+  );
 
   useEffect(() => {
     void fetchSystemInfo();
@@ -57,7 +65,7 @@ export function Header() {
 
               <nav className="min-h-0 space-y-2 overflow-y-auto overscroll-contain px-3 py-4">
                 <p className="px-2 text-xs uppercase tracking-[0.14em] text-muted-foreground">用户菜单</p>
-                {userNavItems.map((item) => {
+                {visibleUserNavItems.map((item) => {
                   const active = pathname === item.href;
                   return (
                     <Link
@@ -79,7 +87,7 @@ export function Header() {
                 {isAdmin && (
                   <>
                     <p className="px-2 pt-2 text-xs uppercase tracking-[0.14em] text-muted-foreground">管理菜单</p>
-                    {adminNavItems.map((item) => {
+                    {visibleAdminNavItems.map((item) => {
                       const active = pathname.startsWith(item.href);
                       return (
                         <Link

@@ -384,7 +384,7 @@ func (a *App) handleAdminBulkExpire(w http.ResponseWriter, r *http.Request, _ Pa
 				fail(w, http.StatusBadRequest, "days too large")
 				return
 			}
-			expiredAt = time.Now().Add(time.Duration(days) * 24 * time.Hour).Unix()
+			expiredAt = time.Now().AddDate(0, 0, days).Unix()
 		}
 	}
 	if expiredAt == 0 || (expiredAt < -1) || expiredAt > 253402214400 {
@@ -396,6 +396,9 @@ func (a *App) handleAdminBulkExpire(w http.ResponseWriter, r *http.Request, _ Pa
 	matched, updated, skipped := a.updateFilteredUsers(payload["filter"], func(u store.User) (bool, string) {
 		if u.Role == store.RoleAdmin && !includeAdmin {
 			return false, "admin"
+		}
+		if a.configuredAdminMatch(u.UID, u.Username) && !includeAdmin {
+			return false, "configured_admin"
 		}
 		if u.Role == store.RoleWhitelist && !includeWhitelist {
 			return false, "whitelist"
@@ -450,6 +453,11 @@ func (a *App) handleAdminBulkEnableDisabled(w http.ResponseWriter, r *http.Reque
 		if u.Role == store.RoleAdmin && !includeAdmin {
 			skippedAdmins++
 			skippedItems = append(skippedItems, map[string]any{"uid": u.UID, "reason": "admin"})
+			continue
+		}
+		if a.configuredAdminMatch(u.UID, u.Username) && !includeAdmin {
+			skippedAdmins++
+			skippedItems = append(skippedItems, map[string]any{"uid": u.UID, "reason": "configured_admin"})
 			continue
 		}
 		if u.Role == store.RoleWhitelist && !includeWhitelist {
@@ -603,6 +611,10 @@ func (a *App) handleAdminKickNoEmby(w http.ResponseWriter, r *http.Request, _ Pa
 }
 
 func (a *App) handleInviteDetach(w http.ResponseWriter, r *http.Request, params Params) {
+	if !a.cfg.InviteEnabled {
+		fail(w, http.StatusForbidden, "邀请功能未开启")
+		return
+	}
 	uid, _ := int64Param(params, "uid")
 	if _, okUser := a.store.User(uid); !okUser {
 		fail(w, http.StatusNotFound, "user not found")

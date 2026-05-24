@@ -91,6 +91,24 @@ export const adminNavItems: SidebarNavItem[] = [
   { href: "/admin/test", label: "服务器信息", icon: TestTube },
 ];
 
+export function filterNavItems(
+  items: SidebarNavItem[],
+  features?: Record<string, boolean> | null,
+) {
+  return items.filter((item) => {
+    if (features?.media_request === false && (item.href === "/media" || item.href === "/admin/requests")) {
+      return false;
+    }
+    if (features?.signin === false && item.href === "/score") {
+      return false;
+    }
+    if (features?.invite === false && (item.href === "/invite" || item.href === "/admin/invite")) {
+      return false;
+    }
+    return true;
+  });
+}
+
 export function Sidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
@@ -138,6 +156,14 @@ export function Sidebar() {
   const displaySiteName = systemInfo?.name || SITE_NAME;
   const safeSystemIcon = useMemo(() => sanitizeImageUrl(systemInfo?.icon), [systemInfo?.icon]);
   const safeProfileAvatar = useMemo(() => sanitizeImageUrl(profileAvatar), [profileAvatar]);
+  const visibleUserNavItems = useMemo(
+    () => filterNavItems(userNavItems, systemInfo?.features),
+    [systemInfo?.features],
+  );
+  const visibleAdminNavItems = useMemo(
+    () => filterNavItems(adminNavItems, systemInfo?.features),
+    [systemInfo?.features],
+  );
 
   const toggleTheme = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -220,7 +246,7 @@ export function Sidebar() {
 
         <nav className="sidebar-nav">
           <p className="sidebar-label">用户菜单</p>
-          {userNavItems.map((item) => {
+          {visibleUserNavItems.map((item) => {
             const active = pathname === item.href;
             return (
               <Link
@@ -237,7 +263,7 @@ export function Sidebar() {
           {isAdmin && (
             <>
               <p className="sidebar-label mt-5">管理菜单</p>
-              {adminNavItems.map((item) => {
+              {visibleAdminNavItems.map((item) => {
                 const active = pathname.startsWith(item.href);
                 return (
                   <Link

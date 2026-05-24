@@ -78,7 +78,7 @@ type CodeCheckInfo = CodeUsePreview;
 
 export default function DashboardPage() {
   const { user, fetchUser } = useAuthStore();
-  const { fetchInfo: fetchSystemInfo } = useSystemStore();
+  const { info: systemInfo, fetchInfo: fetchSystemInfo } = useSystemStore();
   const { toast } = useToast();
   const [regCode, setRegCode] = useState("");
   const [regCodeInfo, setRegCodeInfo] = useState<CodeCheckInfo | null>(null);
@@ -107,6 +107,7 @@ export default function DashboardPage() {
   const [isLatencyTesting, setIsLatencyTesting] = useState(false);
   const [signinSummary, setSigninSummary] = useState<SigninSummary | null>(null);
   const [signingIn, setSigningIn] = useState(false);
+  const mediaRequestEnabled = systemInfo?.features?.media_request !== false;
 
   const embyRegisterStorageKey = user?.uid ? `twilight:emby-register:${user.uid}` : null;
 
@@ -830,6 +831,7 @@ export default function DashboardPage() {
         </motion.div>
 
         {/* 求片状态 */}
+        {mediaRequestEnabled && (
         <motion.div variants={item} className="premium-card p-5 sm:p-6 flex flex-col gap-3">
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
@@ -868,6 +870,7 @@ export default function DashboardPage() {
             <p className="text-xs text-muted-foreground mt-auto pt-1">还没有求片记录</p>
           )}
         </motion.div>
+        )}
       </div>
 
       {/* 签到 / 积分 快捷区 */}

@@ -28,6 +28,7 @@ import { Input } from "@/components/ui/input";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { api, type InviteForest, type InviteForestNode } from "@/lib/api";
+import { useSystemStore } from "@/store/system";
 
 interface TreeRow {
   node: InviteForestNode;
@@ -80,19 +81,20 @@ function subtreeSize(uid: number, children: Map<number, number[]>): number {
 }
 
 function roleLabel(role: number): string {
-  if (role === 0) return "Admin";
-  if (role === 2) return "Whitelist";
-  return "User";
+  if (role === 0) return "管理员";
+  if (role === 2) return "白名单";
+  return "用户";
 }
 
 function formatUnix(seconds?: number | null): string {
-  if (!seconds || seconds <= 0 || seconds >= 253402214400) return "Permanent";
+  if (!seconds || seconds <= 0 || seconds >= 253402214400) return "永久";
   return new Date(seconds * 1000).toLocaleString("zh-CN");
 }
 
 export default function AdminInviteTreePage() {
   const { toast } = useToast();
   const { confirm } = useConfirm();
+  const { info: systemInfo, fetchInfo: fetchSystemInfo } = useSystemStore();
   const [forest, setForest] = useState<InviteForest | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -111,14 +113,18 @@ export default function AdminInviteTreePage() {
       if (res.success && res.data) {
         setForest(res.data);
       } else {
-        throw new Error(res.message || "Load failed");
+        throw new Error(res.message || "加载失败");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Load failed");
+      setError(err instanceof Error ? err.message : "加载失败");
     } finally {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    void fetchSystemInfo();
+  }, [fetchSystemInfo]);
 
   useEffect(() => {
     void reload();
@@ -206,92 +212,92 @@ export default function AdminInviteTreePage() {
   const handleDetach = async () => {
     if (!selected) return;
     const ok = await confirm({
-      title: "Detach invite parent?",
-      description: "The user becomes a new root. Children remain attached to this user.",
+      title: "解除该用户的上级？",
+      description: "该用户会成为新的根节点，其下级仍保留在该用户名下。",
       tone: "warning",
-      confirmLabel: "Detach",
+      confirmLabel: "解除上级",
     });
     if (!ok) return;
     const res = await api.adminDetachInviteUser(selected.uid).catch((err) => ({
       success: false,
-      message: err instanceof Error ? err.message : "Request failed",
+      message: err instanceof Error ? err.message : "请求失败",
     }));
     if (res.success) {
-      toast({ title: "Detached" });
+      toast({ title: "已解除上级" });
       await reload();
     } else {
-      toast({ title: "Action failed", description: res.message, variant: "destructive" });
+      toast({ title: "操作失败", description: res.message, variant: "destructive" });
     }
   };
 
   const handleCascadeToggle = async (enable: boolean) => {
     if (!selected) return;
-    const action = enable ? "enable" : "disable";
+    const action = enable ? "启用" : "禁用";
     const raw = await requestDepth(
-      `Cascade ${action}`,
-      "1 = selected user only, N = selected user plus N-1 levels, 0 = whole subtree.",
-      `Confirm ${action}`,
+      `级联${action}`,
+      "1 表示仅当前用户，N 表示当前用户加 N-1 层下级，0 表示整棵子树。",
+      `确认${action}`,
     );
     if (raw === null) return;
     const depth = parseInt(raw, 10);
     if (!Number.isFinite(depth) || depth < 0) {
-      toast({ title: "Depth must be a non-negative integer", variant: "destructive" });
+      toast({ title: "层级必须是非负整数", variant: "destructive" });
       return;
     }
     const ok = await confirm({
-      title: `Confirm cascade ${action}?`,
-      description: depth === 0 ? "This applies to the whole subtree." : `This applies depth ${depth}.`,
+      title: `确认级联${action}？`,
+      description: depth === 0 ? "该操作会应用到整棵子树。" : `该操作会应用到 ${depth} 层。`,
       tone: enable ? "warning" : "danger",
-      confirmLabel: `Confirm ${action}`,
+      confirmLabel: `确认${action}`,
     });
     if (!ok) return;
     const res = await api.toggleUserActive(selected.uid, { enable, cascadeDepth: depth }).catch((err) => ({
       success: false,
-      message: err instanceof Error ? err.message : "Request failed",
+      message: err instanceof Error ? err.message : "请求失败",
       data: null,
     }));
     if (res.success) {
       toast({
-        title: "Cascade updated",
-        description: `Affected ${res.data?.affected?.length ?? 0}, skipped ${res.data?.skipped?.length ?? 0}`,
+        title: "级联操作已完成",
+        description: `影响 ${res.data?.affected?.length ?? 0} 个，跳过 ${res.data?.skipped?.length ?? 0} 个`,
         variant: "success",
       });
       await reload();
     } else {
-      toast({ title: "Action failed", description: res.message, variant: "destructive" });
+      toast({ title: "操作失败", description: res.message, variant: "destructive" });
     }
   };
 
   const handleCascadeDelete = async () => {
     if (!selected) return;
     const raw = await requestDepth(
-      "Cascade delete",
-      "1 = selected user only, N = selected user plus N-1 levels, 0 = whole subtree.",
-      "Continue delete",
+      "级联删除",
+      "1 表示仅当前用户，N 表示当前用户加 N-1 层下级，0 表示整棵子树。",
+      "继续删除",
     );
     if (raw === null) return;
     const depth = parseInt(raw, 10);
     if (!Number.isFinite(depth) || depth < 0) {
-      toast({ title: "Depth must be a non-negative integer", variant: "destructive" });
+      toast({ title: "层级必须是非负整数", variant: "destructive" });
       return;
     }
     const ok = await confirm({
-      title: "Confirm cascade delete?",
-      description: depth === 0 ? "This deletes the whole subtree locally and in Emby." : `This deletes depth ${depth} locally and in Emby.`,
+      title: "确认级联删除？",
+      description: depth === 0 ? "该操作会删除整棵子树的本地账号和 Emby 账号。" : `该操作会删除 ${depth} 层内的本地账号和 Emby 账号。`,
       tone: "danger",
-      confirmLabel: "Delete",
+      confirmLabel: "删除",
     });
     if (!ok) return;
     const res = await api.deleteUserScoped(selected.uid, { mode: "with_emby", cascadeDepth: depth }).catch((err) => ({
       success: false,
-      message: err instanceof Error ? err.message : "Request failed",
+      message: err instanceof Error ? err.message : "请求失败",
     }));
     if (res.success) {
-      toast({ title: "Deleted", variant: "success" });
+      toast({ title: "已删除", variant: "success" });
       setSelectedUid(null);
       await reload();
     } else {
-      toast({ title: "Action failed", description: res.message, variant: "destructive" });
+      toast({ title: "操作失败", description: res.message, variant: "destructive" });
     }
   };
 
@@ -304,21 +310,33 @@ export default function AdminInviteTreePage() {
     });
   };
 
+  if (systemInfo?.features?.invite === false) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="space-y-2 p-10 text-center">
+          <GitBranch className="mx-auto h-10 w-10 text-muted-foreground" />
+          <p className="font-medium">邀请系统未开启</p>
+          <p className="text-xs text-muted-foreground">开启邀请树后才会显示邀请森林和级联操作。</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold">
             <GitBranch className="h-5 w-5" />
-            Invite Tree
+            邀请森林
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Lightweight invite relationship table with search, root filtering, and cascade operations.
+            查看邀请关系、根节点和下级数量，并对指定分支执行级联操作。
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => void reload()} disabled={loading}>
           {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-          Refresh
+          刷新
         </Button>
       </div>
 
@@ -327,14 +345,14 @@ export default function AdminInviteTreePage() {
           <div className="grid gap-2 sm:grid-cols-[minmax(220px,1fr)_220px]">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search username / UID / Telegram ID" className="pl-9" />
+              <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索用户名 / UID / Telegram ID" className="pl-9" />
             </div>
             <select
               value={rootFilter}
               onChange={(event) => setRootFilter(event.target.value === "all" ? "all" : Number(event.target.value))}
               className="h-10 rounded-md border bg-background px-3 text-sm"
             >
-              <option value="all">All roots</option>
+              <option value="all">全部根节点</option>
               {rootOptions.map(({ uid, node }) => (
                 <option key={uid} value={uid}>
                   #{uid} {node.username}
@@ -343,9 +361,9 @@ export default function AdminInviteTreePage() {
             </select>
           </div>
           <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-            <Badge variant="outline">{forest?.nodes.length ?? 0} users</Badge>
-            <Badge variant="outline">{forest?.edges.length ?? 0} relations</Badge>
-            <Badge variant="outline">{forest?.roots.length ?? 0} roots</Badge>
+            <Badge variant="outline">{forest?.nodes.length ?? 0} 用户</Badge>
+            <Badge variant="outline">{forest?.edges.length ?? 0} 关系</Badge>
+            <Badge variant="outline">{forest?.roots.length ?? 0} 根节点</Badge>
           </div>
         </CardContent>
       </Card>
@@ -365,8 +383,8 @@ export default function AdminInviteTreePage() {
         <Card className="border-dashed">
           <CardContent className="space-y-2 p-10 text-center">
             <GitBranch className="mx-auto h-10 w-10 text-muted-foreground" />
-            <p className="font-medium">No invite relationships</p>
-            <p className="text-xs text-muted-foreground">Invite users will appear here after invite codes are used.</p>
+            <p className="font-medium">暂无邀请关系</p>
+            <p className="text-xs text-muted-foreground">邀请码被使用后，用户关系会显示在这里。</p>
           </CardContent>
         </Card>
       ) : (
@@ -376,13 +394,13 @@ export default function AdminInviteTreePage() {
               <table className="w-full min-w-[920px] text-sm">
                 <thead>
                   <tr className="border-b bg-muted/50">
-                    <th className="px-4 py-3 text-left font-medium">User</th>
-                    <th className="px-4 py-3 text-left font-medium">Role</th>
-                    <th className="px-4 py-3 text-left font-medium">Status</th>
+                    <th className="px-4 py-3 text-left font-medium">用户</th>
+                    <th className="px-4 py-3 text-left font-medium">角色</th>
+                    <th className="px-4 py-3 text-left font-medium">状态</th>
                     <th className="px-4 py-3 text-left font-medium">Emby</th>
                     <th className="px-4 py-3 text-left font-medium">Telegram</th>
-                    <th className="px-4 py-3 text-left font-medium">Children</th>
-                    <th className="px-4 py-3 text-right font-medium">Action</th>
+                    <th className="px-4 py-3 text-left font-medium">下级</th>
+                    <th className="px-4 py-3 text-right font-medium">操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -419,16 +437,16 @@ export default function AdminInviteTreePage() {
                         </td>
                         <td className="px-4 py-3">{roleLabel(node.role)}</td>
                         <td className="px-4 py-3">
-                          <Badge variant={node.active ? "success" : "destructive"}>{node.active ? "Active" : "Disabled"}</Badge>
+                          <Badge variant={node.active ? "success" : "destructive"}>{node.active ? "启用" : "禁用"}</Badge>
                         </td>
                         <td className="px-4 py-3">
-                          <Badge variant={node.emby_id ? "outline" : "secondary"}>{node.emby_id ? "Bound" : "Unbound"}</Badge>
+                          <Badge variant={node.emby_id ? "outline" : "secondary"}>{node.emby_id ? "已绑定" : "未绑定"}</Badge>
                         </td>
                         <td className="px-4 py-3">{node.telegram_id || "-"}</td>
-                        <td className="px-4 py-3">{childCount} direct / {descendants} total</td>
+                        <td className="px-4 py-3">{childCount} 直属 / {descendants} 总计</td>
                         <td className="px-4 py-3 text-right">
                           <Button variant="outline" size="sm" onClick={() => setSelectedUid(node.uid)}>
-                            Details
+                            详情
                           </Button>
                         </td>
                       </tr>
@@ -438,7 +456,7 @@ export default function AdminInviteTreePage() {
               </table>
             </div>
             {rows.length === 0 && (
-              <div className="p-8 text-center text-sm text-muted-foreground">No users match the current filter.</div>
+              <div className="p-8 text-center text-sm text-muted-foreground">没有匹配当前筛选的用户。</div>
             )}
           </CardContent>
         </Card>
@@ -453,48 +471,48 @@ export default function AdminInviteTreePage() {
           {selected && maps && (
             <div className="space-y-3 text-sm">
               <div className="flex flex-wrap gap-2">
-                <Badge variant={selected.active ? "success" : "secondary"}>{selected.active ? "Active" : "Disabled"}</Badge>
-                <Badge variant={selected.emby_id ? "outline" : "secondary"}>{selected.emby_id ? "Emby bound" : "No Emby"}</Badge>
-                {selected.is_root && <Badge>Root</Badge>}
+                <Badge variant={selected.active ? "success" : "secondary"}>{selected.active ? "启用" : "禁用"}</Badge>
+                <Badge variant={selected.emby_id ? "outline" : "secondary"}>{selected.emby_id ? "已绑定 Emby" : "无 Emby"}</Badge>
+                {selected.is_root && <Badge>根节点</Badge>}
               </div>
               <dl className="space-y-2">
                 <div className="flex justify-between gap-3">
-                  <dt className="text-muted-foreground">Role</dt>
+                  <dt className="text-muted-foreground">角色</dt>
                   <dd>{roleLabel(selected.role)}</dd>
                 </div>
                 <div className="flex justify-between gap-3">
-                  <dt className="text-muted-foreground">Registered</dt>
+                  <dt className="text-muted-foreground">注册时间</dt>
                   <dd>{formatUnix(selected.register_time)}</dd>
                 </div>
                 <div className="flex justify-between gap-3">
-                  <dt className="text-muted-foreground">Expires</dt>
+                  <dt className="text-muted-foreground">到期时间</dt>
                   <dd>{formatUnix(selected.expired_at)}</dd>
                 </div>
                 <div className="flex justify-between gap-3">
-                  <dt className="text-muted-foreground">Root</dt>
+                  <dt className="text-muted-foreground">根节点</dt>
                   <dd>{findRoot(selected.uid, maps.parent)}</dd>
                 </div>
                 <div className="flex justify-between gap-3">
-                  <dt className="text-muted-foreground">Subtree</dt>
-                  <dd>{subtreeSize(selected.uid, maps.children)} descendants</dd>
+                  <dt className="text-muted-foreground">子树</dt>
+                  <dd>{subtreeSize(selected.uid, maps.children)} 个下级</dd>
                 </div>
               </dl>
               <div className="grid gap-2 pt-2">
                 <Button variant="outline" size="sm" onClick={() => void handleDetach()} disabled={selected.is_root}>
                   <Ban className="mr-2 h-4 w-4" />
-                  {selected.is_root ? "Already root" : "Detach parent"}
+                  {selected.is_root ? "已是根节点" : "解除上级"}
                 </Button>
                 <Button variant="outline" size="sm" onClick={() => void handleCascadeToggle(false)}>
                   <Ban className="mr-2 h-4 w-4" />
-                  Cascade disable
+                  级联禁用
                 </Button>
                 <Button variant="outline" size="sm" onClick={() => void handleCascadeToggle(true)}>
                   <ShieldCheck className="mr-2 h-4 w-4" />
-                  Cascade enable
+                  级联启用
                 </Button>
                 <Button variant="destructive" size="sm" onClick={() => void handleCascadeDelete()}>
                   <Trash2 className="mr-2 h-4 w-4" />
-                  Cascade delete
+                  级联删除
                 </Button>
               </div>
             </div>
@@ -515,8 +533,8 @@ export default function AdminInviteTreePage() {
             onChange={(event) => setDepthPrompt((current) => current ? { ...current, value: event.target.value } : current)}
           />
           <DialogFooter>
-            <Button variant="outline" onClick={() => closeDepthPrompt(null)}>Cancel</Button>
-            <Button onClick={() => closeDepthPrompt(depthPrompt?.value || "1")}>{depthPrompt?.confirmLabel || "Continue"}</Button>
+            <Button variant="outline" onClick={() => closeDepthPrompt(null)}>取消</Button>
+            <Button onClick={() => closeDepthPrompt(depthPrompt?.value || "1")}>{depthPrompt?.confirmLabel || "继续"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

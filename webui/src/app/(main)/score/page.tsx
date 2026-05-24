@@ -120,6 +120,22 @@ export default function ScorePage() {
     return `${config.daily_min} - ${config.daily_max}`;
   }, [config]);
 
+  if (!loading && disabledByConfig) {
+    return (
+      <Card className="border-border/60">
+        <CardContent className="flex min-h-[320px] flex-col items-center justify-center gap-3 p-8 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
+            <Coins className="h-7 w-7" />
+          </div>
+          <div>
+            <h1 className="text-xl font-semibold">签到功能未开启</h1>
+            <p className="mt-2 text-sm text-muted-foreground">管理员关闭签到后，签到页面不会显示可操作内容。</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* 头部：余额 + 签到按钮 */}

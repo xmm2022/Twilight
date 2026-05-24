@@ -212,13 +212,14 @@ type InviteRelation struct {
 }
 
 type BindCode struct {
-	Code       string `json:"code"`
-	Scene      string `json:"scene"`
-	UID        int64  `json:"uid,omitempty"`
-	Confirmed  bool   `json:"confirmed"`
-	TelegramID int64  `json:"telegram_id,omitempty"`
-	CreatedAt  int64  `json:"created_at"`
-	ExpiresAt  int64  `json:"expires_at"`
+	Code             string `json:"code"`
+	Scene            string `json:"scene"`
+	UID              int64  `json:"uid,omitempty"`
+	Confirmed        bool   `json:"confirmed"`
+	TelegramID       int64  `json:"telegram_id,omitempty"`
+	TelegramUsername string `json:"telegram_username,omitempty"`
+	CreatedAt        int64  `json:"created_at"`
+	ExpiresAt        int64  `json:"expires_at"`
 }
 
 // ViolationLog records attempts to use decoy codes or codes restricted to
@@ -1308,6 +1309,32 @@ func (s *Store) BindCode(code string) (BindCode, bool) {
 	return b, ok
 }
 
+func (s *Store) DeleteBindCode(code string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.state.BindCodes[code]; !ok {
+		return ErrNotFound
+	}
+	delete(s.state.BindCodes, code)
+	return s.saveLocked()
+}
+
+func (s *Store) CleanupExpiredBindCodes(now int64) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	deleted := 0
+	for code, bind := range s.state.BindCodes {
+		if bind.ExpiresAt > 0 && bind.ExpiresAt <= now {
+			delete(s.state.BindCodes, code)
+			deleted++
+		}
+	}
+	if deleted == 0 {
+		return 0, nil
+	}
+	return deleted, s.saveLocked()
+}
+
 func (s *Store) UpsertAnnouncement(a Announcement) (Announcement, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1604,6 +1631,10 @@ func (s *Store) Signin(uid int64) Signin {
 }
 
 func (s *Store) AddSignin(uid int64, points int) (Signin, bool, error) {
+	return s.AddSigninWithOptions(uid, points, nil, true)
+}
+
+func (s *Store) AddSigninWithOptions(uid int64, dailyPoints int, bonusForStreak func(int) int, resetAfterMiss bool) (Signin, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
@@ -1621,15 +1652,22 @@ func (s *Store) AddSignin(uid int64, points int) (Signin, bool, error) {
 	}
 	if si.LastSignin == yesterday {
 		si.Streak++
+	} else if si.LastSignin != "" && !resetAfterMiss {
+		si.Streak++
 	} else {
 		si.Streak = 1
 	}
 	if si.Streak > si.LongestStreak {
 		si.LongestStreak = si.Streak
 	}
+	bonusPoints := 0
+	if bonusForStreak != nil {
+		bonusPoints = bonusForStreak(si.Streak)
+	}
+	totalPoints := dailyPoints + bonusPoints
 	si.LastSignin = today
-	si.Points += points
-	si.Records = append(si.Records, SigninRecord{Date: today, Points: points, Total: points, Streak: si.Streak, CreatedAt: now.Unix()})
+	si.Points += totalPoints
+	si.Records = append(si.Records, SigninRecord{Date: today, Points: dailyPoints, BonusPoints: bonusPoints, Total: totalPoints, Streak: si.Streak, CreatedAt: now.Unix()})
 	s.state.Signin[uid] = si
 	return si, true, s.saveLocked()
 }

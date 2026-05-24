@@ -114,10 +114,22 @@ type Config struct {
 	EmbyDirectRegisterDays       int
 	EmbyUserLimit                int
 	DecoyAction                  string
+	RegCodeFormat                string
+	RegCodeRandomAlgorithm       string
 	NotificationEnabled          bool
 	NotificationExpiryRemindDays int
 	AutoCleanupNoEmby            bool
 	AutoCleanupNoEmbyDays        int
+
+	RateLimitEnabled                  bool
+	RateLimitGlobalPerMinute          int
+	RateLimitLoginPerMinute           int
+	RateLimitRegisterPer10m           int
+	RateLimitForgotPasswordIPPer10m   int
+	RateLimitForgotPasswordUserPer30m int
+	RateLimitUploadPerMinute          int
+	RateLimitAdminIconPerMinute       int
+	RateLimitAPIKeyDefaultPerMinute   int
 
 	SchedulerEnabled                bool
 	SchedulerExpiredCheckTime       string
@@ -134,6 +146,14 @@ type Config struct {
 
 	MediaRequestEnabled          bool
 	MaxConcurrentRequestsPerUser int
+	SigninEnabled                bool
+	SigninCurrencyName           string
+	SigninDailyMin               int
+	SigninDailyMax               int
+	SigninStreakBonusEnabled     bool
+	SigninStreakBonusDays        []int
+	SigninStreakBonusPoints      []int
+	SigninResetAfterMiss         bool
 	InviteEnabled                bool
 	InviteMaxDepth               int
 	InviteLimit                  int
@@ -247,8 +267,18 @@ func Load(path string) (Config, error) {
 	cfg.EmbyDirectRegisterDays = reader.intValue(cfg.EmbyDirectRegisterDays, "SAR.emby_direct_register_days", "Register.emby_direct_register_days", "emby_direct_register_days")
 	cfg.EmbyUserLimit = reader.intValue(cfg.EmbyUserLimit, "SAR.emby_user_limit", "Register.emby_user_limit", "emby_user_limit")
 	cfg.DecoyAction = reader.stringValue(cfg.DecoyAction, "SAR.regcode_decoy_action", "Register.regcode_decoy_action", "regcode_decoy_action")
+	cfg.RegCodeFormat = reader.stringValue(cfg.RegCodeFormat, "SAR.regcode_format", "Register.regcode_format", "regcode_format")
+	cfg.RegCodeRandomAlgorithm = reader.stringValue(cfg.RegCodeRandomAlgorithm, "SAR.regcode_random_algorithm", "Register.regcode_random_algorithm", "regcode_random_algorithm")
 	cfg.MediaRequestEnabled = reader.boolValue(cfg.MediaRequestEnabled, "SAR.media_request_enabled", "Register.media_request_enabled", "media_request_enabled")
 	cfg.MaxConcurrentRequestsPerUser = reader.intValue(cfg.MaxConcurrentRequestsPerUser, "SAR.max_concurrent_requests_per_user", "Register.max_concurrent_requests_per_user", "max_concurrent_requests_per_user")
+	cfg.SigninEnabled = reader.boolValue(cfg.SigninEnabled, "SAR.signin_enabled", "Signin.enabled", "signin_enabled")
+	cfg.SigninCurrencyName = reader.stringValue(cfg.SigninCurrencyName, "SAR.currency_name", "Signin.currency_name", "currency_name")
+	cfg.SigninDailyMin = reader.intValue(cfg.SigninDailyMin, "SAR.daily_min", "Signin.daily_min", "daily_min")
+	cfg.SigninDailyMax = reader.intValue(cfg.SigninDailyMax, "SAR.daily_max", "Signin.daily_max", "daily_max")
+	cfg.SigninStreakBonusEnabled = reader.boolValue(cfg.SigninStreakBonusEnabled, "SAR.streak_bonus_enabled", "Signin.streak_bonus_enabled", "streak_bonus_enabled")
+	cfg.SigninStreakBonusDays = reader.intListValue(cfg.SigninStreakBonusDays, "SAR.streak_bonus_days", "Signin.streak_bonus_days", "streak_bonus_days")
+	cfg.SigninStreakBonusPoints = reader.intListValue(cfg.SigninStreakBonusPoints, "SAR.streak_bonus_points", "Signin.streak_bonus_points", "streak_bonus_points")
+	cfg.SigninResetAfterMiss = reader.boolValue(cfg.SigninResetAfterMiss, "SAR.reset_after_miss", "Signin.reset_after_miss", "reset_after_miss")
 	cfg.InviteEnabled = reader.boolValue(cfg.InviteEnabled, "SAR.invite_enabled", "Register.invite_enabled", "invite_enabled")
 	cfg.InviteMaxDepth = reader.intValue(cfg.InviteMaxDepth, "SAR.invite_max_depth", "Register.invite_max_depth", "invite_max_depth")
 	cfg.InviteLimit = reader.intValue(cfg.InviteLimit, "SAR.invite_limit", "Register.invite_limit", "invite_limit")
@@ -261,6 +291,15 @@ func Load(path string) (Config, error) {
 	cfg.AutoCleanupNoEmbyDays = reader.intValue(cfg.AutoCleanupNoEmbyDays, "SAR.auto_cleanup_no_emby_days", "Register.auto_cleanup_no_emby_days", "auto_cleanup_no_emby_days")
 	cfg.NotificationEnabled = reader.boolValue(cfg.NotificationEnabled, "Notification.enabled", "notification_enabled")
 	cfg.NotificationExpiryRemindDays = reader.intValue(cfg.NotificationExpiryRemindDays, "Notification.expiry_remind_days", "expiry_remind_days")
+	cfg.RateLimitEnabled = reader.boolValue(cfg.RateLimitEnabled, "RateLimit.enabled", "rate_limit_enabled")
+	cfg.RateLimitGlobalPerMinute = reader.intValue(cfg.RateLimitGlobalPerMinute, "RateLimit.global_per_minute", "rate_limit_global_per_minute")
+	cfg.RateLimitLoginPerMinute = reader.intValue(cfg.RateLimitLoginPerMinute, "RateLimit.login_per_minute", "rate_limit_login_per_minute")
+	cfg.RateLimitRegisterPer10m = reader.intValue(cfg.RateLimitRegisterPer10m, "RateLimit.register_per_10m", "rate_limit_register_per_10m")
+	cfg.RateLimitForgotPasswordIPPer10m = reader.intValue(cfg.RateLimitForgotPasswordIPPer10m, "RateLimit.forgot_password_ip_per_10m", "rate_limit_forgot_password_ip_per_10m")
+	cfg.RateLimitForgotPasswordUserPer30m = reader.intValue(cfg.RateLimitForgotPasswordUserPer30m, "RateLimit.forgot_password_user_per_30m", "rate_limit_forgot_password_user_per_30m")
+	cfg.RateLimitUploadPerMinute = reader.intValue(cfg.RateLimitUploadPerMinute, "RateLimit.upload_per_minute", "rate_limit_upload_per_minute")
+	cfg.RateLimitAdminIconPerMinute = reader.intValue(cfg.RateLimitAdminIconPerMinute, "RateLimit.admin_icon_per_minute", "rate_limit_admin_icon_per_minute")
+	cfg.RateLimitAPIKeyDefaultPerMinute = reader.intValue(cfg.RateLimitAPIKeyDefaultPerMinute, "RateLimit.api_key_default_per_minute", "rate_limit_api_key_default_per_minute")
 	cfg.SchedulerEnabled = reader.boolValue(cfg.SchedulerEnabled, "Scheduler.enabled", "scheduler_enabled")
 	cfg.SchedulerExpiredCheckTime = reader.stringValue(cfg.SchedulerExpiredCheckTime, "Scheduler.expired_check_time", "expired_check_time")
 	cfg.SchedulerExpiringCheckTime = reader.stringValue(cfg.SchedulerExpiringCheckTime, "Scheduler.expiring_check_time", "expiring_check_time")
@@ -296,64 +335,84 @@ func defaultConfigPath() string {
 
 func defaults() Config {
 	return Config{
-		AppName:                         "Twilight",
-		Version:                         "0.0.4",
-		Host:                            "0.0.0.0",
-		Port:                            5000,
-		DatabaseDir:                     "db",
-		DatabaseDriver:                  "postgres",
-		PostgresHost:                    "127.0.0.1",
-		PostgresPort:                    5432,
-		PostgresUser:                    "twilight",
-		PostgresDatabase:                "twilight",
-		PostgresSSLMode:                 "disable",
-		PostgresMaxOpenConns:            8,
-		PostgresMaxIdleConns:            4,
-		UploadDir:                       "uploads",
-		MaxUploadSize:                   5 * 1024 * 1024,
-		LogLevel:                        "info",
-		RuntimeLogLimit:                 5000,
-		CORSOrigins:                     []string{"http://localhost:3000", "http://127.0.0.1:3000"},
-		AllowCredential:                 true,
-		TrustProxyHeaders:               false,
-		SessionCookie:                   "twilight_session",
-		SessionTTL:                      7 * 24 * time.Hour,
-		CookieSameSite:                  "lax",
-		TelegramAPIURL:                  "https://api.telegram.org",
-		TelegramGroupCheckConcurrency:   24,
-		TelegramGroupActionConcurrency:  8,
-		AllowPendingRegister:            true,
-		EmbyDirectRegisterDays:          30,
-		EmbyUserLimit:                   -1,
-		NotificationEnabled:             true,
-		NotificationExpiryRemindDays:    3,
-		AutoCleanupNoEmbyDays:           7,
-		SchedulerEnabled:                true,
-		SchedulerExpiredCheckTime:       "03:00",
-		SchedulerExpiringCheckTime:      "09:00",
-		SchedulerDailyStatsTime:         "00:05",
-		SchedulerSessionCleanupInterval: 6,
-		SystemUpdateRepoURL:             "https://github.com/Prejudice-Studio/Twilight.git",
-		SystemUpdateBranch:              "main",
-		SystemUpdateRestartServices:     true,
-		SystemUpdateTriggerType:         "interval",
-		SystemUpdateIntervalHours:       24,
-		SystemUpdateTime:                "04:00",
-		TMDBAPIURL:                      "https://api.themoviedb.org/3",
-		TMDBImageURL:                    "https://image.tmdb.org/t/p",
-		BangumiAPIURL:                   "https://api.bgm.tv/v0",
-		MediaRequestEnabled:             true,
-		MaxConcurrentRequestsPerUser:    3,
-		InviteEnabled:                   true,
-		InviteMaxDepth:                  3,
-		InviteLimit:                     10,
-		InviteRootUserLimit:             -1,
-		InviteRequireEmby:               false,
-		InviteDefaultDays:               30,
-		PermanentInviteMaxDays:          365,
-		UserLimit:                       -1,
-		MaxDevices:                      5,
-		MaxStreams:                      2,
+		AppName:                           "Twilight",
+		Version:                           "0.0.5",
+		Host:                              "0.0.0.0",
+		Port:                              5000,
+		DatabaseDir:                       "db",
+		DatabaseDriver:                    "postgres",
+		PostgresHost:                      "127.0.0.1",
+		PostgresPort:                      5432,
+		PostgresUser:                      "twilight",
+		PostgresDatabase:                  "twilight",
+		PostgresSSLMode:                   "disable",
+		PostgresMaxOpenConns:              8,
+		PostgresMaxIdleConns:              4,
+		UploadDir:                         "uploads",
+		MaxUploadSize:                     5 * 1024 * 1024,
+		LogLevel:                          "info",
+		RuntimeLogLimit:                   5000,
+		CORSOrigins:                       []string{"http://localhost:3000", "http://127.0.0.1:3000"},
+		AllowCredential:                   true,
+		TrustProxyHeaders:                 false,
+		SessionCookie:                     "twilight_session",
+		SessionTTL:                        7 * 24 * time.Hour,
+		CookieSameSite:                    "lax",
+		TelegramAPIURL:                    "https://api.telegram.org",
+		TelegramGroupCheckConcurrency:     24,
+		TelegramGroupActionConcurrency:    8,
+		RegisterEnabled:                   true,
+		AllowPendingRegister:              true,
+		EmbyDirectRegisterDays:            30,
+		EmbyUserLimit:                     -1,
+		RegCodeFormat:                     "TW-{type}-{random}",
+		RegCodeRandomAlgorithm:            "base32-20",
+		NotificationEnabled:               true,
+		NotificationExpiryRemindDays:      3,
+		AutoCleanupNoEmbyDays:             7,
+		RateLimitEnabled:                  true,
+		RateLimitGlobalPerMinute:          1200,
+		RateLimitLoginPerMinute:           60,
+		RateLimitRegisterPer10m:           30,
+		RateLimitForgotPasswordIPPer10m:   20,
+		RateLimitForgotPasswordUserPer30m: 10,
+		RateLimitUploadPerMinute:          60,
+		RateLimitAdminIconPerMinute:       20,
+		RateLimitAPIKeyDefaultPerMinute:   300,
+		SchedulerEnabled:                  true,
+		SchedulerExpiredCheckTime:         "03:00",
+		SchedulerExpiringCheckTime:        "09:00",
+		SchedulerDailyStatsTime:           "00:05",
+		SchedulerSessionCleanupInterval:   6,
+		SystemUpdateRepoURL:               "https://github.com/Prejudice-Studio/Twilight.git",
+		SystemUpdateBranch:                "main",
+		SystemUpdateRestartServices:       true,
+		SystemUpdateTriggerType:           "interval",
+		SystemUpdateIntervalHours:         24,
+		SystemUpdateTime:                  "04:00",
+		TMDBAPIURL:                        "https://api.themoviedb.org/3",
+		TMDBImageURL:                      "https://image.tmdb.org/t/p",
+		BangumiAPIURL:                     "https://api.bgm.tv/v0",
+		MediaRequestEnabled:               true,
+		MaxConcurrentRequestsPerUser:      3,
+		SigninEnabled:                     true,
+		SigninCurrencyName:                "星币",
+		SigninDailyMin:                    5,
+		SigninDailyMax:                    20,
+		SigninStreakBonusEnabled:          true,
+		SigninStreakBonusDays:             []int{3, 7, 14, 30},
+		SigninStreakBonusPoints:           []int{10, 50, 100, 300},
+		SigninResetAfterMiss:              true,
+		InviteEnabled:                     true,
+		InviteMaxDepth:                    3,
+		InviteLimit:                       10,
+		InviteRootUserLimit:               -1,
+		InviteRequireEmby:                 false,
+		InviteDefaultDays:                 30,
+		PermanentInviteMaxDays:            365,
+		UserLimit:                         -1,
+		MaxDevices:                        5,
+		MaxStreams:                        2,
 	}
 }
 
@@ -502,6 +561,72 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("TWILIGHT_NOTIFICATION_EXPIRY_REMIND_DAYS"); v != "" {
 		cfg.NotificationExpiryRemindDays = intValue(v, cfg.NotificationExpiryRemindDays)
+	}
+	if v := os.Getenv("TWILIGHT_USER_LIMIT"); v != "" {
+		cfg.UserLimit = intValue(v, cfg.UserLimit)
+	}
+	if v := os.Getenv("TWILIGHT_EMBY_USER_LIMIT"); v != "" {
+		cfg.EmbyUserLimit = intValue(v, cfg.EmbyUserLimit)
+	}
+	if v := os.Getenv("TWILIGHT_REGCODE_FORMAT"); v != "" {
+		cfg.RegCodeFormat = strings.TrimSpace(v)
+	}
+	if v := os.Getenv("TWILIGHT_REGCODE_RANDOM_ALGORITHM"); v != "" {
+		cfg.RegCodeRandomAlgorithm = strings.TrimSpace(v)
+	}
+	if v := os.Getenv("TWILIGHT_MEDIA_REQUEST_ENABLED"); v != "" {
+		cfg.MediaRequestEnabled = boolValue(v, cfg.MediaRequestEnabled)
+	}
+	if v := os.Getenv("TWILIGHT_SIGNIN_ENABLED"); v != "" {
+		cfg.SigninEnabled = boolValue(v, cfg.SigninEnabled)
+	}
+	if v := os.Getenv("TWILIGHT_SIGNIN_CURRENCY_NAME"); v != "" {
+		cfg.SigninCurrencyName = strings.TrimSpace(v)
+	}
+	if v := os.Getenv("TWILIGHT_SIGNIN_DAILY_MIN"); v != "" {
+		cfg.SigninDailyMin = intValue(v, cfg.SigninDailyMin)
+	}
+	if v := os.Getenv("TWILIGHT_SIGNIN_DAILY_MAX"); v != "" {
+		cfg.SigninDailyMax = intValue(v, cfg.SigninDailyMax)
+	}
+	if v := os.Getenv("TWILIGHT_SIGNIN_STREAK_BONUS_ENABLED"); v != "" {
+		cfg.SigninStreakBonusEnabled = boolValue(v, cfg.SigninStreakBonusEnabled)
+	}
+	if v := os.Getenv("TWILIGHT_SIGNIN_STREAK_BONUS_DAYS"); v != "" {
+		cfg.SigninStreakBonusDays = intListValue(v)
+	}
+	if v := os.Getenv("TWILIGHT_SIGNIN_STREAK_BONUS_POINTS"); v != "" {
+		cfg.SigninStreakBonusPoints = intListValue(v)
+	}
+	if v := os.Getenv("TWILIGHT_SIGNIN_RESET_AFTER_MISS"); v != "" {
+		cfg.SigninResetAfterMiss = boolValue(v, cfg.SigninResetAfterMiss)
+	}
+	if v := os.Getenv("TWILIGHT_RATE_LIMIT_ENABLED"); v != "" {
+		cfg.RateLimitEnabled = boolValue(v, cfg.RateLimitEnabled)
+	}
+	if v := os.Getenv("TWILIGHT_RATE_LIMIT_GLOBAL_PER_MINUTE"); v != "" {
+		cfg.RateLimitGlobalPerMinute = intValue(v, cfg.RateLimitGlobalPerMinute)
+	}
+	if v := os.Getenv("TWILIGHT_RATE_LIMIT_LOGIN_PER_MINUTE"); v != "" {
+		cfg.RateLimitLoginPerMinute = intValue(v, cfg.RateLimitLoginPerMinute)
+	}
+	if v := os.Getenv("TWILIGHT_RATE_LIMIT_REGISTER_PER_10M"); v != "" {
+		cfg.RateLimitRegisterPer10m = intValue(v, cfg.RateLimitRegisterPer10m)
+	}
+	if v := os.Getenv("TWILIGHT_RATE_LIMIT_FORGOT_PASSWORD_IP_PER_10M"); v != "" {
+		cfg.RateLimitForgotPasswordIPPer10m = intValue(v, cfg.RateLimitForgotPasswordIPPer10m)
+	}
+	if v := os.Getenv("TWILIGHT_RATE_LIMIT_FORGOT_PASSWORD_USER_PER_30M"); v != "" {
+		cfg.RateLimitForgotPasswordUserPer30m = intValue(v, cfg.RateLimitForgotPasswordUserPer30m)
+	}
+	if v := os.Getenv("TWILIGHT_RATE_LIMIT_UPLOAD_PER_MINUTE"); v != "" {
+		cfg.RateLimitUploadPerMinute = intValue(v, cfg.RateLimitUploadPerMinute)
+	}
+	if v := os.Getenv("TWILIGHT_RATE_LIMIT_ADMIN_ICON_PER_MINUTE"); v != "" {
+		cfg.RateLimitAdminIconPerMinute = intValue(v, cfg.RateLimitAdminIconPerMinute)
+	}
+	if v := os.Getenv("TWILIGHT_RATE_LIMIT_API_KEY_DEFAULT_PER_MINUTE"); v != "" {
+		cfg.RateLimitAPIKeyDefaultPerMinute = intValue(v, cfg.RateLimitAPIKeyDefaultPerMinute)
 	}
 }
 
@@ -788,11 +913,39 @@ func (r viperConfigReader) int64ListValue(fallback []int64, keys ...string) []in
 	return out
 }
 
+func (r viperConfigReader) intListValue(fallback []int, keys ...string) []int {
+	raw, ok := r.rawValue(keys...)
+	if !ok {
+		return cloneIntSlice(fallback)
+	}
+	items, ok := rawToStringList(raw)
+	if !ok {
+		return cloneIntSlice(fallback)
+	}
+	out := make([]int, 0, len(items))
+	for _, item := range items {
+		parsed, err := strconv.Atoi(strings.TrimSpace(item))
+		if err == nil {
+			out = append(out, parsed)
+		}
+	}
+	return out
+}
+
 func cloneInt64Slice(values []int64) []int64 {
 	if len(values) == 0 {
 		return nil
 	}
 	out := make([]int64, len(values))
+	copy(out, values)
+	return out
+}
+
+func cloneIntSlice(values []int) []int {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]int, len(values))
 	copy(out, values)
 	return out
 }
@@ -811,6 +964,18 @@ func int64Value(value string, fallback int64) int64 {
 		return fallback
 	}
 	return i
+}
+
+func intListValue(value string) []int {
+	items := listValue(value)
+	out := make([]int, 0, len(items))
+	for _, item := range items {
+		parsed, err := strconv.Atoi(strings.TrimSpace(item))
+		if err == nil {
+			out = append(out, parsed)
+		}
+	}
+	return out
 }
 
 func boolValue(value string, fallback bool) bool {

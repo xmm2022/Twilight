@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/prejudice-studio/twilight/internal/config"
 	"github.com/prejudice-studio/twilight/internal/security"
 	"github.com/prejudice-studio/twilight/internal/store"
 )
@@ -50,7 +52,7 @@ func (a *App) handleDocs(w http.ResponseWriter, r *http.Request, _ Params) {
 }
 
 func (a *App) handleLogin(w http.ResponseWriter, r *http.Request, _ Params) {
-	if !a.limiter.Allow(r.Context(), rateKey("login:", a.clientIP(r)), 10, time.Minute) {
+	if !a.allowRate(r.Context(), rateKey("login:", a.clientIP(r)), a.cfg.RateLimitLoginPerMinute, time.Minute) {
 		fail(w, http.StatusTooManyRequests, "登录过于频繁，请稍后再试")
 		return
 	}
@@ -109,7 +111,7 @@ func (a *App) handleDirectLoginUnavailable(w http.ResponseWriter, r *http.Reques
 
 func (a *App) handleForgotPassword(w http.ResponseWriter, r *http.Request, _ Params) {
 	ip := a.clientIP(r)
-	if !a.limiter.Allow(r.Context(), rateKey("forgot-password:ip:", ip), 5, 10*time.Minute) {
+	if !a.allowRate(r.Context(), rateKey("forgot-password:ip:", ip), a.cfg.RateLimitForgotPasswordIPPer10m, 10*time.Minute) {
 		fail(w, http.StatusTooManyRequests, "too many password reset attempts")
 		return
 	}
@@ -124,7 +126,7 @@ func (a *App) handleForgotPassword(w http.ResponseWriter, r *http.Request, _ Par
 		fail(w, http.StatusBadRequest, "input too long")
 		return
 	}
-	if !a.limiter.Allow(r.Context(), rateKey("forgot-password:user:", strings.ToLower(embyUsername)), 5, 30*time.Minute) {
+	if !a.allowRate(r.Context(), rateKey("forgot-password:user:", strings.ToLower(embyUsername)), a.cfg.RateLimitForgotPasswordUserPer30m, 30*time.Minute) {
 		fail(w, http.StatusTooManyRequests, "too many password reset attempts for this account")
 		return
 	}
@@ -183,11 +185,11 @@ func (a *App) handleRefresh(w http.ResponseWriter, r *http.Request, _ Params) {
 	a.sessions.Delete(r.Context(), p.Token)
 	token, expires, err := a.sessions.Create(r.Context(), p.User.UID)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, "刷新会话失败")
+		fail(w, http.StatusInternalServerError, "鍒锋柊浼氳瘽澶辫触")
 		return
 	}
 	a.setSessionCookie(w, token, expires)
-	ok(w, "刷新成功", map[string]any{"token": token, "user": publicUser(p.User)})
+	ok(w, "鍒锋柊鎴愬姛", map[string]any{"token": token, "user": publicUser(p.User)})
 }
 
 func (a *App) handleCurrentUser(w http.ResponseWriter, r *http.Request, _ Params) {
@@ -195,13 +197,18 @@ func (a *App) handleCurrentUser(w http.ResponseWriter, r *http.Request, _ Params
 }
 
 func (a *App) handleRegister(w http.ResponseWriter, r *http.Request, _ Params) {
-	if !a.limiter.Allow(r.Context(), rateKey("register:", a.clientIP(r)), 5, 10*time.Minute) {
+	if !a.allowRate(r.Context(), rateKey("register:", a.clientIP(r)), a.cfg.RateLimitRegisterPer10m, 10*time.Minute) {
 		fail(w, http.StatusTooManyRequests, "注册过于频繁，请稍后再试")
+		return
+	}
+	if !a.cfg.RegisterEnabled && a.store.UserCount() > 0 {
+		fail(w, http.StatusForbidden, "系统注册未开启")
 		return
 	}
 	payload := decodeMap(r)
 	username := stringValue(payload, "username")
 	password := stringValue(payload, "password")
+	telegramBindCode := strings.ToUpper(strings.TrimSpace(stringValue(payload, "telegram_bind_code")))
 	if len(username) < 3 || len(username) > 32 || strings.ContainsAny(username, "/\\@:\x00<>\"'&") {
 		fail(w, http.StatusBadRequest, "invalid username")
 		return
@@ -209,6 +216,38 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request, _ Params) {
 	if len(password) < 8 {
 		fail(w, http.StatusBadRequest, "password must be at least 8 characters")
 		return
+	}
+	if reached, current, limit := a.systemUserLimitReached(); reached {
+		fail(w, http.StatusConflict, fmt.Sprintf("系统用户数量已达上限 %d/%d", current, limit))
+		return
+	}
+	var telegramID int64
+	var telegramUsername string
+	if a.cfg.ForceBindTelegram || telegramBindCode != "" {
+		bind, okBind := a.store.BindCode(telegramBindCode)
+		switch {
+		case telegramBindCode == "":
+			fail(w, http.StatusBadRequest, "需要先完成 Telegram 绑定")
+			return
+		case !okBind || bind.ExpiresAt <= time.Now().Unix():
+			if okBind {
+				_ = a.store.DeleteBindCode(telegramBindCode)
+			}
+			fail(w, http.StatusBadRequest, "绑定码无效或已过期")
+			return
+		case bind.Scene != "register" || bind.UID != 0:
+			fail(w, http.StatusBadRequest, "绑定码场景无效")
+			return
+		case !bind.Confirmed || bind.TelegramID == 0:
+			fail(w, http.StatusBadRequest, "绑定码尚未在 Telegram 中确认")
+			return
+		}
+		if existing, okUser := a.store.FindUserByTelegramID(bind.TelegramID); okUser {
+			fail(w, http.StatusConflict, "该 Telegram 已绑定到账号 "+existing.Username)
+			return
+		}
+		telegramID = bind.TelegramID
+		telegramUsername = bind.TelegramUsername
 	}
 	passwordHash, err := security.HashPassword(password)
 	if err != nil {
@@ -219,9 +258,12 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request, _ Params) {
 	if a.store.UserCount() == 0 {
 		role = store.RoleAdmin
 	}
-	u, err := a.store.CreateUser(store.User{Username: username, Email: stringValue(payload, "email"), PasswordHash: passwordHash, Role: role})
+	u, err := a.store.CreateUser(store.User{Username: username, Email: stringValue(payload, "email"), PasswordHash: passwordHash, Role: role, TelegramID: telegramID, TelegramUsername: telegramUsername})
 	if statusFromError(w, err) {
 		return
+	}
+	if telegramBindCode != "" {
+		_ = a.store.DeleteBindCode(telegramBindCode)
 	}
 	if a.configuredAdminMatch(u.UID, u.Username) {
 		if promoted, err := a.store.UpdateUser(u.UID, func(user *store.User) error {
@@ -239,13 +281,32 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request, _ Params) {
 func (a *App) handleRegisterAvailability(w http.ResponseWriter, r *http.Request, _ Params) {
 	username := strings.TrimSpace(r.URL.Query().Get("username"))
 	available := true
+	message := ""
 	if username != "" {
 		_, found := a.store.FindUserByUsername(username)
 		available = !found
+		if !available {
+			message = "用户名已被使用"
+		}
 	}
-	ok(w, "OK", map[string]any{"enabled": true, "can_register": true, "requires_reg_code": false, "available": available})
+	currentUsers := a.store.UserCount()
+	canRegister := a.cfg.RegisterEnabled || currentUsers == 0
+	if a.cfg.UserLimit > 0 && currentUsers >= a.cfg.UserLimit {
+		canRegister = false
+		available = false
+		message = fmt.Sprintf("系统用户数量已达上限 %d/%d", currentUsers, a.cfg.UserLimit)
+	}
+	ok(w, "OK", map[string]any{
+		"enabled":           a.cfg.RegisterEnabled,
+		"can_register":      canRegister,
+		"requires_reg_code": a.cfg.RegisterCodeLimit,
+		"available":         available,
+		"message":           message,
+		"current_users":     currentUsers,
+		"max_users":         a.cfg.UserLimit,
+		"emby_user_limit":   a.cfg.EmbyUserLimit,
+	})
 }
-
 func (a *App) handleUpdateMe(w http.ResponseWriter, r *http.Request, _ Params) {
 	p := current(r)
 	if a.requireNonEmbyAdmin(w, r, p.User) {
@@ -263,7 +324,7 @@ func (a *App) handleUpdateMe(w http.ResponseWriter, r *http.Request, _ Params) {
 		}
 	}
 	if token := stringValue(payload, "bgm_token"); len(token) > 4096 {
-		fail(w, http.StatusBadRequest, "Bangumi Token 过长")
+		fail(w, http.StatusBadRequest, "Bangumi Token 杩囬暱")
 		return
 	}
 	if boolValue(payload, "bgm_mode", false) && p.User.BGMToken == "" && stringValue(payload, "bgm_token") == "" {
@@ -294,7 +355,7 @@ func (a *App) handleUpdateMe(w http.ResponseWriter, r *http.Request, _ Params) {
 	if statusFromError(w, err) {
 		return
 	}
-	ok(w, "更新成功", publicUser(u))
+	ok(w, "鏇存柊鎴愬姛", publicUser(u))
 }
 
 func (a *App) handleUpdateUsername(w http.ResponseWriter, r *http.Request, _ Params) {
@@ -474,24 +535,9 @@ func (a *App) handleRegisterEmby(w http.ResponseWriter, r *http.Request, params 
 		fail(w, http.StatusConflict, "Emby username already exists: "+asString(existing["Name"]))
 		return
 	}
-	if a.cfg.EmbyUserLimit > 0 {
-		count := 0
-		for _, u := range a.store.ListUsers() {
-			// Count users who already have Emby or have pending entitlement
-			if u.EmbyID != "" || (u.PendingEmby && u.UID != p.User.UID) {
-				count++
-			}
-		}
-		// Also count active unused invite codes as reserved slots
-		for _, code := range a.store.ListAllInviteCodes() {
-			if code.Active && code.UseCount < code.UseCountLimit {
-				count++
-			}
-		}
-		if count >= a.cfg.EmbyUserLimit {
-			fail(w, http.StatusConflict, "Emby user limit reached")
-			return
-		}
+	if reached, current, limit := a.embyCapacityReached(p.User.UID); reached {
+		fail(w, http.StatusConflict, fmt.Sprintf("Emby 用户数量已达上限 %d/%d", current, limit))
+		return
 	}
 	createdUser, err := a.embyCreateUser(r.Context(), embyUsername, embyPassword)
 	if err != nil {
@@ -515,9 +561,9 @@ func (a *App) handleRegisterEmby(w http.ResponseWriter, r *http.Request, params 
 			u.Role = store.RoleNormal
 		}
 		if u.Role == store.RoleAdmin || u.Role == store.RoleWhitelist || days < 0 {
-			u.ExpiredAt = 253402214400
+			u.ExpiredAt = permanentExpiryUnix
 		} else {
-			u.ExpiredAt = time.Now().Add(time.Duration(days) * 24 * time.Hour).Unix()
+			u.ExpiredAt = expiryFromDays(days, time.Now())
 		}
 		return nil
 	})
@@ -567,11 +613,7 @@ func (a *App) handleRenew(w http.ResponseWriter, r *http.Request, _ Params) {
 		days = 30
 	}
 	u, err := a.store.UpdateUser(p.User.UID, func(u *store.User) error {
-		base := time.Now().Unix()
-		if u.ExpiredAt > base {
-			base = u.ExpiredAt
-		}
-		u.ExpiredAt = base + days*86400
+		u.ExpiredAt = addDaysToExpiry(u.ExpiredAt, int(days), time.Now())
 		return nil
 	})
 	if statusFromError(w, err) {
@@ -585,15 +627,24 @@ func (a *App) handleQueueStatus(w http.ResponseWriter, r *http.Request, _ Params
 }
 
 func (a *App) handleRegisterBindCode(w http.ResponseWriter, r *http.Request, _ Params) {
+	if !a.allowRate(r.Context(), rateKey("register-bind-code:", a.clientIP(r)), a.cfg.RateLimitRegisterPer10m, 10*time.Minute) {
+		fail(w, http.StatusTooManyRequests, "绑定码请求过于频繁")
+		return
+	}
 	a.createBindCode(w, 0, "register")
 }
 
 func (a *App) handleUserBindCode(w http.ResponseWriter, r *http.Request, _ Params) {
+	if !a.allowRate(r.Context(), rateKey("user-bind-code:", current(r).User.UID), a.cfg.RateLimitLoginPerMinute, time.Minute) {
+		fail(w, http.StatusTooManyRequests, "绑定码请求过于频繁")
+		return
+	}
 	a.createBindCode(w, current(r).User.UID, "user")
 }
 
 func (a *App) createBindCode(w http.ResponseWriter, uid int64, scene string) {
-	code := strings.ToUpper(randomCode(8))
+	_, _ = a.store.CleanupExpiredBindCodes(time.Now().Unix())
+	code := strings.ToUpper(randomCode(12))
 	now := time.Now().Unix()
 	_ = a.store.UpsertBindCode(store.BindCode{Code: code, Scene: scene, UID: uid, CreatedAt: now, ExpiresAt: now + 600})
 	ok(w, "OK", map[string]any{"bind_code": code, "expires_in": 600})
@@ -603,6 +654,9 @@ func (a *App) handleBindCodeStatus(w http.ResponseWriter, r *http.Request, _ Par
 	code := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("code")))
 	bind, okBind := a.store.BindCode(code)
 	if !okBind || bind.ExpiresAt < time.Now().Unix() {
+		if okBind {
+			_ = a.store.DeleteBindCode(code)
+		}
 		ok(w, "OK", map[string]any{"code": code, "confirmed": false, "invalid": true, "terminal": true})
 		return
 	}
@@ -614,7 +668,7 @@ func (a *App) handleBindConfirm(w http.ResponseWriter, r *http.Request, _ Params
 	code := strings.ToUpper(stringValue(payload, "code"))
 	bind, okBind := a.store.BindCode(code)
 	if !okBind {
-		fail(w, http.StatusNotFound, "缁戝畾鐮佷笉瀛樺湪")
+		fail(w, http.StatusNotFound, "绑定码不存在")
 		return
 	}
 	bind.Confirmed = true
@@ -686,7 +740,7 @@ func (a *App) handleLibraries(w http.ResponseWriter, r *http.Request, params Par
 	if strings.Contains(r.URL.Path, "/emby/libraries") || strings.Contains(r.URL.Path, "/admin/emby/libraries") {
 		remoteLibraries, err := a.embyLibraries(r.Context())
 		if err != nil {
-			fail(w, http.StatusBadGateway, "无法连接 Emby 服务器，请检查 Emby 是否在线："+err.Error())
+			fail(w, http.StatusBadGateway, "无法连接 Emby 服务器，请检查 Emby 是否在线: "+err.Error())
 			return
 		}
 		ok(w, "OK", remoteLibraries)
@@ -979,10 +1033,10 @@ func sanitizeBackgroundCSSValue(value string) (string, error) {
 		return "", nil
 	}
 	if len(value) > 2000 || strings.ContainsAny(value, "\x00\r\n<>;{}") || strings.Contains(strings.ToLower(value), "url(") || strings.Contains(value, "@") {
-		return "", fmt.Errorf("背景 CSS 只允许安全渐变表达式")
+		return "", fmt.Errorf("鑳屾櫙 CSS 鍙厑璁稿畨鍏ㄦ笎鍙樿〃杈惧紡")
 	}
 	if !backgroundGradientPattern.MatchString(value) {
-		return "", fmt.Errorf("背景 CSS 只允许 linear/radial/conic gradient")
+		return "", fmt.Errorf("鑳屾櫙 CSS 鍙厑璁?linear/radial/conic gradient")
 	}
 	return value, nil
 }
@@ -1043,7 +1097,7 @@ func (a *App) handleUploadAvatar(w http.ResponseWriter, r *http.Request, _ Param
 }
 
 func (a *App) handleUpload(w http.ResponseWriter, r *http.Request, kind string) {
-	if !a.limiter.Allow(r.Context(), rateKey("upload:", current(r).User.UID), 10, time.Minute) {
+	if !a.allowRate(r.Context(), rateKey("upload:", current(r).User.UID), a.cfg.RateLimitUploadPerMinute, time.Minute) {
 		fail(w, http.StatusTooManyRequests, "上传过于频繁")
 		return
 	}
@@ -1053,13 +1107,13 @@ func (a *App) handleUpload(w http.ResponseWriter, r *http.Request, kind string) 
 	}
 	file, _, err := r.FormFile("file")
 	if err != nil {
-		fail(w, http.StatusBadRequest, "缺少文件")
+		fail(w, http.StatusBadRequest, "缂哄皯鏂囦欢")
 		return
 	}
 	defer file.Close()
 	data, err := io.ReadAll(io.LimitReader(file, a.cfg.MaxUploadSize+1))
 	if err != nil || int64(len(data)) > a.cfg.MaxUploadSize {
-		fail(w, http.StatusRequestEntityTooLarge, "文件过大")
+		fail(w, http.StatusRequestEntityTooLarge, "鏂囦欢杩囧ぇ")
 		return
 	}
 	contentType := strings.ToLower(strings.Split(http.DetectContentType(data), ";")[0])
@@ -1114,7 +1168,7 @@ func uploadImageExtension(contentType string) (string, bool) {
 
 func (a *App) handleUploadServerIcon(w http.ResponseWriter, r *http.Request, _ Params) {
 	p := current(r)
-	if !a.limiter.Allow(r.Context(), rateKey("admin-server-icon:", p.User.UID), 6, time.Minute) {
+	if !a.allowRate(r.Context(), rateKey("admin-server-icon:", p.User.UID), a.cfg.RateLimitAdminIconPerMinute, time.Minute) {
 		fail(w, http.StatusTooManyRequests, "上传过于频繁")
 		return
 	}
@@ -1128,13 +1182,13 @@ func (a *App) handleUploadServerIcon(w http.ResponseWriter, r *http.Request, _ P
 	}
 	file, _, err := r.FormFile("file")
 	if err != nil {
-		fail(w, http.StatusBadRequest, "缺少文件")
+		fail(w, http.StatusBadRequest, "缂哄皯鏂囦欢")
 		return
 	}
 	defer file.Close()
 	data, err := io.ReadAll(io.LimitReader(file, limit+1))
 	if err != nil || int64(len(data)) > limit {
-		fail(w, http.StatusRequestEntityTooLarge, "文件过大")
+		fail(w, http.StatusRequestEntityTooLarge, "鏂囦欢杩囧ぇ")
 		return
 	}
 	contentType := strings.ToLower(strings.Split(http.DetectContentType(data), ";")[0])
@@ -1298,7 +1352,7 @@ func (a *App) handleCreateAPIKey(w http.ResponseWriter, r *http.Request, _ Param
 	if name == "" {
 		name = "Default"
 	}
-	k, err := a.store.CreateAPIKey(store.APIKey{UID: current(r).User.UID, Name: name, Hash: hashAPIKey(key), Prefix: prefix, Suffix: suffix, AllowQuery: boolValue(payload, "allow_query", false), RateLimit: intValue(payload, "rate_limit", 100), Permissions: defaultPermissions()})
+	k, err := a.store.CreateAPIKey(store.APIKey{UID: current(r).User.UID, Name: name, Hash: hashAPIKey(key), Prefix: prefix, Suffix: suffix, AllowQuery: boolValue(payload, "allow_query", false), RateLimit: intValue(payload, "rate_limit", a.cfg.RateLimitAPIKeyDefaultPerMinute), Permissions: defaultPermissions()})
 	if statusFromError(w, err) {
 		return
 	}
@@ -1411,6 +1465,9 @@ func (a *App) handleSystemInfo(w http.ResponseWriter, r *http.Request, _ Params)
 			"telegram":             a.cfg.TelegramMode,
 			"force_bind_telegram":  a.cfg.ForceBindTelegram,
 			"bangumi_sync":         a.cfg.BangumiEnabled,
+			"media_request":        a.cfg.MediaRequestEnabled,
+			"signin":               a.cfg.SigninEnabled,
+			"invite":               a.cfg.InviteEnabled,
 		},
 		"limits":               map[string]any{"user_limit": a.cfg.UserLimit, "stream_limit": a.cfg.MaxStreams},
 		"telegram_bot":         a.publicTelegramBotInfo(r.Context()),
@@ -1684,9 +1741,9 @@ func (a *App) handleEmbyURLs(w http.ResponseWriter, r *http.Request, _ Params) {
 		lines = append(lines, map[string]string{"name": line.Name, "url": line.URL})
 	}
 	if a.cfg.EmbyPublicURL != "" {
-		lines = append(lines, map[string]string{"name": "榛樿绾胯矾", "url": a.cfg.EmbyPublicURL})
+		lines = append(lines, map[string]string{"name": "姒涙顓荤痪鑳熅", "url": a.cfg.EmbyPublicURL})
 	} else if len(lines) == 0 && a.cfg.EmbyURL != "" {
-		lines = append(lines, map[string]string{"name": "榛樿绾胯矾", "url": a.cfg.EmbyURL})
+		lines = append(lines, map[string]string{"name": "姒涙顓荤痪鑳熅", "url": a.cfg.EmbyURL})
 	}
 	whitelist := []map[string]string{}
 	if u.Role == store.RoleAdmin || u.Role == store.RoleWhitelist {
@@ -1701,7 +1758,19 @@ func (a *App) handleEmbyURLs(w http.ResponseWriter, r *http.Request, _ Params) {
 }
 
 func (a *App) handlePublicConfig(w http.ResponseWriter, r *http.Request, _ Params) {
-	ok(w, "OK", map[string]any{"upload_limit": a.cfg.MaxUploadSize, "bangumi_sync_enabled": a.cfg.BangumiEnabled, "telegram_mode": a.cfg.TelegramMode, "device_limit": map[string]any{"enabled": a.cfg.DeviceLimitEnabled, "max_devices": a.cfg.MaxDevices, "max_streams": a.cfg.MaxStreams}, "bangumi_sync": map[string]any{"enabled": a.cfg.BangumiEnabled}})
+	ok(w, "OK", map[string]any{
+		"upload_limit":          a.cfg.MaxUploadSize,
+		"bangumi_sync_enabled":  a.cfg.BangumiEnabled,
+		"telegram_mode":         a.cfg.TelegramMode,
+		"media_request_enabled": a.cfg.MediaRequestEnabled,
+		"signin_enabled":        a.cfg.SigninEnabled,
+		"invite_enabled":        a.cfg.InviteEnabled,
+		"device_limit":          map[string]any{"enabled": a.cfg.DeviceLimitEnabled, "max_devices": a.cfg.MaxDevices, "max_streams": a.cfg.MaxStreams},
+		"bangumi_sync":          map[string]any{"enabled": a.cfg.BangumiEnabled},
+		"media_request":         map[string]any{"enabled": a.cfg.MediaRequestEnabled},
+		"signin":                signinConfigPayload(a.cfg),
+		"invite":                map[string]any{"enabled": a.cfg.InviteEnabled},
+	})
 }
 
 func (a *App) handleAdminConfig(w http.ResponseWriter, r *http.Request, _ Params) {
@@ -1768,7 +1837,7 @@ func (a *App) handleBotTest(w http.ResponseWriter, r *http.Request, _ Params) {
 	for _, chatID := range telegramChatIDs(a.cfg.TelegramGroupIDs) {
 		var chat map[string]any
 		err := a.telegramPost(testCtx, "getChat", map[string]any{"chat_id": chatID}, &chat)
-		item := map[string]any{"target": "群组 " + chatID, "success": err == nil}
+		item := map[string]any{"target": "缇ょ粍 " + chatID, "success": err == nil}
 		if err != nil {
 			item["error"] = err.Error()
 		} else {
@@ -1787,7 +1856,7 @@ func (a *App) handleBotTest(w http.ResponseWriter, r *http.Request, _ Params) {
 	for _, chatID := range telegramChatIDs(a.cfg.TelegramChannelIDs) {
 		var chat map[string]any
 		err := a.telegramPost(testCtx, "getChat", map[string]any{"chat_id": chatID}, &chat)
-		item := map[string]any{"target": "频道 " + chatID, "success": err == nil}
+		item := map[string]any{"target": "棰戦亾 " + chatID, "success": err == nil}
 		if err != nil {
 			item["error"] = err.Error()
 		} else {
@@ -1950,8 +2019,8 @@ func (a *App) handleAdminDeleteUser(w http.ResponseWriter, r *http.Request, para
 			skipped = append(skipped, map[string]any{"uid": targetUID, "reason": "not_found"})
 			continue
 		}
-		if target.Role == store.RoleAdmin {
-			skipped = append(skipped, map[string]any{"uid": targetUID, "reason": "admin"})
+		if a.userIsProtected(target) {
+			skipped = append(skipped, map[string]any{"uid": targetUID, "reason": a.protectedUserReason(target)})
 			continue
 		}
 		if mode == "emby_only" {
@@ -1986,8 +2055,8 @@ func (a *App) handleAdminDeleteUser(w http.ResponseWriter, r *http.Request, para
 
 func (a *App) handleAdminToggleUser(w http.ResponseWriter, r *http.Request, params Params) {
 	uid, _ := int64Param(params, "uid")
-	if target, okUser := a.store.User(uid); okUser && target.Role == store.RoleAdmin && target.UID != current(r).User.UID {
-		fail(w, http.StatusForbidden, "cannot operate on another admin")
+	if target, okUser := a.store.User(uid); okUser && a.userIsProtected(target) && target.UID != current(r).User.UID {
+		fail(w, http.StatusForbidden, "cannot operate on protected user")
 		return
 	}
 	enable := strings.HasSuffix(r.URL.Path, "/enable")
@@ -1997,8 +2066,8 @@ func (a *App) handleAdminToggleUser(w http.ResponseWriter, r *http.Request, para
 	skipped := []map[string]any{}
 	failed := []map[string]any{}
 	for _, targetUID := range a.collectCascadeUIDs(uid, depth) {
-		if target, okUser := a.store.User(targetUID); okUser && target.Role == store.RoleAdmin && target.UID != current(r).User.UID {
-			skipped = append(skipped, map[string]any{"uid": targetUID, "reason": "admin"})
+		if target, okUser := a.store.User(targetUID); okUser && a.userIsProtected(target) && target.UID != current(r).User.UID {
+			skipped = append(skipped, map[string]any{"uid": targetUID, "reason": a.protectedUserReason(target)})
 			continue
 		}
 		updated, err := a.store.UpdateUser(targetUID, func(u *store.User) error { u.Active = enable; return nil })
@@ -2080,7 +2149,7 @@ func (a *App) handleRegistrationEntitlement(w http.ResponseWriter, r *http.Reque
 		days = -1
 	}
 	if days < -1 || days > 3650 {
-		fail(w, http.StatusBadRequest, "days 瓒呭嚭鑼冨洿")
+		fail(w, http.StatusBadRequest, "days 鐡掑懎鍤懠鍐ㄦ纯")
 		return
 	}
 	u, err := a.store.UpdateUser(uid, func(u *store.User) error {
@@ -2181,7 +2250,7 @@ func (a *App) handleKickUser(w http.ResponseWriter, r *http.Request, params Para
 func (a *App) handleBulkEnableLibrarySelfService(w http.ResponseWriter, r *http.Request, _ Params) {
 	payload := decodeMap(r)
 	if stringValue(payload, "confirm") != "ENABLE_LIBRARY_SELF_SERVICE" {
-		fail(w, http.StatusBadRequest, "缺少确认标记")
+		fail(w, http.StatusBadRequest, "缂哄皯纭鏍囪")
 		return
 	}
 	updated := 0
@@ -2330,7 +2399,7 @@ func (a *App) handleAdminBindTelegram(w http.ResponseWriter, r *http.Request, pa
 	payload := decodeMap(r)
 	tgid := int64(intValue(payload, "telegram_id", 0))
 	if tgid <= 0 {
-		fail(w, http.StatusBadRequest, "telegram_id 鏃犳晥")
+		fail(w, http.StatusBadRequest, "telegram_id 无效")
 		return
 	}
 	if existing, okUser := a.store.FindUserByTelegramID(tgid); okUser && existing.UID != uid {
@@ -2480,7 +2549,7 @@ func (a *App) handleAnnouncements(w http.ResponseWriter, r *http.Request, _ Para
 func (a *App) handleCreateAnnouncement(w http.ResponseWriter, r *http.Request, _ Params) {
 	payload := decodeMap(r)
 	ann, err := a.store.UpsertAnnouncement(store.Announcement{
-		Title:        firstNonEmpty(stringValue(payload, "title"), "公告"),
+		Title:        firstNonEmpty(stringValue(payload, "title"), "鍏憡"),
 		Content:      stringValue(payload, "content"),
 		Visible:      boolValue(payload, "visible", true),
 		Level:        firstNonEmpty(stringValue(payload, "level"), "info"),
@@ -2498,7 +2567,7 @@ func (a *App) handleCreateAnnouncement(w http.ResponseWriter, r *http.Request, _
 func (a *App) handleUpdateAnnouncement(w http.ResponseWriter, r *http.Request, params Params) {
 	id, _ := int64Param(params, "announcement_id")
 	payload := decodeMap(r)
-	existing := store.Announcement{ID: id, Title: "公告", Level: "info", Visible: true, RenderMode: "plain"}
+	existing := store.Announcement{ID: id, Title: "鍏憡", Level: "info", Visible: true, RenderMode: "plain"}
 	for _, ann := range a.store.ListAnnouncements(true) {
 		if ann.ID == id {
 			existing = ann
@@ -2507,7 +2576,7 @@ func (a *App) handleUpdateAnnouncement(w http.ResponseWriter, r *http.Request, p
 	}
 	ann, err := a.store.UpsertAnnouncement(store.Announcement{
 		ID:           id,
-		Title:        firstNonEmpty(stringValue(payload, "title"), existing.Title, "公告"),
+		Title:        firstNonEmpty(stringValue(payload, "title"), existing.Title, "鍏憡"),
 		Content:      firstNonEmpty(stringValue(payload, "content"), existing.Content),
 		Visible:      boolValue(payload, "visible", existing.Visible),
 		Level:        firstNonEmpty(stringValue(payload, "level"), existing.Level, "info"),
@@ -2683,8 +2752,8 @@ func (a *App) handleBatchToggleUsers(w http.ResponseWriter, r *http.Request, ena
 			addBatchOutcome(result, uid, fmt.Errorf("user not found"))
 			continue
 		}
-		if target.Role == store.RoleAdmin {
-			addBatchOutcome(result, uid, fmt.Errorf("cannot batch toggle admin account"))
+		if a.userIsProtected(target) {
+			addBatchOutcome(result, uid, fmt.Errorf("cannot batch toggle protected account: %s", a.protectedUserReason(target)))
 			continue
 		}
 		updated, err := a.store.UpdateUser(uid, func(u *store.User) error { u.Active = enable; return nil })
@@ -2703,17 +2772,13 @@ func (a *App) handleBatchRenewUsers(w http.ResponseWriter, r *http.Request, _ Pa
 	uids := int64Slice(payload["uids"])
 	days := intValue(payload, "days", 30)
 	if days <= 0 {
-		fail(w, http.StatusBadRequest, "days 必须大于 0")
+		fail(w, http.StatusBadRequest, "days 蹇呴』澶т簬 0")
 		return
 	}
 	result := batchResult(len(uids))
 	for _, uid := range uids {
 		_, err := a.store.UpdateUser(uid, func(u *store.User) error {
-			base := time.Now().Unix()
-			if u.ExpiredAt > base {
-				base = u.ExpiredAt
-			}
-			u.ExpiredAt = base + int64(days)*86400
+			u.ExpiredAt = addDaysToExpiry(u.ExpiredAt, days, time.Now())
 			return nil
 		})
 		addBatchOutcome(result, uid, err)
@@ -2750,8 +2815,8 @@ func (a *App) handleBatchDeleteUsers(w http.ResponseWriter, r *http.Request, _ P
 			addBatchOutcome(result, uid, fmt.Errorf("user not found"))
 			continue
 		}
-		if target.Role == store.RoleAdmin {
-			addBatchOutcome(result, uid, fmt.Errorf("cannot batch delete admin account"))
+		if a.userIsProtected(target) {
+			addBatchOutcome(result, uid, fmt.Errorf("cannot batch delete protected account: %s", a.protectedUserReason(target)))
 			continue
 		}
 		if deleteEmby && a.cfg.EmbyURL != "" {
@@ -2854,24 +2919,37 @@ func (a *App) handleExpiringUsers(w http.ResponseWriter, r *http.Request, _ Para
 }
 
 func (a *App) handleSigninConfig(w http.ResponseWriter, r *http.Request, _ Params) {
-	ok(w, "OK", signinConfigPayload())
+	ok(w, "OK", signinConfigPayload(a.cfg))
 }
 
 func (a *App) handleSigninMe(w http.ResponseWriter, r *http.Request, _ Params) {
 	si := a.store.Signin(current(r).User.UID)
-	ok(w, "OK", signinSummaryPayload(si))
+	ok(w, "OK", signinSummaryPayload(a.cfg, si))
 }
 
 func (a *App) handleSignin(w http.ResponseWriter, r *http.Request, _ Params) {
-	si, createdToday, err := a.store.AddSignin(current(r).User.UID, 1)
+	if !a.cfg.SigninEnabled {
+		fail(w, http.StatusForbidden, "签到功能未开启")
+		return
+	}
+	dailyPoints := signinDailyPoints(a.cfg)
+	si, createdToday, err := a.store.AddSigninWithOptions(current(r).User.UID, dailyPoints, func(streak int) int {
+		return signinBonusForStreak(a.cfg, streak)
+	}, a.cfg.SigninResetAfterMiss)
 	if statusFromError(w, err) {
 		return
 	}
-	dailyPoints := 0
-	if createdToday {
-		dailyPoints = 1
+	bonusPoints := 0
+	if !createdToday {
+		dailyPoints = 0
+	} else if len(si.Records) > 0 {
+		last := si.Records[len(si.Records)-1]
+		if last.Date == time.Now().Format("2006-01-02") {
+			dailyPoints = last.Points
+			bonusPoints = last.BonusPoints
+		}
 	}
-	payload := signinActionPayload(si, createdToday, dailyPoints, 0)
+	payload := signinActionPayload(a.cfg, si, createdToday, dailyPoints, bonusPoints)
 	if createdToday {
 		ok(w, "签到成功", payload)
 		return
@@ -2909,26 +2987,29 @@ func (a *App) handleSigninHistory(w http.ResponseWriter, r *http.Request, _ Para
 			"created_at":   record.CreatedAt,
 		})
 	}
-	ok(w, "OK", map[string]any{"records": items, "currency_name": signinCurrencyName()})
+	ok(w, "OK", map[string]any{"records": items, "currency_name": signinCurrencyName(a.cfg)})
 }
 
-func signinCurrencyName() string {
-	return "积分"
+func signinCurrencyName(cfg config.Config) string {
+	if strings.TrimSpace(cfg.SigninCurrencyName) == "" {
+		return "积分"
+	}
+	return strings.TrimSpace(cfg.SigninCurrencyName)
 }
 
-func signinConfigPayload() map[string]any {
+func signinConfigPayload(cfg config.Config) map[string]any {
 	return map[string]any{
-		"enabled":              true,
-		"currency_name":        signinCurrencyName(),
-		"daily_min":            1,
-		"daily_max":            1,
-		"streak_bonus_enabled": false,
-		"bonus_table":          []map[string]any{},
-		"reset_after_miss":     true,
+		"enabled":              cfg.SigninEnabled,
+		"currency_name":        signinCurrencyName(cfg),
+		"daily_min":            signinDailyMin(cfg),
+		"daily_max":            signinDailyMax(cfg),
+		"streak_bonus_enabled": cfg.SigninStreakBonusEnabled,
+		"bonus_table":          signinBonusTable(cfg),
+		"reset_after_miss":     cfg.SigninResetAfterMiss,
 	}
 }
 
-func signinSummaryPayload(si store.Signin) map[string]any {
+func signinSummaryPayload(cfg config.Config, si store.Signin) map[string]any {
 	today := time.Now().Format("2006-01-02")
 	longest := si.LongestStreak
 	if longest < si.Streak {
@@ -2939,29 +3020,110 @@ func signinSummaryPayload(si store.Signin) map[string]any {
 			longest = record.Streak
 		}
 	}
+	nextBonusInDays, nextBonusPoints := signinNextBonus(cfg, si.Streak)
 	return map[string]any{
-		"enabled":            true,
-		"currency_name":      signinCurrencyName(),
+		"enabled":            cfg.SigninEnabled,
+		"currency_name":      signinCurrencyName(cfg),
 		"current_points":     si.Points,
 		"current_streak":     si.Streak,
 		"longest_streak":     longest,
 		"total_points":       si.Points,
 		"last_signin_date":   emptyNil(si.LastSignin),
 		"today_signed":       si.LastSignin == today,
-		"next_bonus_in_days": nil,
-		"next_bonus_points":  nil,
+		"next_bonus_in_days": nextBonusInDays,
+		"next_bonus_points":  nextBonusPoints,
 	}
 }
 
-func signinActionPayload(si store.Signin, created bool, dailyPoints, bonusPoints int) map[string]any {
+func signinActionPayload(cfg config.Config, si store.Signin, created bool, dailyPoints, bonusPoints int) map[string]any {
 	totalToday := dailyPoints + bonusPoints
-	payload := signinSummaryPayload(si)
+	payload := signinSummaryPayload(cfg, si)
 	payload["created"] = created
 	payload["today_signed"] = true
 	payload["daily_points"] = dailyPoints
 	payload["bonus_points"] = bonusPoints
 	payload["total_today"] = totalToday
 	return payload
+}
+
+func signinDailyMin(cfg config.Config) int {
+	if cfg.SigninDailyMin <= 0 {
+		return 1
+	}
+	return cfg.SigninDailyMin
+}
+
+func signinDailyMax(cfg config.Config) int {
+	min := signinDailyMin(cfg)
+	if cfg.SigninDailyMax < min {
+		return min
+	}
+	return cfg.SigninDailyMax
+}
+
+func signinDailyPoints(cfg config.Config) int {
+	min := signinDailyMin(cfg)
+	max := signinDailyMax(cfg)
+	if max <= min {
+		return min
+	}
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(max-min+1)))
+	if err != nil {
+		return min
+	}
+	return min + int(n.Int64())
+}
+
+func signinBonusForStreak(cfg config.Config, streak int) int {
+	if !cfg.SigninStreakBonusEnabled || streak <= 0 {
+		return 0
+	}
+	for i, day := range cfg.SigninStreakBonusDays {
+		if day == streak && i < len(cfg.SigninStreakBonusPoints) {
+			points := cfg.SigninStreakBonusPoints[i]
+			if points > 0 {
+				return points
+			}
+			return 0
+		}
+	}
+	return 0
+}
+
+func signinBonusTable(cfg config.Config) []map[string]any {
+	table := make([]map[string]any, 0, len(cfg.SigninStreakBonusDays))
+	for i, day := range cfg.SigninStreakBonusDays {
+		if day <= 0 || i >= len(cfg.SigninStreakBonusPoints) {
+			continue
+		}
+		points := cfg.SigninStreakBonusPoints[i]
+		if points <= 0 {
+			continue
+		}
+		table = append(table, map[string]any{"streak_days": day, "bonus_points": points})
+	}
+	return table
+}
+
+func signinNextBonus(cfg config.Config, streak int) (any, any) {
+	if !cfg.SigninStreakBonusEnabled {
+		return nil, nil
+	}
+	nextDays := 0
+	nextPoints := 0
+	for i, day := range cfg.SigninStreakBonusDays {
+		if day <= streak || i >= len(cfg.SigninStreakBonusPoints) || cfg.SigninStreakBonusPoints[i] <= 0 {
+			continue
+		}
+		if nextDays == 0 || day < nextDays {
+			nextDays = day
+			nextPoints = cfg.SigninStreakBonusPoints[i]
+		}
+	}
+	if nextDays == 0 {
+		return nil, nil
+	}
+	return nextDays - streak, nextPoints
 }
 
 func (a *App) handleDemoBootstrap(w http.ResponseWriter, r *http.Request, _ Params) {
@@ -3012,7 +3174,7 @@ func (a *App) handleDemoMediaSearch(w http.ResponseWriter, r *http.Request, _ Pa
 func (a *App) handleDemoAction(w http.ResponseWriter, r *http.Request, params Params) {
 	setDemoHeaders(w)
 	if !a.limiter.Allow(r.Context(), rateKey("demo-action:", a.clientIP(r)), 60, time.Minute) {
-		fail(w, http.StatusTooManyRequests, "演示操作过于频繁")
+		fail(w, http.StatusTooManyRequests, "婕旂ず鎿嶄綔杩囦簬棰戠箒")
 		return
 	}
 	action := strings.TrimSpace(params["action_name"])

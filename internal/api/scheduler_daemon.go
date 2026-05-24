@@ -93,6 +93,7 @@ func (a *App) runScheduledJob(ctx context.Context, jobID string) {
 	started := time.Now().Unix()
 	run := store.SchedulerRun{JobID: jobID, Type: "auto", Trigger: "scheduler", Status: "running", Message: "running", StartedAt: started}
 	run, _ = a.store.AddSchedulerRunReturning(run)
+	zap.L().Info("scheduler job started", zap.String("job_id", jobID), zap.String("type", "auto"), zap.Int64("run_id", run.ID))
 	req, _ := http.NewRequestWithContext(runCtx, http.MethodPost, "/scheduler/internal", nil)
 	summary, logs, err := a.runSchedulerJob(req, jobID)
 	finished := schedulerFinishedRun(jobID, "auto", "scheduler", started, summary, logs, err)
@@ -115,6 +116,7 @@ func (a *App) startManualSchedulerJob(ctx context.Context, jobID string, params 
 	}
 	started := time.Now().Unix()
 	run, _ := a.store.AddSchedulerRunReturning(store.SchedulerRun{JobID: jobID, Type: "manual", Trigger: "manual", Status: "running", Message: "running", StartedAt: started})
+	zap.L().Info("scheduler job started", zap.String("job_id", jobID), zap.String("type", "manual"), zap.Int64("run_id", run.ID))
 	go func() {
 		defer finish()
 		req, _ := http.NewRequestWithContext(runCtx, http.MethodPost, "/scheduler/manual", nil)
@@ -222,6 +224,8 @@ func (a *App) schedulerDefaultTriggerSpec(jobID string) map[string]any {
 			hours = 6
 		}
 		return map[string]any{"type": "interval", "seconds": hours * 3600}
+	case "cleanup_bind_codes":
+		return map[string]any{"type": "interval", "seconds": 3600}
 	case "system_auto_update":
 		switch strings.ToLower(strings.TrimSpace(a.cfg.SystemUpdateTriggerType)) {
 		case "daily", "cron_daily":

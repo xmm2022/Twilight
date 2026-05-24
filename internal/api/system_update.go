@@ -50,6 +50,7 @@ func validateUpdateBranch(branch string) (string, error) {
 }
 
 func applyGitUpdate(ctx context.Context, repoURL, branch string, restartServices bool, dryRun bool, allowDirty bool) map[string]any {
+	_ = allowDirty
 	repoURL, err := validateUpdateRepoURL(repoURL)
 	if err != nil {
 		return map[string]any{"success": false, "message": err.Error(), "code": 400, "results": []any{}}
@@ -72,48 +73,82 @@ func applyGitUpdate(ctx context.Context, repoURL, branch string, restartServices
 	if err != nil {
 		return map[string]any{"success": false, "message": "failed to inspect Git repository", "code": 500, "project_root": projectRoot, "error": err.Error(), "results": []any{}}
 	}
-	if boolish(before["dirty"]) && !allowDirty {
-		return map[string]any{
-			"success":      false,
-			"message":      "worktree has uncommitted changes; update refused",
-			"code":         409,
-			"project_root": projectRoot,
-			"repo_url":     redactGitURL(repoURL),
-			"branch":       branch,
-			"dry_run":      dryRun,
-			"before":       before,
-			"results":      []any{},
-		}
-	}
+	dirtyBefore := boolish(before["dirty"])
 	if dryRun {
+		message := "update preflight passed"
+		if dirtyBefore {
+			message = "update preflight passed; local changes will be stashed before update"
+		}
 		return map[string]any{
 			"success":           true,
-			"message":           "update preflight passed",
+			"message":           message,
 			"code":              200,
 			"project_root":      projectRoot,
 			"repo_url":          redactGitURL(repoURL),
 			"branch":            branch,
 			"dry_run":           true,
 			"restart_available": commandExists("systemctl"),
+			"dirty_before":      dirtyBefore,
+			"stash_created":     false,
+			"stash_restored":    false,
+			"stash_conflicts":   []string{},
 			"before":            before,
 			"results":           []any{},
 		}
 	}
+
+	results := make([]map[string]any, 0, 6)
+	stashCreated := false
+	stashRestored := false
+	stashConflicts := []string{}
+	if dirtyBefore {
+		stashMessage := "twilight-auto-update-" + strconv.FormatInt(time.Now().Unix(), 10)
+		stash := runUpdateCommand(ctx, projectRoot, []string{"git", "stash", "push", "--include-untracked", "-m", stashMessage}, 120*time.Second)
+		stash["command"] = "git stash push --include-untracked -m " + stashMessage
+		results = append(results, stash)
+		if code, _ := stash["returncode"].(int); code != 0 {
+			return map[string]any{"success": false, "message": "automatic update failed while stashing local changes", "code": 500, "project_root": projectRoot, "repo_url": redactGitURL(repoURL), "branch": branch, "dry_run": false, "dirty_before": dirtyBefore, "stash_created": false, "stash_restored": false, "stash_conflicts": stashConflicts, "before": before, "results": results}
+		}
+		stashCreated = true
+	}
+
 	commands := [][]string{
 		{"git", "remote", "set-url", "origin", repoURL},
 		{"git", "fetch", "--prune", "origin", branch},
 		{"git", "checkout", branch},
 		{"git", "pull", "--ff-only", "origin", branch},
 	}
-	results := make([]map[string]any, 0, len(commands))
 	for _, command := range commands {
 		result := runUpdateCommand(ctx, projectRoot, command, 120*time.Second)
 		result["command"] = redactedUpdateCommand(command)
 		results = append(results, result)
 		if code, _ := result["returncode"].(int); code != 0 {
-			return map[string]any{"success": false, "message": "automatic update failed", "code": 500, "project_root": projectRoot, "repo_url": redactGitURL(repoURL), "branch": branch, "dry_run": false, "before": before, "results": results}
+			if stashCreated && !stashRestored {
+				restore := runUpdateCommand(ctx, projectRoot, []string{"git", "stash", "pop"}, 120*time.Second)
+				restore["command"] = "git stash pop"
+				results = append(results, restore)
+				stashRestored = restore["returncode"] == 0
+				if state, stateErr := gitRepositoryState(ctx, projectRoot); stateErr == nil && boolish(state["dirty"]) {
+					stashConflicts = stringSlice(state["dirty_files"])
+				}
+			}
+			return map[string]any{"success": false, "message": "automatic update failed", "code": 500, "project_root": projectRoot, "repo_url": redactGitURL(repoURL), "branch": branch, "dry_run": false, "dirty_before": dirtyBefore, "stash_created": stashCreated, "stash_restored": stashRestored, "stash_conflicts": stashConflicts, "before": before, "results": results}
 		}
 	}
+
+	if stashCreated {
+		restore := runUpdateCommand(ctx, projectRoot, []string{"git", "stash", "pop"}, 120*time.Second)
+		restore["command"] = "git stash pop"
+		results = append(results, restore)
+		stashRestored = restore["returncode"] == 0
+		if !stashRestored {
+			if state, stateErr := gitRepositoryState(ctx, projectRoot); stateErr == nil && boolish(state["dirty"]) {
+				stashConflicts = stringSlice(state["dirty_files"])
+			}
+			return map[string]any{"success": false, "message": "update pulled but local changes could not be restored cleanly", "code": 409, "project_root": projectRoot, "repo_url": redactGitURL(repoURL), "branch": branch, "dry_run": false, "dirty_before": dirtyBefore, "stash_created": stashCreated, "stash_restored": false, "stash_conflicts": stashConflicts, "before": before, "results": results}
+		}
+	}
+
 	after, stateErr := gitRepositoryState(ctx, projectRoot)
 	services := []string{"twilight", "twilight-bot", "twilight-scheduler"}
 	restartScheduled := false
@@ -141,7 +176,7 @@ func applyGitUpdate(ctx context.Context, repoURL, branch string, restartServices
 	if restartScheduled {
 		outServices = services
 	}
-	response := map[string]any{"success": true, "message": message, "code": 200, "project_root": projectRoot, "repo_url": redactGitURL(repoURL), "branch": branch, "dry_run": false, "updated": updated, "restart_requested": restartServices, "restart_scheduled": restartScheduled, "restart_method": restartMethod, "restart_available": commandExists("systemctl"), "services": outServices, "before": before, "results": results}
+	response := map[string]any{"success": true, "message": message, "code": 200, "project_root": projectRoot, "repo_url": redactGitURL(repoURL), "branch": branch, "dry_run": false, "updated": updated, "restart_requested": restartServices, "restart_scheduled": restartScheduled, "restart_method": restartMethod, "restart_available": commandExists("systemctl"), "services": outServices, "dirty_before": dirtyBefore, "stash_created": stashCreated, "stash_restored": stashRestored, "stash_conflicts": stashConflicts, "before": before, "results": results}
 	if stateErr != nil {
 		response["after_error"] = stateErr.Error()
 	} else {
@@ -149,7 +184,6 @@ func applyGitUpdate(ctx context.Context, repoURL, branch string, restartServices
 	}
 	return response
 }
-
 func runUpdateCommand(ctx context.Context, cwd string, args []string, timeout time.Duration) map[string]any {
 	started := time.Now()
 	cmdCtx, cancel := context.WithTimeout(ctx, timeout)

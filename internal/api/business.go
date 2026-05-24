@@ -48,6 +48,69 @@ func pages(total, perPage int) int {
 	return (total + perPage - 1) / perPage
 }
 
+const permanentExpiryUnix int64 = 253402214400
+
+func (a *App) systemUserLimitReached() (bool, int, int) {
+	limit := a.cfg.UserLimit
+	current := a.store.UserCount()
+	return limit > 0 && current >= limit, current, limit
+}
+
+func (a *App) embyCapacityReached(excludeUID int64) (bool, int, int) {
+	limit := a.cfg.EmbyUserLimit
+	current := 0
+	for _, u := range a.store.ListUsers() {
+		if u.UID == excludeUID {
+			continue
+		}
+		if u.EmbyID != "" || u.PendingEmby {
+			current++
+		}
+	}
+	return limit > 0 && current >= limit, current, limit
+}
+
+func (a *App) protectedUserReason(u store.User) string {
+	switch {
+	case u.Role == store.RoleAdmin:
+		return "admin"
+	case u.Role == store.RoleWhitelist:
+		return "whitelist"
+	case a.configuredAdminMatch(u.UID, u.Username):
+		return "configured_admin"
+	default:
+		return ""
+	}
+}
+
+func (a *App) userIsProtected(u store.User) bool {
+	return a.protectedUserReason(u) != ""
+}
+
+func expiryFromDays(days int, base time.Time) int64 {
+	if days < 0 {
+		return permanentExpiryUnix
+	}
+	if days == 0 {
+		days = 30
+	}
+	return base.AddDate(0, 0, days).Unix()
+}
+
+func addDaysToExpiry(current int64, days int, now time.Time) int64 {
+	if days < 0 {
+		return permanentExpiryUnix
+	}
+	if days == 0 {
+		days = 30
+	}
+	base := now
+	if current > now.Unix() && current < permanentExpiryUnix {
+		base = time.Unix(current, 0)
+	}
+	return base.AddDate(0, 0, days).Unix()
+}
+
 func paginate[T any](items []T, page, perPage int) []T {
 	if perPage <= 0 {
 		return items
@@ -253,7 +316,55 @@ func joinInt64(values []int64) string {
 	return strings.Join(parts, ",")
 }
 
-func generateRegCode(format string, codeType int, algorithm string) string {
+func generateRegCode(format string, codeType int, algorithm string, days int, index int, validity int64, useLimit int) string {
+	randomLength := 20
+	random := strings.ToUpper(randomCode(randomLength))
+	switch strings.ToLower(strings.TrimSpace(algorithm)) {
+	case "hex20", "hex":
+		random = strings.ToUpper(randomCode(20))
+	case "base32-16":
+		randomLength = 16
+		fallthrough
+	case "base32-20", "base32", "":
+		if randomLength == 20 {
+			randomLength = 20
+		}
+		random = base32Code(randomLength)
+	case "base32-24":
+		random = base32Code(24)
+	default:
+		random = strings.ToUpper(randomCode(20))
+	}
+	typeName := map[int]string{1: "REG", 2: "REN", 3: "VIP"}[codeType]
+	if strings.TrimSpace(format) == "" {
+		format = "TW-{type}-{random}"
+	}
+	replacements := map[string]string{
+		"{type}":     typeName,
+		"{random}":   random,
+		"{days}":     strconv.Itoa(days),
+		"{index}":    strconv.Itoa(index),
+		"{validity}": strconv.FormatInt(validity, 10),
+		"{limit}":    strconv.Itoa(useLimit),
+	}
+	code := format
+	for placeholder, value := range replacements {
+		code = strings.ReplaceAll(code, placeholder, value)
+	}
+	return strings.ToUpper(code)
+}
+
+func base32Code(length int) string {
+	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	var b strings.Builder
+	for b.Len() < length {
+		n, _ := strconv.ParseInt(randomCode(2), 16, 64)
+		b.WriteByte(alphabet[int(n)%len(alphabet)])
+	}
+	return b.String()
+}
+
+func legacyGenerateRegCode(format string, codeType int, algorithm string) string {
 	random := strings.ToUpper(randomCode(20))
 	switch strings.ToLower(algorithm) {
 	case "hex20":
@@ -310,6 +421,23 @@ func (a *App) previewCode(code string, user store.User) (map[string]any, string,
 
 // recordViolation logs a code violation and applies the configured punitive action.
 func (a *App) recordViolation(user store.User, code, codeType, reason string) {
+	if a.userIsProtected(user) {
+		action := strings.ToLower(strings.TrimSpace(a.cfg.DecoyAction))
+		if action == "" {
+			action = "log_only"
+		}
+		_ = a.store.AddViolationLog(store.ViolationLog{
+			UID:        user.UID,
+			Username:   user.Username,
+			Code:       code,
+			CodeType:   codeType,
+			Reason:     reason + "；受保护账号未执行处罚",
+			Action:     action,
+			TelegramID: user.TelegramID,
+			CreatedAt:  time.Now().Unix(),
+		})
+		return
+	}
 	action := strings.ToLower(strings.TrimSpace(a.cfg.DecoyAction))
 	if action == "" {
 		action = "log_only"

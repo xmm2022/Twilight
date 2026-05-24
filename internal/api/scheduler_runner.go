@@ -125,6 +125,12 @@ func (a *App) runSchedulerJob(r *http.Request, jobID string) (map[string]any, []
 	case "daily_stats":
 		users := a.store.ListUsers()
 		return map[string]any{"success": true, "users": len(users), "active": countActive(users)}, []string{"daily stats generated"}, nil
+	case "cleanup_bind_codes":
+		deleted, err := a.store.CleanupExpiredBindCodes(time.Now().Unix())
+		if err != nil {
+			return map[string]any{"success": false, "deleted": deleted}, []string{fmt.Sprintf("failed to delete expired bind codes: %v", err)}, err
+		}
+		return map[string]any{"success": true, "deleted": deleted}, []string{fmt.Sprintf("deleted %d expired bind codes", deleted)}, nil
 	case "cleanup_sessions":
 		if a.cfg.EmbyURL == "" {
 			return map[string]any{"success": true, "configured": false, "active": 0, "total": 0}, []string{"Emby not configured"}, nil

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"io"
@@ -46,8 +47,14 @@ func newTestApp(t *testing.T) *App {
 		SessionCookie:                "twilight_session",
 		SessionTTL:                   time.Hour,
 		CookieSameSite:               "lax",
+		RegisterEnabled:              true,
 		MediaRequestEnabled:          true,
 		MaxConcurrentRequestsPerUser: 3,
+		SigninEnabled:                true,
+		SigninCurrencyName:           "积分",
+		SigninDailyMin:               1,
+		SigninDailyMax:               1,
+		SigninResetAfterMiss:         true,
 		InviteEnabled:                true,
 		InviteMaxDepth:               3,
 		InviteLimit:                  10,
@@ -533,6 +540,50 @@ func TestSigninResponsesMatchFrontendContract(t *testing.T) {
 	}
 }
 
+func TestDisabledFeatureFlagsAreExposedAndEnforced(t *testing.T) {
+	app := newTestApp(t)
+	app.cfg.MediaRequestEnabled = false
+	app.cfg.SigninEnabled = false
+	app.cfg.InviteEnabled = false
+
+	info := doJSON(app, http.MethodGet, "/api/v1/system/info", ``, nil)
+	if info.Code != http.StatusOK {
+		t.Fatalf("system info status=%d body=%s", info.Code, info.Body.String())
+	}
+	var infoEnv struct {
+		Data struct {
+			Features map[string]bool `json:"features"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(info.Body.Bytes(), &infoEnv); err != nil {
+		t.Fatal(err)
+	}
+	if infoEnv.Data.Features["media_request"] || infoEnv.Data.Features["signin"] || infoEnv.Data.Features["invite"] {
+		t.Fatalf("disabled feature flags were not exposed: %#v", infoEnv.Data.Features)
+	}
+
+	configResp := doJSON(app, http.MethodGet, "/api/v1/signin/config", ``, nil)
+	if configResp.Code != http.StatusOK || !strings.Contains(configResp.Body.String(), `"enabled":false`) {
+		t.Fatalf("signin config did not expose disabled state: status=%d body=%s", configResp.Code, configResp.Body.String())
+	}
+
+	_ = doJSON(app, http.MethodPost, "/api/v1/users/register", `{"username":"admin","password":"admin123456"}`, nil)
+	login := doJSON(app, http.MethodPost, "/api/v1/auth/login", `{"username":"admin","password":"admin123456"}`, nil)
+	cookie := findCookie(login.Result().Cookies(), "twilight_session")
+	signin := doJSONWithHeaders(app, http.MethodPost, "/api/v1/signin", `{}`, []*http.Cookie{cookie}, map[string]string{"X-Twilight-Client": "webui"})
+	if signin.Code != http.StatusForbidden {
+		t.Fatalf("disabled signin status=%d body=%s", signin.Code, signin.Body.String())
+	}
+	inviteMe := doJSONWithHeaders(app, http.MethodGet, "/api/v1/invite/me", ``, []*http.Cookie{cookie}, map[string]string{"X-Twilight-Client": "webui"})
+	if inviteMe.Code != http.StatusForbidden {
+		t.Fatalf("disabled invite/me status=%d body=%s", inviteMe.Code, inviteMe.Body.String())
+	}
+	inviteTree := doJSONWithHeaders(app, http.MethodGet, "/api/v1/admin/invite/tree", ``, []*http.Cookie{cookie}, map[string]string{"X-Twilight-Client": "webui"})
+	if inviteTree.Code != http.StatusForbidden {
+		t.Fatalf("disabled admin invite tree status=%d body=%s", inviteTree.Code, inviteTree.Body.String())
+	}
+}
+
 func TestInventoryCheckUsesEmbyProviderAndSeasons(t *testing.T) {
 	app := newTestApp(t)
 	emby := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -806,6 +857,128 @@ func TestSystemUpdateValidationHelpers(t *testing.T) {
 	}
 	if !systemdServicePattern.MatchString("twilight-scheduler") || systemdServicePattern.MatchString("twilight;reboot") {
 		t.Fatal("systemd service name validator is too loose or too strict")
+	}
+}
+
+func TestBindCodesPersistAcrossStoreReopen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	st, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Unix()
+	if err := st.UpsertBindCode(store.BindCode{Code: "PERSIST12345", Scene: "register", Confirmed: true, TelegramID: 12345, TelegramUsername: "persist", CreatedAt: now, ExpiresAt: now + 600}); err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Close()
+
+	reopened, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	bind, ok := reopened.BindCode("PERSIST12345")
+	if !ok || bind.TelegramID != 12345 || !bind.Confirmed || bind.TelegramUsername != "persist" {
+		t.Fatalf("bind code did not persist correctly: ok=%v bind=%#v", ok, bind)
+	}
+}
+
+func TestCleanupExpiredBindCodesKeepsValidCodes(t *testing.T) {
+	app := newTestApp(t)
+	now := time.Now().Unix()
+	if err := app.store.UpsertBindCode(store.BindCode{Code: "EXPIRED12345", Scene: "register", CreatedAt: now - 700, ExpiresAt: now - 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.store.UpsertBindCode(store.BindCode{Code: "VALID1234567", Scene: "register", CreatedAt: now, ExpiresAt: now + 600}); err != nil {
+		t.Fatal(err)
+	}
+	deleted, err := app.store.CleanupExpiredBindCodes(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted != 1 {
+		t.Fatalf("deleted=%d, want 1", deleted)
+	}
+	if _, ok := app.store.BindCode("EXPIRED12345"); ok {
+		t.Fatal("expired bind code was not deleted")
+	}
+	if _, ok := app.store.BindCode("VALID1234567"); !ok {
+		t.Fatal("valid bind code was deleted")
+	}
+}
+
+func TestSchedulerCleanupBindCodesJob(t *testing.T) {
+	app := newTestApp(t)
+	now := time.Now().Unix()
+	if err := app.store.UpsertBindCode(store.BindCode{Code: "OLD123456789", Scene: "register", CreatedAt: now - 800, ExpiresAt: now - 1}); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/scheduler", nil)
+	summary, logs, err := app.runSchedulerJob(req, "cleanup_bind_codes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int(numeric(summary["deleted"])) != 1 || len(logs) == 0 {
+		t.Fatalf("unexpected cleanup summary=%v logs=%v", summary, logs)
+	}
+	if _, ok := app.store.BindCode("OLD123456789"); ok {
+		t.Fatal("scheduler did not delete expired bind code")
+	}
+}
+
+func TestRegisterConsumesConfirmedTelegramBindCode(t *testing.T) {
+	app := newTestApp(t)
+	app.cfg.BotInternalSecret = "test-secret"
+	app.cfg.ForceBindTelegram = true
+
+	codeResp := doJSON(app, http.MethodPost, "/api/v1/users/telegram/register/bind-code", `{}`, nil)
+	if codeResp.Code != http.StatusOK {
+		t.Fatalf("bind-code status=%d body=%s", codeResp.Code, codeResp.Body.String())
+	}
+	var codeBody struct {
+		Data struct {
+			BindCode string `json:"bind_code"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(codeResp.Body.Bytes(), &codeBody); err != nil {
+		t.Fatal(err)
+	}
+	code := codeBody.Data.BindCode
+	if code == "" {
+		t.Fatalf("missing bind code in response: %s", codeResp.Body.String())
+	}
+
+	confirmPayload := fmt.Sprintf(`{"code":%q,"telegram_id":424242,"telegram_username":"alice_tg"}`, code)
+	confirmed := doJSONWithHeaders(app, http.MethodPost, "/api/v1/users/me/telegram/bind-confirm", confirmPayload, nil, map[string]string{"X-Internal-Secret": "test-secret"})
+	if confirmed.Code != http.StatusOK {
+		t.Fatalf("confirm status=%d body=%s", confirmed.Code, confirmed.Body.String())
+	}
+	registered := doJSON(app, http.MethodPost, "/api/v1/users/register", fmt.Sprintf(`{"username":"alice","password":"alice123456","telegram_bind_code":%q}`, code), nil)
+	if registered.Code != http.StatusCreated {
+		t.Fatalf("register status=%d body=%s", registered.Code, registered.Body.String())
+	}
+	u, ok := app.store.FindUserByUsername("alice")
+	if !ok || u.TelegramID != 424242 || u.TelegramUsername != "alice_tg" {
+		t.Fatalf("telegram bind not applied to registered user: ok=%v user=%#v", ok, u)
+	}
+	if _, ok := app.store.BindCode(code); ok {
+		t.Fatal("confirmed register bind code was not consumed")
+	}
+}
+
+func TestRegisterRejectsUserSceneTelegramBindCode(t *testing.T) {
+	app := newTestApp(t)
+	app.cfg.ForceBindTelegram = true
+	now := time.Now().Unix()
+	if err := app.store.UpsertBindCode(store.BindCode{Code: "USERBIND1234", Scene: "user", UID: 99, Confirmed: true, TelegramID: 999, CreatedAt: now, ExpiresAt: now + 600}); err != nil {
+		t.Fatal(err)
+	}
+	resp := doJSON(app, http.MethodPost, "/api/v1/users/register", `{"username":"bob","password":"bob123456","telegram_bind_code":"USERBIND1234"}`, nil)
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("register with user-scene bind code status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	if _, ok := app.store.FindUserByUsername("bob"); ok {
+		t.Fatal("user was registered with a user-scene bind code")
 	}
 }
 

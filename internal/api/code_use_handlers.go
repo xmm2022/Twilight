@@ -26,6 +26,15 @@ func (a *App) handleUseCode(w http.ResponseWriter, r *http.Request, _ Params) {
 		ok(w, "OK", preview)
 		return
 	}
+	days := intValue(preview, "days", 30)
+	grantsEmby := source == "invite" || int(numeric(preview["type"])) == 1 || int(numeric(preview["type"])) == 3
+	if grantsEmby && p.User.EmbyID == "" {
+		if reached, current, limit := a.embyCapacityReached(p.User.UID); reached {
+			fail(w, http.StatusConflict, "Emby 用户数量已达上限 "+strconv.Itoa(current)+"/"+strconv.Itoa(limit))
+			return
+		}
+	}
+
 	if source == "invite" {
 		invite, _ := a.store.InviteCode(code)
 		if invite.InviterUID == p.User.UID {
@@ -53,31 +62,32 @@ func (a *App) handleUseCode(w http.ResponseWriter, r *http.Request, _ Params) {
 		}
 	}
 	u, err := a.store.UpdateUser(p.User.UID, func(u *store.User) error {
-		days := intValue(preview, "days", 30)
 		if source == "regcode" {
 			switch reg.Type {
 			case 1:
 				u.Role = store.RoleNormal
-				u.PendingEmby = false
+				u.PendingEmby = u.EmbyID == ""
+				u.PendingEmbyDays = &days
 			case 3:
 				u.Role = store.RoleWhitelist
-				u.ExpiredAt = 253402214400
+				u.Active = true
+				u.ExpiredAt = permanentExpiryUnix
+				if u.EmbyID == "" {
+					permanentDays := -1
+					u.PendingEmby = true
+					u.PendingEmbyDays = &permanentDays
+				}
 			}
 		}
 		if source == "invite" || (source == "regcode" && reg.Type == 1) {
 			u.EmbyUsername = firstNonEmpty(stringValue(payload, "emby_username"), u.Username)
-			u.EmbyID = firstNonEmpty(u.EmbyID, "emby_"+strconv.FormatInt(u.UID, 10))
+			if u.EmbyID == "" {
+				u.PendingEmby = true
+				u.PendingEmbyDays = &days
+			}
 		}
 		if u.Role != store.RoleWhitelist {
-			if days <= 0 {
-				u.ExpiredAt = -1
-			} else {
-				base := time.Now().Unix()
-				if u.ExpiredAt > base {
-					base = u.ExpiredAt
-				}
-				u.ExpiredAt = base + int64(days)*86400
-			}
+			u.ExpiredAt = addDaysToExpiry(u.ExpiredAt, days, time.Now())
 		}
 		return nil
 	})
@@ -85,7 +95,7 @@ func (a *App) handleUseCode(w http.ResponseWriter, r *http.Request, _ Params) {
 		return
 	}
 	data := preview
-	data["pending"] = false
+	data["pending"] = u.PendingEmby && u.EmbyID == ""
 	data["user"] = publicUser(u)
 	data["expire_status"] = expireStatus(u.ExpiredAt)
 	data["expired_at"] = u.ExpiredAt
@@ -93,7 +103,6 @@ func (a *App) handleUseCode(w http.ResponseWriter, r *http.Request, _ Params) {
 	data["role_name"] = roleName(u.Role)
 	ok(w, "使用成功", data)
 }
-
 func codePreview(source string, codeType int, days int, inviter string) map[string]any {
 	typeName := map[int]string{1: "注册码", 2: "续期码", 3: "白名单码"}[codeType]
 	if source == "invite" {

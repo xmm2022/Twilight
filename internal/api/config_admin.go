@@ -147,10 +147,10 @@ func (a *App) handleConfigSchemaFull(w http.ResponseWriter, r *http.Request, _ P
 	}
 	ok(w, "OK", map[string]any{
 		"categories": []map[string]string{
-			{"key": "runtime", "title": "运行"},
-			{"key": "integration", "title": "集成"},
+			{"key": "runtime", "title": "杩愯"},
+			{"key": "integration", "title": "闆嗘垚"},
 			{"key": "policy", "title": "策略"},
-			{"key": "ops", "title": "运维"},
+			{"key": "ops", "title": "杩愮淮"},
 		},
 		"sections": sections,
 	})
@@ -476,14 +476,14 @@ func configSectionDefs() []configSectionDef {
 	selectUpdate := []map[string]any{{"label": "按间隔", "value": "interval"}, {"label": "每日固定时间", "value": "daily"}, {"label": "手动", "value": "manual"}}
 	return []configSectionDef{
 		{Key: "Global", Title: "全局", Description: "基础运行参数", Category: "runtime", Fields: []configFieldDef{
-			{Key: "server_name", Label: "服务器名称", Type: "string", Description: "前端展示的站点/服务器名称"},
+			{Key: "server_name", Label: "服务器名称", Type: "string", Description: "前端展示的站点或服务器名称"},
 			{Key: "server_icon", Label: "服务器图标", Type: "string", Description: "HTTPS 图片 URL 或本地图片路径；留空使用内置图标"},
 			{Key: "databases_dir", Label: "数据目录", Type: "string", Description: "JSON 状态、备份和迁移文件目录"},
 			{Key: "log_level", Label: "日志等级", Type: "select", Description: "后端运行日志等级；兼容旧值 10/20/30/40", Options: []map[string]any{{"label": "DEBUG", "value": "debug"}, {"label": "INFO", "value": "info"}, {"label": "WARN", "value": "warn"}, {"label": "ERROR", "value": "error"}}},
 			{Key: "runtime_log_limit", Label: "实时日志保留行数", Type: "int", Description: "后台实时日志缓冲区行数，热重载生效"},
 			{Key: "redis_url", Label: "Redis URL", Type: "secret", Description: "会话和限流 Redis，留空使用进程内存"},
 			{Key: "telegram_mode", Label: "启用 Telegram", Type: "bool", Description: "启用 Bot 和 Telegram 绑定能力"},
-			{Key: "force_bind_telegram", Label: "强制绑定 Telegram", Type: "bool", Description: "登录/注册流程要求绑定 Telegram"},
+			{Key: "force_bind_telegram", Label: "强制绑定 Telegram", Type: "bool", Description: "登录或注册流程要求绑定 Telegram"},
 			{Key: "tmdb_api_key", Label: "TMDB API Key", Type: "secret", Description: "媒体搜索使用的 TMDB Key"},
 			{Key: "tmdb_api_url", Label: "TMDB API URL", Type: "string", Description: "TMDB API 基础地址"},
 			{Key: "tmdb_image_url", Label: "TMDB 图片 URL", Type: "string", Description: "TMDB 图片 CDN 地址"},
@@ -491,10 +491,10 @@ func configSectionDefs() []configSectionDef {
 			{Key: "bangumi_api_url", Label: "Bangumi API URL", Type: "string", Description: "Bangumi API 基础地址"},
 		}},
 		{Key: "Database", Title: "数据库", Description: "JSON/PostgreSQL 存储和备份配置", Category: "ops", Fields: []configFieldDef{
-			{Key: "driver", Label: "存储后端", Type: "select", Description: "可视化配置仅提供 PostgreSQL 与 Go JSON；旧 SQLite 仅作为手动迁移源，不作为前端可选运行后端", Options: selectDriver},
-			{Key: "state_file", Label: "JSON 状态文件", Type: "string", Description: "Go JSON 状态文件路径，留空使用数据目录下 twilight_go_state.json"},
+			{Key: "driver", Label: "存储后端", Type: "select", Description: "可视化配置仅提供 PostgreSQL 与 Go JSON；旧 SQLite 只作为迁移源", Options: selectDriver},
+			{Key: "state_file", Label: "JSON 状态文件", Type: "string", Description: "Go JSON 状态文件路径，留空使用数据目录中的 twilight_go_state.json"},
 			{Key: "backup_dir", Label: "备份目录", Type: "string", Description: "数据库快照备份目录"},
-			{Key: "migration_panel_enabled", Label: "启用数据库迁移", Type: "bool", Description: "默认关闭；开启后显示数据库迁移面板并允许管理员调用迁移 API"},
+			{Key: "migration_panel_enabled", Label: "启用数据库迁移", Type: "bool", Description: "开启后显示数据库迁移面板并允许管理员调用迁移 API"},
 			{Key: "url", Label: "PostgreSQL URL", Type: "secret", Description: "完整 postgres:// 连接串，优先级高于分项配置"},
 			{Key: "postgres_host", Label: "PG 主机", Type: "string", Description: "PostgreSQL 主机"},
 			{Key: "postgres_port", Label: "PG 端口", Type: "int", Description: "PostgreSQL 端口"},
@@ -511,7 +511,7 @@ func configSectionDefs() []configSectionDef {
 			{Key: "emby_username", Label: "管理员用户名", Type: "string", Description: "备用鉴权用户名"},
 			{Key: "emby_password", Label: "管理员密码", Type: "secret", Description: "备用鉴权密码"},
 			{Key: "emby_url_list", Label: "普通线路", Type: "list", Description: "格式：名称 : URL"},
-			{Key: "emby_url_list_for_whitelist", Label: "白名单线路", Type: "list", Description: "管理员/白名单用户可见线路"},
+			{Key: "emby_url_list_for_whitelist", Label: "白名单线路", Type: "list", Description: "管理员和白名单用户可见线路"},
 			{Key: "emby_default_hidden_libraries", Label: "默认隐藏媒体库", Type: "list", Description: "新建 Emby 用户默认隐藏的媒体库名"},
 			{Key: "emby_self_service_libraries", Label: "自助媒体库", Type: "list", Description: "允许用户自行显隐的媒体库名"},
 		}},
@@ -519,16 +519,16 @@ func configSectionDefs() []configSectionDef {
 			{Key: "telegram_api_url", Label: "Bot API URL", Type: "string", Description: "Telegram Bot API 基础地址"},
 			{Key: "bot_token", Label: "Bot Token", Type: "secret", Description: "Telegram Bot Token"},
 			{Key: "admin_id", Label: "管理员 Telegram ID", Type: "list", Description: "Bot 管理员 ID 列表"},
-			{Key: "group_id", Label: "群组 ID", Type: "list", Description: "强制订阅/巡检群组"},
+			{Key: "group_id", Label: "群组 ID", Type: "list", Description: "强制订阅或巡检群组"},
 			{Key: "channel_id", Label: "频道 ID", Type: "list", Description: "强制订阅频道"},
-			{Key: "force_subscribe", Label: "强制订阅", Type: "bool", Description: "要求订阅指定群组/频道"},
+			{Key: "force_subscribe", Label: "强制订阅", Type: "bool", Description: "要求订阅指定群组或频道"},
 			{Key: "enable_tg_panel", Label: "启用 Bot 面板", Type: "bool", Description: "启用更多 Bot 查询命令和管理查询入口"},
-			{Key: "require_group_membership", Label: "强制群成员", Type: "bool", Description: "巡检发现退群时禁用本地/Emby"},
+			{Key: "require_group_membership", Label: "强制群成员", Type: "bool", Description: "巡检发现退群时禁用本地或 Emby"},
 			{Key: "ban_on_leave", Label: "退群封禁", Type: "bool", Description: "退群后在群组永久封禁"},
 			{Key: "group_check_concurrency", Label: "巡检并发", Type: "int", Description: "getChatMember 并发数"},
-			{Key: "group_action_concurrency", Label: "写操作并发", Type: "int", Description: "踢出/封禁等动作并发数"},
-			{Key: "bot_start_text", Label: "Bot 开始文案", Type: "textarea", Description: "覆盖私聊 /start 文案，支持换行；保存到 TOML 时会自动转义为 \\n"},
-			{Key: "bot_group_start_text", Label: "群聊开始文案", Type: "textarea", Description: "覆盖群聊 /start 提示，支持换行；留空使用内置文案"},
+			{Key: "group_action_concurrency", Label: "写操作并发", Type: "int", Description: "踢出、封禁等动作并发数"},
+			{Key: "bot_start_text", Label: "Bot 开始文案", Type: "textarea", Description: "覆盖私聊 /start 文案，支持换行"},
+			{Key: "bot_group_start_text", Label: "群聊开始文案", Type: "textarea", Description: "覆盖群聊 /start 提示，支持换行"},
 			{Key: "bot_start_title", Label: "开始标题", Type: "string", Description: "内置 /start 文案的标题"},
 			{Key: "bot_start_intro", Label: "开始简介", Type: "textarea", Description: "内置 /start 文案的简介，支持换行"},
 			{Key: "bot_bind_prompt_text", Label: "绑定提示文案", Type: "textarea", Description: "/bind 无参数时的提示文本，支持换行"},
@@ -537,37 +537,59 @@ func configSectionDefs() []configSectionDef {
 			{Key: "bot_help_header", Label: "帮助页前缀", Type: "textarea", Description: "追加到内置用户帮助顶部，支持换行"},
 			{Key: "bot_help_footer", Label: "帮助页后缀", Type: "textarea", Description: "追加到内置用户帮助底部，支持换行"},
 			{Key: "bot_about", Label: "Bot 关于文案", Type: "textarea", Description: "/about 的服务说明，支持换行"},
-			{Key: "bot_custom_commands", Label: "Bot 自定义指令回复", Type: "command_map", Description: "自定义 /command 与回复内容的映射，回复支持换行；内置指令优先级更高"},
+			{Key: "bot_custom_commands", Label: "Bot 自定义指令回复", Type: "command_map", Description: "自定义 /command 与回复内容的映射，回复支持换行"},
 		}},
-		{Key: "SAR", Title: "注册/邀请", Description: "注册、卡码、邀请树和求片", Category: "policy", Fields: []configFieldDef{
+		{Key: "SAR", Title: "注册/邀请", Description: "注册、卡码、邀请树、求片和签到", Category: "policy", Fields: []configFieldDef{
 			{Key: "register_mode", Label: "开放注册", Type: "bool", Description: "是否允许注册系统账号"},
 			{Key: "register_code_limit", Label: "注册必须用码", Type: "bool", Description: "注册时必须提供注册码"},
 			{Key: "allow_pending_register", Label: "允许待补建", Type: "bool", Description: "允许无 Emby 账号先注册"},
 			{Key: "emby_direct_register_enabled", Label: "Emby 自助注册", Type: "bool", Description: "用户可自助创建 Emby 账号"},
 			{Key: "emby_direct_register_days", Label: "自助注册天数", Type: "int", Description: "Emby 自助注册默认有效期"},
+			{Key: "user_limit", Label: "系统用户上限", Type: "int", Description: "-1 表示不限；达到上限后禁止新注册"},
+			{Key: "regcode_format", Label: "默认注册码格式", Type: "string", Description: "支持 {random}/{type}/{days}/{index}/{validity}/{limit}"},
+			{Key: "regcode_random_algorithm", Label: "默认注册码随机算法", Type: "string", Description: "支持 hex20、base32-16、base32-20、base32-24"},
 			{Key: "emby_user_limit", Label: "Emby 用户上限", Type: "int", Description: "-1 表示不限"},
 			{Key: "media_request_enabled", Label: "启用求片", Type: "bool", Description: "允许用户提交媒体请求"},
 			{Key: "max_concurrent_requests_per_user", Label: "每用户并发求片", Type: "int", Description: "-1 表示不限"},
-			{Key: "invite_enabled", Label: "启用邀请树", Type: "bool", Description: "允许用户生成邀请码/续期码"},
-			{Key: "invite_limit", Label: "邀请码数量", Type: "int", Description: "每用户可持有邀请码数量"},
-			{Key: "invite_root_user_limit", Label: "根邀请上限", Type: "int", Description: "根节点邀请数量限制"},
+			{Key: "signin_enabled", Label: "启用签到", Type: "bool", Description: "允许用户进入签到页面并领取每日积分"},
+			{Key: "currency_name", Label: "积分名称", Type: "string", Description: "签到积分在前端展示的名称"},
+			{Key: "daily_min", Label: "每日最少积分", Type: "int", Description: "单次签到可获得的最少积分"},
+			{Key: "daily_max", Label: "每日最多积分", Type: "int", Description: "单次签到可获得的最多积分"},
+			{Key: "streak_bonus_enabled", Label: "启用连签奖励", Type: "bool", Description: "按连续签到天数发放额外奖励"},
+			{Key: "streak_bonus_days", Label: "连签奖励天数", Type: "list", Description: "数字列表，与连签奖励积分一一对应"},
+			{Key: "streak_bonus_points", Label: "连签奖励积分", Type: "list", Description: "数字列表，与连签奖励天数一一对应"},
+			{Key: "reset_after_miss", Label: "漏签重置连签", Type: "bool", Description: "漏签后是否从 1 天重新计算连续签到"},
+			{Key: "invite_enabled", Label: "启用邀请树", Type: "bool", Description: "允许用户生成邀请码或续期码"},
+			{Key: "invite_limit", Label: "邀请码数量", Type: "int", Description: "每个用户可持有的邀请码数量"},
+			{Key: "invite_root_user_limit", Label: "根邀请上限", Type: "int", Description: "单棵邀请树最多成功邀请人数"},
 			{Key: "invite_max_depth", Label: "邀请最大深度", Type: "int", Description: "邀请关系最大层级"},
 			{Key: "invite_require_emby", Label: "邀请要求 Emby", Type: "bool", Description: "已绑定 Emby 才能邀请"},
-			{Key: "invite_code_default_days", Label: "邀请码默认天数", Type: "int", Description: "新邀请码默认续期/开通天数"},
-			{Key: "permanent_invite_max_days", Label: "永久码最大天数", Type: "int", Description: "永久邀请可授予最大天数"},
+			{Key: "invite_code_default_days", Label: "邀请码默认天数", Type: "int", Description: "新邀请码默认续期或开通天数"},
+			{Key: "permanent_invite_max_days", Label: "永久码最大天数", Type: "int", Description: "永久邀请可授予的最大天数"},
 			{Key: "auto_cleanup_no_emby", Label: "清理无 Emby 用户", Type: "bool", Description: "定期清理长期未绑定 Emby 的用户"},
 			{Key: "auto_cleanup_no_emby_days", Label: "无 Emby 清理天数", Type: "int", Description: "超过该天数后可清理"},
 		}},
 		{Key: "DeviceLimit", Title: "设备限制", Description: "设备和并发播放限制", Category: "policy", Fields: []configFieldDef{
 			{Key: "device_limit_enabled", Label: "启用设备限制", Type: "bool", Description: "限制设备数量"},
-			{Key: "max_devices", Label: "最大设备数", Type: "int", Description: "每用户最大设备数"},
-			{Key: "max_streams", Label: "最大播放流", Type: "int", Description: "每用户最大并发流"},
+			{Key: "max_devices", Label: "最大设备数", Type: "int", Description: "每个用户最大设备数"},
+			{Key: "max_streams", Label: "最大播放流", Type: "int", Description: "每个用户最大并发流"},
+		}},
+		{Key: "RateLimit", Title: "限流策略", Description: "接口请求频率限制；0 或负数表示不限制", Category: "security", Fields: []configFieldDef{
+			{Key: "enabled", Label: "启用后端限流", Type: "bool", Description: "关闭后不执行 Go 后端限流"},
+			{Key: "global_per_minute", Label: "全局每分钟", Type: "int", Description: "同一 IP 每分钟总请求数"},
+			{Key: "login_per_minute", Label: "登录每分钟", Type: "int", Description: "同一 IP 登录请求数"},
+			{Key: "register_per_10m", Label: "注册每 10 分钟", Type: "int", Description: "同一 IP 注册请求数"},
+			{Key: "forgot_password_ip_per_10m", Label: "找回密码 IP 每 10 分钟", Type: "int", Description: "同一 IP 找回密码请求数"},
+			{Key: "forgot_password_user_per_30m", Label: "找回密码账号每 30 分钟", Type: "int", Description: "同一 Emby 用户名找回密码请求数"},
+			{Key: "upload_per_minute", Label: "上传每分钟", Type: "int", Description: "同一用户上传请求数"},
+			{Key: "admin_icon_per_minute", Label: "站点图标每分钟", Type: "int", Description: "同一管理员上传站点图标请求数"},
+			{Key: "api_key_default_per_minute", Label: "API Key 默认每分钟", Type: "int", Description: "API Key 未单独设置时的默认额度"},
 		}},
 		{Key: "API", Title: "API", Description: "监听、跨域、上传和 Cookie", Category: "runtime", Fields: []configFieldDef{
-			{Key: "host", Label: "监听地址", Type: "string", Description: "修改后需重启监听器"},
-			{Key: "port", Label: "监听端口", Type: "int", Description: "修改后需重启监听器"},
-			{Key: "cors_origins", Label: "CORS Origins", Type: "list", Description: "允许的前端 Origin；凭据接口不会接受 *，生产环境必须显式填写 HTTPS 域名"},
-			{Key: "upload_folder", Label: "上传目录", Type: "string", Description: "头像/背景上传目录"},
+			{Key: "host", Label: "监听地址", Type: "string", Description: "修改后需要重启监听器"},
+			{Key: "port", Label: "监听端口", Type: "int", Description: "修改后需要重启监听器"},
+			{Key: "cors_origins", Label: "CORS Origins", Type: "list", Description: "允许的前端 Origin；生产环境必须显式填写 HTTPS 域名"},
+			{Key: "upload_folder", Label: "上传目录", Type: "string", Description: "头像或背景上传目录"},
 			{Key: "max_upload_size", Label: "上传上限", Type: "int", Description: "单文件最大字节数"},
 			{Key: "session_cookie_name", Label: "Cookie 名称", Type: "string", Description: "会话 Cookie 名称"},
 			{Key: "session_cookie_secure", Label: "Secure Cookie", Type: "bool", Description: "HTTPS 部署应开启"},
@@ -633,12 +655,22 @@ func configValues(cfg config.Config) map[string]map[string]any {
 		"SAR": {
 			"register_mode": cfg.RegisterEnabled, "register_code_limit": cfg.RegisterCodeLimit, "allow_pending_register": cfg.AllowPendingRegister,
 			"emby_direct_register_enabled": cfg.EmbyDirectRegisterEnabled, "emby_direct_register_days": cfg.EmbyDirectRegisterDays, "emby_user_limit": cfg.EmbyUserLimit,
+			"user_limit": cfg.UserLimit, "regcode_format": cfg.RegCodeFormat, "regcode_random_algorithm": cfg.RegCodeRandomAlgorithm,
 			"media_request_enabled": cfg.MediaRequestEnabled, "max_concurrent_requests_per_user": cfg.MaxConcurrentRequestsPerUser, "invite_enabled": cfg.InviteEnabled,
-			"invite_limit": cfg.InviteLimit, "invite_root_user_limit": cfg.InviteRootUserLimit, "invite_max_depth": cfg.InviteMaxDepth, "invite_require_emby": cfg.InviteRequireEmby,
+			"signin_enabled": cfg.SigninEnabled, "currency_name": cfg.SigninCurrencyName, "daily_min": cfg.SigninDailyMin, "daily_max": cfg.SigninDailyMax,
+			"streak_bonus_enabled": cfg.SigninStreakBonusEnabled, "streak_bonus_days": intsToAny(cfg.SigninStreakBonusDays), "streak_bonus_points": intsToAny(cfg.SigninStreakBonusPoints),
+			"reset_after_miss": cfg.SigninResetAfterMiss,
+			"invite_limit":     cfg.InviteLimit, "invite_root_user_limit": cfg.InviteRootUserLimit, "invite_max_depth": cfg.InviteMaxDepth, "invite_require_emby": cfg.InviteRequireEmby,
 			"invite_code_default_days": cfg.InviteDefaultDays, "permanent_invite_max_days": cfg.PermanentInviteMaxDays, "auto_cleanup_no_emby": cfg.AutoCleanupNoEmby,
 			"auto_cleanup_no_emby_days": cfg.AutoCleanupNoEmbyDays,
 		},
 		"DeviceLimit": {"device_limit_enabled": cfg.DeviceLimitEnabled, "max_devices": cfg.MaxDevices, "max_streams": cfg.MaxStreams},
+		"RateLimit": {
+			"enabled": cfg.RateLimitEnabled, "global_per_minute": cfg.RateLimitGlobalPerMinute, "login_per_minute": cfg.RateLimitLoginPerMinute,
+			"register_per_10m": cfg.RateLimitRegisterPer10m, "forgot_password_ip_per_10m": cfg.RateLimitForgotPasswordIPPer10m,
+			"forgot_password_user_per_30m": cfg.RateLimitForgotPasswordUserPer30m, "upload_per_minute": cfg.RateLimitUploadPerMinute,
+			"admin_icon_per_minute": cfg.RateLimitAdminIconPerMinute, "api_key_default_per_minute": cfg.RateLimitAPIKeyDefaultPerMinute,
+		},
 		"API": {
 			"host": cfg.Host, "port": cfg.Port, "cors_origins": cfg.CORSOrigins, "upload_folder": cfg.UploadDir, "max_upload_size": cfg.MaxUploadSize,
 			"session_cookie_name": cfg.SessionCookie, "session_cookie_secure": cfg.CookieSecure, "session_cookie_samesite": cfg.CookieSameSite, "trust_proxy_headers": cfg.TrustProxyHeaders,
@@ -662,7 +694,7 @@ func normalizeConfigField(field configFieldDef, value any) any {
 			out := make([]any, 0, len(items))
 			for _, item := range items {
 				if text := strings.TrimSpace(fmt.Sprint(item)); text != "" {
-					if field.Key == "admin_id" && isIntegerString(text) {
+					if (field.Key == "admin_id" || listFieldWantsInts(field.Key)) && isIntegerString(text) {
 						out = append(out, int(numeric(text)))
 					} else {
 						out = append(out, text)
@@ -672,6 +704,9 @@ func normalizeConfigField(field configFieldDef, value any) any {
 			return out
 		}
 		if text := strings.TrimSpace(fmt.Sprint(value)); text != "" {
+			if listFieldWantsInts(field.Key) && isIntegerString(text) {
+				return []any{int(numeric(text))}
+			}
 			return []any{text}
 		}
 		return []any{}
@@ -814,6 +849,18 @@ func int64sToAny(values []int64) []any {
 		out = append(out, value)
 	}
 	return out
+}
+
+func intsToAny(values []int) []any {
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, value)
+	}
+	return out
+}
+
+func listFieldWantsInts(key string) bool {
+	return key == "streak_bonus_days" || key == "streak_bonus_points"
 }
 
 func isIntegerString(value string) bool {

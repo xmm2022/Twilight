@@ -40,6 +40,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { api, type MediaItem, type MediaDetail, type InventoryCheckResult, type MediaRequest } from "@/lib/api";
 import { formatRelativeTime, cn } from "@/lib/utils";
+import { useSystemStore } from "@/store/system";
 
 const MAX_SEARCH_CACHE_ENTRIES = 20;
 const MAX_DETAIL_CACHE_ENTRIES = 40;
@@ -82,6 +83,7 @@ function buildRequestExternalUrl(req: MediaRequest): string | null {
 export default function MediaPage() {
   const { toast } = useToast();
   const { confirm } = useConfirm();
+  const { info: systemInfo, fetchInfo: fetchSystemInfo } = useSystemStore();
   const [searchQuery, setSearchQuery] = useState("");
   const [source, setSource] = useState("all");
   const [searchMode, setSearchMode] = useState<"name" | "id">("name"); // 搜索模式：名称或ID
@@ -122,6 +124,10 @@ export default function MediaPage() {
       myRequestsCacheRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    void fetchSystemInfo();
+  }, [fetchSystemInfo]);
 
   const isAbortError = (error: unknown) => {
     return error instanceof DOMException && error.name === "AbortError";
@@ -490,6 +496,23 @@ export default function MediaPage() {
   const sourceSegmentButtonClass = "min-w-0 flex-1 px-3 text-sm font-bold transition-colors sm:flex-none sm:px-6";
   const activeSegmentClass = "bg-primary text-primary-foreground";
   const inactiveSegmentClass = "text-muted-foreground hover:bg-accent/80";
+  const mediaRequestDisabled = systemInfo?.features?.media_request === false;
+
+  if (mediaRequestDisabled) {
+    return (
+      <Card className="border-border/60">
+        <CardContent className="flex min-h-[320px] flex-col items-center justify-center gap-3 p-8 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
+            <Film className="h-7 w-7" />
+          </div>
+          <div>
+            <h1 className="text-xl font-semibold">求片功能未开启</h1>
+            <p className="mt-2 text-sm text-muted-foreground">管理员关闭求片后，求片中心不会显示可操作内容。</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-8 pb-10">

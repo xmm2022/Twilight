@@ -245,7 +245,10 @@ func (a *App) telegramConfirmBindCode(ctx context.Context, chatID, telegramID in
 		return
 	}
 	bind, okBind := a.store.BindCode(code)
-	if !okBind || bind.ExpiresAt < time.Now().Unix() {
+	if !okBind || bind.ExpiresAt <= time.Now().Unix() {
+		if okBind {
+			_ = a.store.DeleteBindCode(code)
+		}
 		_ = a.telegramSendMessage(ctx, chatID, "绑定码无效或已过期，请在网页重新获取。")
 		return
 	}
@@ -255,8 +258,10 @@ func (a *App) telegramConfirmBindCode(ctx context.Context, chatID, telegramID in
 	}
 	bind.Confirmed = true
 	bind.TelegramID = telegramID
+	bind.TelegramUsername = username
 	_ = a.store.UpsertBindCode(bind)
 	if bind.UID != 0 {
+		defer func() { _ = a.store.DeleteBindCode(code) }()
 		_, err := a.store.UpdateUser(bind.UID, func(u *store.User) error {
 			u.TelegramID = telegramID
 			u.TelegramUsername = username

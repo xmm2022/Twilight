@@ -1,8 +1,8 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -12,7 +12,12 @@ import (
 func (a *App) handleInviteConfig(w http.ResponseWriter, r *http.Request, _ Params) {
 	ok(w, "OK", map[string]any{"enabled": a.cfg.InviteEnabled, "max_depth": a.cfg.InviteMaxDepth, "invite_limit": a.cfg.InviteLimit, "invite_root_user_limit": a.cfg.InviteRootUserLimit, "require_emby": a.cfg.InviteRequireEmby, "default_days": a.cfg.InviteDefaultDays, "code_format": "INV-{random}", "permanent_invite_max_days": a.cfg.PermanentInviteMaxDays})
 }
+
 func (a *App) handleInviteMe(w http.ResponseWriter, r *http.Request, _ Params) {
+	if !a.cfg.InviteEnabled {
+		fail(w, http.StatusForbidden, "邀请功能未开启")
+		return
+	}
 	user := current(r).User
 	codes := a.store.ListInviteCodes(user.UID)
 	codeItems := make([]map[string]any, 0, len(codes))
@@ -41,6 +46,10 @@ func (a *App) handleInviteMe(w http.ResponseWriter, r *http.Request, _ Params) {
 }
 
 func (a *App) handleCreateInviteCode(w http.ResponseWriter, r *http.Request, _ Params) {
+	if !a.cfg.InviteEnabled {
+		fail(w, http.StatusForbidden, "邀请功能未开启")
+		return
+	}
 	user := current(r).User
 	canInvite, reason := a.canInvite(user)
 	if !canInvite {
@@ -67,6 +76,10 @@ func (a *App) handleCreateInviteCode(w http.ResponseWriter, r *http.Request, _ P
 }
 
 func (a *App) handleInviteCodes(w http.ResponseWriter, r *http.Request, _ Params) {
+	if !a.cfg.InviteEnabled {
+		fail(w, http.StatusForbidden, "邀请功能未开启")
+		return
+	}
 	codes := a.store.ListInviteCodes(current(r).User.UID)
 	items := make([]map[string]any, 0, len(codes))
 	for _, code := range codes {
@@ -74,13 +87,19 @@ func (a *App) handleInviteCodes(w http.ResponseWriter, r *http.Request, _ Params
 	}
 	ok(w, "OK", map[string]any{"codes": items, "total": len(items)})
 }
+
 func (a *App) handleDeleteInviteCode(w http.ResponseWriter, r *http.Request, params Params) {
 	if statusFromError(w, a.store.DeleteInviteCode(current(r).User.UID, params["code"])) {
 		return
 	}
 	ok(w, "invite code deleted", nil)
 }
+
 func (a *App) handleInviteCheck(w http.ResponseWriter, r *http.Request, _ Params) {
+	if !a.cfg.InviteEnabled {
+		fail(w, http.StatusForbidden, "邀请功能未开启")
+		return
+	}
 	code := stringValue(decodeMap(r), "code")
 	invite, okInvite := a.store.InviteCode(code)
 	if !okInvite || !invite.Active || (invite.ExpiredAt > 0 && invite.ExpiredAt < time.Now().Unix()) {
@@ -93,7 +112,12 @@ func (a *App) handleInviteCheck(w http.ResponseWriter, r *http.Request, _ Params
 	}
 	ok(w, "OK", map[string]any{"days": invite.Days, "inviter": inviter})
 }
+
 func (a *App) handleInviteUse(w http.ResponseWriter, r *http.Request, _ Params) {
+	if !a.cfg.InviteEnabled {
+		fail(w, http.StatusForbidden, "邀请功能未开启")
+		return
+	}
 	payload := decodeMap(r)
 	code := stringValue(payload, "code")
 	if code == "" {
@@ -105,7 +129,6 @@ func (a *App) handleInviteUse(w http.ResponseWriter, r *http.Request, _ Params) 
 		fail(w, http.StatusBadRequest, "当前账号已绑定 Emby")
 		return
 	}
-	// Validate target_username restriction if set on the invite code
 	invite, okInvite := a.store.InviteCode(code)
 	if !okInvite || !invite.Active {
 		fail(w, http.StatusNotFound, "邀请码无效或已停用")
@@ -115,12 +138,18 @@ func (a *App) handleInviteUse(w http.ResponseWriter, r *http.Request, _ Params) 
 		fail(w, http.StatusForbidden, "此邀请码仅限指定用户使用")
 		return
 	}
+	if reached, current, limit := a.embyCapacityReached(user.UID); reached {
+		fail(w, http.StatusConflict, fmt.Sprintf("Emby 用户数量已达上限 %d/%d", current, limit))
+		return
+	}
 	if _, err := a.store.ConsumeInviteCode(code, user.UID); statusFromError(w, err) {
 		return
 	}
 	u, err := a.store.UpdateUser(user.UID, func(u *store.User) error {
 		u.EmbyUsername = firstNonEmpty(stringValue(payload, "emby_username"), u.Username)
-		u.EmbyID = "emby_" + strconv.FormatInt(u.UID, 10)
+		u.PendingEmby = true
+		u.PendingEmbyDays = &invite.Days
+		u.ExpiredAt = addDaysToExpiry(u.ExpiredAt, invite.Days, time.Now())
 		return nil
 	})
 	if statusFromError(w, err) {
