@@ -1865,6 +1865,44 @@ func TestRegcodeDTOAndUsersIncludeLegacyUsedBy(t *testing.T) {
 	}
 }
 
+func TestPendingEmbyUserCanReplaceEntitlementWithRegisterCode(t *testing.T) {
+	app := newTestApp(t)
+	app.cfg.EmbyUserLimit = 1
+	oldDays := 90
+	user, err := app.store.CreateUser(store.User{Username: "pending-replace", Role: store.RoleNormal, Active: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedUser, err := app.store.UpdateUser(user.UID, func(u *store.User) error {
+		u.PendingEmby = true
+		u.PendingEmbyDays = &oldDays
+		u.EmbyUsername = "old-name"
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	user = updatedUser
+	if err := app.store.UpsertRegCode(store.RegCode{Code: "REG-REPLACE", Type: 1, Days: 7, ValidityTime: -1, UseCountLimit: 1, Active: true}); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/use-code", strings.NewReader(`{"reg_code":"REG-REPLACE","emby_username":"new-name"}`))
+	req = req.WithContext(context.WithValue(req.Context(), principalKey, principal{User: user}))
+	rr := httptest.NewRecorder()
+	app.handleUseCode(rr, req, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("pending entitlement replacement should use register code, status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	updated, _ := app.store.User(user.UID)
+	if !updated.PendingEmby || updated.PendingEmbyDays == nil || *updated.PendingEmbyDays != 7 || updated.EmbyUsername != "new-name" {
+		t.Fatalf("register code did not replace pending entitlement cleanly: %#v days=%#v", updated, updated.PendingEmbyDays)
+	}
+	reg, _ := app.store.RegCode("REG-REPLACE")
+	if reg.UseCount != 1 || reg.UsedBy != user.UID {
+		t.Fatalf("register code usage was not recorded: %#v", reg)
+	}
+}
+
 func TestInviteUseRevalidatesTreeAndBoundsExpiry(t *testing.T) {
 	app := newTestApp(t)
 	now := time.Now()

@@ -26,11 +26,15 @@ func (a *App) handleUseCode(w http.ResponseWriter, r *http.Request, _ Params) {
 		ok(w, "OK", preview)
 		return
 	}
-	days := intValue(preview, "days", 30)
+	days := 30
+	if _, ok := preview["days"]; ok {
+		days = int(numeric(preview["days"]))
+	}
 	grantsEmby := source == "invite" || int(numeric(preview["type"])) == 1 || int(numeric(preview["type"])) == 3
+	replacesPendingEntitlement := source == "regcode" && p.User.EmbyID == "" && p.User.PendingEmby && (int(numeric(preview["type"])) == 1 || int(numeric(preview["type"])) == 3)
 	var inviteForUse store.InviteCode
 	var inviterForUse store.User
-	if grantsEmby && p.User.EmbyID == "" {
+	if grantsEmby && p.User.EmbyID == "" && !replacesPendingEntitlement {
 		if reached, current, limit := a.embyCapacityReached(p.User.UID); reached {
 			fail(w, http.StatusConflict, "Emby 用户数量已达上限 "+strconv.Itoa(current)+"/"+strconv.Itoa(limit))
 			return
@@ -98,6 +102,10 @@ func (a *App) handleUseCode(w http.ResponseWriter, r *http.Request, _ Params) {
 		}
 	}
 	u, err := a.store.UpdateUser(p.User.UID, func(u *store.User) error {
+		if replacesPendingEntitlement {
+			u.PendingEmby = false
+			u.PendingEmbyDays = nil
+		}
 		if source == "regcode" {
 			switch reg.Type {
 			case 1:
