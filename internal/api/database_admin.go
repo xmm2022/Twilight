@@ -311,13 +311,11 @@ func (a *App) handleDatabaseMigrate(w http.ResponseWriter, r *http.Request, _ Pa
 			failWithCode(w, http.StatusInternalServerError, ErrDBStateFileMkdirBad, "创建数据库目录失败")
 			return
 		}
-		tmp := targetPath + ".tmp"
-		if err := os.WriteFile(tmp, snapshot, 0o600); err != nil {
+		// 走 store.WriteFileAtomicSync：tmp + fsync(file) + rename + fsync(dir)，
+		// 与 saveLocked / BackupWithNote 共用一份原子写盘语义，掉电也不会留下
+		// 半截 state 文件让前端显示"迁移成功"但磁盘上根本没有内容。
+		if err := store.WriteFileAtomicSync(targetPath, snapshot, 0o600); err != nil {
 			failWithCode(w, http.StatusInternalServerError, ErrDBStateFileWriteBad, "写入状态文件失败")
-			return
-		}
-		if err := os.Rename(tmp, targetPath); err != nil {
-			failWithCode(w, http.StatusInternalServerError, ErrDBStateFileWriteBad, "替换状态文件失败")
 			return
 		}
 		summary := a.databaseMigrationSummary(store.BackendJSON, state, dryRun, snapshotBytes, targetReady)
