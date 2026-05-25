@@ -16,6 +16,38 @@ import (
 
 func (a *App) RunScheduler(ctx context.Context) error {
 	zap.L().Info("scheduler runner started")
+	// 主循环 panic 兜底：reloadConfigIfChanged / runDueSchedulerJobs 调用栈深，
+	// 一处空指针或 map race 会让整个 RunScheduler 协程退出，所有定时任务静默
+	// 失效；之前只在 runScheduledJob / startManualSchedulerJob 协程入口加了
+	// recover，daemon 主循环本身没保护。这里 recover 后退避重启循环，
+	// 直到外层 ctx 真的 Done 才退出。
+	for {
+		err := a.runSchedulerLoop(ctx)
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+			return nil
+		}
+		if err == nil {
+			return nil
+		}
+		zap.L().Error("scheduler loop crashed, restarting after backoff", zap.Error(err))
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(5 * time.Second):
+		}
+	}
+}
+
+// runSchedulerLoop 是单次主循环；panic 经 recover 后转 error 由 RunScheduler 重启。
+func (a *App) runSchedulerLoop(ctx context.Context) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			// panic value 可能携带敏感字段，强制走 redactSensitiveText 字符串路径，
+			// 不走 zap.Any 的反射 dump。
+			zap.L().Error("scheduler loop panic", zap.String("panic", redactSensitiveText(fmt.Sprintf("%v", r))))
+			err = fmt.Errorf("scheduler loop panic: %v", r)
+		}
+	}()
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	a.runDueSchedulerJobs(ctx)
