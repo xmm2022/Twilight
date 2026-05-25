@@ -12,7 +12,21 @@ import (
 	"strings"
 )
 
-const DefaultPBKDF2Iterations = 100000
+// DefaultPBKDF2Iterations 是 PBKDF2-SHA256 当前的目标迭代数。
+//
+// 历史值为 100k（OWASP 2017 推荐）。OWASP 2024 已将下限提至 600k，
+// 与最新硬件能力匹配（普通服务端单核验证耗时 ~150ms，仍在用户体验
+// 可接受范围）。
+//
+// 旧哈希仍被 VerifyPassword 兼容，并通过 NeedsRehash 在登录时透明迁移。
+const DefaultPBKDF2Iterations = 600000
+
+// MinAcceptablePBKDF2Iterations 是接受现存哈希的最低迭代数门槛。
+// 低于该值视为陈旧哈希，登录成功后应触发 rehash。
+//
+// 注意 VerifyPassword 仍允许 10k-1M 范围内的迭代数完成校验，避免
+// 历史用户全部立即失败；NeedsRehash 才是触发升级的窗口。
+const MinAcceptablePBKDF2Iterations = 600000
 
 func RandomHex(bytesLen int) (string, error) {
 	buf := make([]byte, bytesLen)
@@ -48,6 +62,30 @@ func VerifyPassword(password, encoded string) bool {
 	}
 	expected := hashPasswordWithSalt(password, parts[0], iterations)
 	return subtle.ConstantTimeCompare([]byte(expected), []byte(encoded)) == 1
+}
+
+// NeedsRehash 在以下情况返回 true：
+//   - 哈希格式为 legacy（"salt$sha256"）。
+//   - 当前哈希迭代数低于 MinAcceptablePBKDF2Iterations。
+//
+// 调用方（auth_handlers.go 登录路径）应在 VerifyPassword 通过后检查此函数，
+// 若需要重哈希则透明替换 user.PasswordHash。这样不会让任何用户因升级而被
+// 强制重置密码，但会让所有人在下次登录时自动迁移到新参数。
+func NeedsRehash(encoded string) bool {
+	parts := strings.Split(encoded, "$")
+	if len(parts) == 2 {
+		// legacy python sha256 ⇒ 必须升级
+		return true
+	}
+	if len(parts) != 3 {
+		// 损坏的哈希；上层 VerifyPassword 会拒绝，但这里也算"需要重新生成"
+		return true
+	}
+	iterations, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return true
+	}
+	return iterations < MinAcceptablePBKDF2Iterations
 }
 
 func hashPasswordWithSalt(password, salt string, iterations int) string {

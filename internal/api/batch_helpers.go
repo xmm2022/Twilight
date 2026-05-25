@@ -5,16 +5,16 @@ import "net/http"
 func requireBatchPayload(w http.ResponseWriter, r *http.Request, confirmPhrase string, maxUsers int, tooManyMessage string) (map[string]any, []int64, bool) {
 	payload := decodeMap(r)
 	if confirmPhrase != "" && stringValue(payload, "confirm") != confirmPhrase {
-		fail(w, http.StatusBadRequest, "missing confirm "+confirmPhrase)
+		failWithCode(w, http.StatusBadRequest, ErrBatchConfirmRequired, "missing confirm "+confirmPhrase)
 		return nil, nil, false
 	}
 	uids := int64Slice(payload["uids"])
 	if len(uids) == 0 {
-		fail(w, http.StatusBadRequest, "uids required")
+		failWithCode(w, http.StatusBadRequest, ErrBatchUIDsRequired, "uids required")
 		return nil, nil, false
 	}
 	if maxUsers > 0 && len(uids) > maxUsers {
-		fail(w, http.StatusBadRequest, tooManyMessage)
+		failWithCode(w, http.StatusBadRequest, ErrBatchTooManyTargets, tooManyMessage)
 		return nil, nil, false
 	}
 	return payload, uids, true

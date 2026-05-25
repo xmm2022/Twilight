@@ -273,7 +273,8 @@ session_cookie_domain = ""
 session_cookie_path = "/"
 # 可信反向代理 CIDR。只有 remote_addr 命中这里时才信任 X-Real-IP / X-Forwarded-For。
 # 默认仅信任本机反代；多级代理请显式加入反代出口 IP/CIDR，勿填整个私网段。
-trusted_proxies = ["127.0.0.0/8", "::1/128"]
+# 注意：键名必须与代码一致（trusted_proxy_cidrs），写错会被静默忽略并退化到 fail-closed。
+trusted_proxy_cidrs = ["127.0.0.0/8", "::1/128"]
 
 # ───────── 安全 ─────────
 [Security]

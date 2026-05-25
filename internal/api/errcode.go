@@ -76,6 +76,23 @@ const (
 	ErrInvalidPayload ErrCode = "INVALID_PAYLOAD"
 	ErrInternal       ErrCode = "INTERNAL_ERROR"
 
+	// === 协议层通用错误码（与 response.go:defaultErrorCode 对齐） ===
+	// 这些原本只是 defaultErrorCode 的 switch case 字面量，没有 Go 常量入口，
+	// 也没有在前端 errcode.ts 全部镜像。提升为常量后，前端镜像即可在通用
+	// fallback / handler 显式选择时统一引用。
+	ErrBadRequest         ErrCode = "BAD_REQUEST"
+	ErrUnauthorized       ErrCode = "UNAUTHORIZED"
+	ErrForbidden          ErrCode = "FORBIDDEN"
+	ErrNotFound           ErrCode = "NOT_FOUND"
+	ErrMethodNotAllowed   ErrCode = "METHOD_NOT_ALLOWED"
+	ErrConflict           ErrCode = "CONFLICT"
+	ErrGone               ErrCode = "GONE"
+	ErrPayloadTooLarge    ErrCode = "PAYLOAD_TOO_LARGE"
+	ErrRateLimited        ErrCode = "RATE_LIMITED"
+	ErrUpstreamError      ErrCode = "UPSTREAM_ERROR"
+	ErrServiceUnavailable ErrCode = "SERVICE_UNAVAILABLE"
+	ErrRequestFailed      ErrCode = "REQUEST_FAILED"
+
 	// === 注册码 / 邀请码 / 卡码使用流 ===
 	// 这些错误在 code_use_handlers.go 高频出现，前端需基于稳定码做差异化
 	// UI 行为（"不能使用自己生成的邀请码"应跳"前往个人主页"，"邀请树人数
@@ -245,4 +262,43 @@ const (
 	ErrAdminLastAdminProtected    ErrCode = "ADMIN_LAST_ADMIN_PROTECTED"
 	ErrAPIKeySelfPermForbidden    ErrCode = "API_KEY_SELF_PERMISSION_FORBIDDEN"
 	ErrWatchStatsForbidden        ErrCode = "WATCH_STATS_FORBIDDEN"
+
+	// === 求片 / 库存 / 媒体（media_request_handlers.go） ===
+	ErrMediaRequestDisabled       ErrCode = "MEDIA_REQUEST_DISABLED"
+	ErrMediaRequestTGRequired     ErrCode = "MEDIA_REQUEST_TG_REQUIRED"
+	ErrMediaRequestPendingLimit   ErrCode = "MEDIA_REQUEST_PENDING_LIMIT"
+	ErrMediaRequestExists         ErrCode = "MEDIA_REQUEST_ALREADY_EXISTS"
+	ErrMediaRequestStatusInvalid  ErrCode = "MEDIA_REQUEST_STATUS_INVALID"
+	ErrMediaRequestNotFound       ErrCode = "MEDIA_REQUEST_NOT_FOUND"
+	ErrMediaRequestAccessDenied   ErrCode = "MEDIA_REQUEST_ACCESS_DENIED"
+	ErrMediaRequestDeleteDenied   ErrCode = "MEDIA_REQUEST_DELETE_DENIED"
+	ErrMediaRequestQueryRequired  ErrCode = "MEDIA_REQUEST_QUERY_REQUIRED"
+	ErrMediaRequestPayloadEmpty   ErrCode = "MEDIA_REQUEST_PAYLOAD_EMPTY"
+	ErrMediaSearchSourceFailed    ErrCode = "MEDIA_SEARCH_SOURCE_FAILED"
+	ErrMediaInventorySearchFailed ErrCode = "MEDIA_INVENTORY_SEARCH_FAILED"
+	ErrMediaAdminRoleRequired     ErrCode = "MEDIA_ADMIN_ROLE_REQUIRED"
+	ErrInternalSecretInvalid      ErrCode = "INTERNAL_SECRET_INVALID"
+
+	// === 配置备份 / 恢复（config_admin.go） ===
+	ErrConfigBackupListFailed   ErrCode = "CONFIG_BACKUP_LIST_FAILED"
+	ErrConfigBackupCreateFailed ErrCode = "CONFIG_BACKUP_CREATE_FAILED"
+	ErrConfigBackupNotFound     ErrCode = "CONFIG_BACKUP_NOT_FOUND"
+	ErrConfigBackupInvalid      ErrCode = "CONFIG_BACKUP_INVALID"
+	ErrConfigBackupVerifyFailed ErrCode = "CONFIG_BACKUP_VERIFY_FAILED"
+	ErrConfigBackupDeleteFailed ErrCode = "CONFIG_BACKUP_DELETE_FAILED"
+
+	// === 违规 / 黑名单（violation_handlers.go / batch_helpers.go） ===
+	ErrViolationIDInvalid     ErrCode = "VIOLATION_ID_INVALID"
+	ErrViolationConfirmReq    ErrCode = "VIOLATION_CONFIRM_REQUIRED"
+	ErrViolationClearFailed   ErrCode = "VIOLATION_CLEAR_FAILED"
+	ErrBatchConfirmRequired   ErrCode = "BATCH_CONFIRM_REQUIRED"
+	ErrBatchUIDsRequired      ErrCode = "BATCH_UIDS_REQUIRED"
+	ErrBatchTooManyTargets    ErrCode = "BATCH_TOO_MANY_TARGETS"
+
+	// === Telegram 内部绑定（telegram_bind_secure.go） ===
+	ErrTGBindCodeNotFound        ErrCode = "TG_BIND_CODE_NOT_FOUND"
+	ErrTGBindTGIDInvalid         ErrCode = "TG_BIND_TGID_INVALID"
+	ErrTGBindTargetTaken         ErrCode = "TG_BIND_TARGET_TAKEN"
+	ErrTGBindGroupCheckFailed    ErrCode = "TG_BIND_GROUP_CHECK_FAILED"
+	ErrTGBindGroupMembershipMiss ErrCode = "TG_BIND_GROUP_MEMBERSHIP_REQUIRED"
 )

@@ -11,6 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Card, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { api, type RegisterAvailability, type RegisterData } from "@/lib/api";
+import { ApiError } from "@/lib/api-request";
+import { ErrCodes } from "@/lib/errcode";
 import { SITE_NAME } from "@/lib/site-config";
 import { useSystemStore } from "@/store/system";
 import { passwordStrengthLabel, validatePasswordStrength } from "@/lib/password";
@@ -144,17 +146,24 @@ export default function RegisterPage() {
         // 已经把"业务终态"挪到 HTTP 200 的 data.terminal；这里只剩
         // 真正的异常：限速 429 / 网络异常 / 400 格式错误等。
         if (cancelled) return;
-        const msg = (err instanceof Error ? err.message : String(err ?? "")) || "";
-        if (/IP\s*已被|请求频次异常|请求过于频繁|429/.test(msg)) {
-          stopWithToast(
-            "请求过于频繁",
-            "已暂停轮询，请稍后重新获取绑定码再试",
-          );
-        } else if (/格式无效|格式不正确/.test(msg)) {
-          // 400 绑定码格式无效——前端 state 本身坏了，直接清掉
-          stopWithToast("绑定码格式无效", "请重新获取绑定码");
+        // 首选 errorCode 走稳定语义码分支，message 文案改名不影响判定；
+        // 仅在非 ApiError（裸 Error / 其他抛出物）时回退到不依赖中文的 status 判断。
+        if (err instanceof ApiError) {
+          if (err.errorCode === ErrCodes.RateLimited || err.status === 429) {
+            stopWithToast(
+              "请求过于频繁",
+              "已暂停轮询，请稍后重新获取绑定码再试",
+            );
+          } else if (
+            err.errorCode === ErrCodes.TGBindCodeFormat ||
+            (err.status === 400 && err.errorCode === ErrCodes.BadRequest)
+          ) {
+            // 400 绑定码格式无效——前端 state 本身坏了，直接清掉
+            stopWithToast("绑定码格式无效", "请重新获取绑定码");
+          }
+          // 其它 ApiError（疑似上游异常）保持静默重试
         }
-        // 其它（疑似网络抖动）保持原本的静默重试行为
+        // 非 ApiError 视为网络抖动，保持原本的静默重试行为
       }
     };
 

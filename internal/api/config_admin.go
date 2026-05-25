@@ -48,7 +48,7 @@ func (a *App) handleConfigTOMLPutSafe(w http.ResponseWriter, r *http.Request, _ 
 	payload := decodeMap(r)
 	info, status, message := a.saveConfigContent(stringValue(payload, "content"))
 	if status != http.StatusOK {
-		fail(w, status, message)
+		failWithCode(w, status, ErrConfigBackupInvalid, message)
 		return
 	}
 	ok(w, "配置已保存并热重载", info)
@@ -57,7 +57,7 @@ func (a *App) handleConfigTOMLPutSafe(w http.ResponseWriter, r *http.Request, _ 
 func (a *App) handleConfigBackups(w http.ResponseWriter, r *http.Request, _ Params) {
 	backups, err := listConfigBackups(a.configBackupDir())
 	if err != nil {
-		fail(w, http.StatusInternalServerError, "读取配置备份列表失败")
+		failWithCode(w, http.StatusInternalServerError, ErrConfigBackupListFailed, "读取配置备份列表失败")
 		return
 	}
 	ok(w, "OK", map[string]any{"backups": backups, "config_file": a.configFilePath(), "backup_dir": a.configBackupDir()})
@@ -67,10 +67,10 @@ func (a *App) handleConfigBackup(w http.ResponseWriter, r *http.Request, _ Param
 	info, err := a.createConfigBackup()
 	if err != nil {
 		if err == store.ErrNotFound {
-			fail(w, http.StatusNotFound, "配置文件不存在")
+			failWithCode(w, http.StatusNotFound, ErrConfigFileNotFound, "配置文件不存在")
 			return
 		}
-		fail(w, http.StatusInternalServerError, "配置备份失败")
+		failWithCode(w, http.StatusInternalServerError, ErrConfigBackupCreateFailed, "配置备份失败")
 		return
 	}
 	ok(w, "配置备份已创建", map[string]any{"backup": info})
@@ -79,7 +79,7 @@ func (a *App) handleConfigBackup(w http.ResponseWriter, r *http.Request, _ Param
 func (a *App) handleConfigBackupInspect(w http.ResponseWriter, r *http.Request, params Params) {
 	backup, content, err := a.configBackupContent(params["name"])
 	if err != nil {
-		fail(w, http.StatusBadRequest, "配置备份无效")
+		failWithCode(w, http.StatusBadRequest, ErrConfigBackupInvalid, "配置备份无效")
 		return
 	}
 	ok(w, "OK", map[string]any{"backup": backup, "content": stripProtectedAdminConfig(string(content)), "config_file": a.configFilePath()})
@@ -90,11 +90,11 @@ func (a *App) handleConfigRestore(w http.ResponseWriter, r *http.Request, _ Para
 	name := firstNonEmpty(stringValue(payload, "name"), stringValue(payload, "backup"))
 	backup, content, err := a.configBackupContent(name)
 	if err != nil {
-		fail(w, http.StatusBadRequest, "配置备份无效")
+		failWithCode(w, http.StatusBadRequest, ErrConfigBackupInvalid, "配置备份无效")
 		return
 	}
 	if err := validateConfigContent(a.configFilePath(), content); err != nil {
-		fail(w, http.StatusBadRequest, "配置备份校验失败: "+err.Error())
+		failWithCode(w, http.StatusBadRequest, ErrConfigBackupVerifyFailed, "配置备份校验失败: "+err.Error())
 		return
 	}
 	result := map[string]any{
@@ -118,7 +118,7 @@ func (a *App) handleConfigRestore(w http.ResponseWriter, r *http.Request, _ Para
 
 	info, status, message := a.saveConfigContent(string(content))
 	if status != http.StatusOK {
-		fail(w, status, message)
+		failWithCode(w, status, ErrConfigBackupInvalid, message)
 		return
 	}
 	result["dry_run"] = false
@@ -132,16 +132,16 @@ func (a *App) handleConfigRestore(w http.ResponseWriter, r *http.Request, _ Para
 func (a *App) handleConfigBackupDelete(w http.ResponseWriter, r *http.Request, params Params) {
 	path, err := resolveConfigBackupPath(a.configBackupDir(), params["name"])
 	if err != nil {
-		fail(w, http.StatusBadRequest, "配置备份无效")
+		failWithCode(w, http.StatusBadRequest, ErrConfigBackupInvalid, "配置备份无效")
 		return
 	}
 	info, err := configBackupInfo(path)
 	if err != nil {
-		fail(w, http.StatusBadRequest, "配置备份无效")
+		failWithCode(w, http.StatusBadRequest, ErrConfigBackupInvalid, "配置备份无效")
 		return
 	}
 	if err := os.Remove(path); err != nil {
-		fail(w, http.StatusInternalServerError, "删除配置备份失败")
+		failWithCode(w, http.StatusInternalServerError, ErrConfigBackupDeleteFailed, "删除配置备份失败")
 		return
 	}
 	ok(w, "配置备份已删除", map[string]any{"backup": info})
@@ -233,7 +233,7 @@ func (a *App) handleConfigSchemaUpdateSafe(w http.ResponseWriter, r *http.Reques
 	}
 	info, status, message := a.saveConfigContent(renderConfigTOML(values))
 	if status != http.StatusOK {
-		fail(w, status, message)
+		failWithCode(w, status, ErrConfigBackupInvalid, message)
 		return
 	}
 	ok(w, "配置已保存并热重载", info)

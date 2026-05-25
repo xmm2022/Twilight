@@ -212,13 +212,56 @@ export type ErrCode =
   | "ADMIN_LAST_ADMIN_PROTECTED"
   | "API_KEY_SELF_PERMISSION_FORBIDDEN"
   | "WATCH_STATS_FORBIDDEN"
+  // === 求片 / 库存 / 媒体（media_request_handlers.go） ===
+  | "MEDIA_REQUEST_DISABLED"
+  | "MEDIA_REQUEST_TG_REQUIRED"
+  | "MEDIA_REQUEST_PENDING_LIMIT"
+  | "MEDIA_REQUEST_ALREADY_EXISTS"
+  | "MEDIA_REQUEST_STATUS_INVALID"
+  | "MEDIA_REQUEST_NOT_FOUND"
+  | "MEDIA_REQUEST_ACCESS_DENIED"
+  | "MEDIA_REQUEST_DELETE_DENIED"
+  | "MEDIA_REQUEST_QUERY_REQUIRED"
+  | "MEDIA_REQUEST_PAYLOAD_EMPTY"
+  | "MEDIA_SEARCH_SOURCE_FAILED"
+  | "MEDIA_INVENTORY_SEARCH_FAILED"
+  | "MEDIA_ADMIN_ROLE_REQUIRED"
+  | "INTERNAL_SECRET_INVALID"
+  // === 配置备份 / 恢复（config_admin.go） ===
+  | "CONFIG_BACKUP_LIST_FAILED"
+  | "CONFIG_BACKUP_CREATE_FAILED"
+  | "CONFIG_BACKUP_NOT_FOUND"
+  | "CONFIG_BACKUP_INVALID"
+  | "CONFIG_BACKUP_VERIFY_FAILED"
+  | "CONFIG_BACKUP_DELETE_FAILED"
+  // === 违规 / 黑名单（violation_handlers.go / batch_helpers.go） ===
+  | "VIOLATION_ID_INVALID"
+  | "VIOLATION_CONFIRM_REQUIRED"
+  | "VIOLATION_CLEAR_FAILED"
+  | "BATCH_CONFIRM_REQUIRED"
+  | "BATCH_UIDS_REQUIRED"
+  | "BATCH_TOO_MANY_TARGETS"
+  // === Telegram 内部绑定（telegram_bind_secure.go） ===
+  | "TG_BIND_CODE_NOT_FOUND"
+  | "TG_BIND_TGID_INVALID"
+  | "TG_BIND_TARGET_TAKEN"
+  | "TG_BIND_GROUP_CHECK_FAILED"
+  | "TG_BIND_GROUP_MEMBERSHIP_REQUIRED"
   // === defaultErrorCode 兜底（response.go HTTP status → 通用码） ===
+  // 完整覆盖 response.go 全部 13 个 fallback 字面量，任何 isKnownErrCode
+  // 命中失败都意味着 errcode.go 又增了新协议码。
   | "BAD_REQUEST"
   | "UNAUTHORIZED"
   | "FORBIDDEN"
   | "NOT_FOUND"
+  | "METHOD_NOT_ALLOWED"
   | "CONFLICT"
-  | "RATE_LIMITED";
+  | "GONE"
+  | "PAYLOAD_TOO_LARGE"
+  | "RATE_LIMITED"
+  | "UPSTREAM_ERROR"
+  | "SERVICE_UNAVAILABLE"
+  | "REQUEST_FAILED";
 
 /**
  * 与 ErrCode 联合一一对应的运行时常量。前端业务分支建议优先消费这些常量
@@ -418,6 +461,41 @@ export const ErrCodes = {
   AdminLastAdminProtected: "ADMIN_LAST_ADMIN_PROTECTED",
   APIKeySelfPermForbidden: "API_KEY_SELF_PERMISSION_FORBIDDEN",
   WatchStatsForbidden: "WATCH_STATS_FORBIDDEN",
+  // 求片 / 库存 / 媒体
+  MediaRequestDisabled: "MEDIA_REQUEST_DISABLED",
+  MediaRequestTGRequired: "MEDIA_REQUEST_TG_REQUIRED",
+  MediaRequestPendingLimit: "MEDIA_REQUEST_PENDING_LIMIT",
+  MediaRequestExists: "MEDIA_REQUEST_ALREADY_EXISTS",
+  MediaRequestStatusInvalid: "MEDIA_REQUEST_STATUS_INVALID",
+  MediaRequestNotFound: "MEDIA_REQUEST_NOT_FOUND",
+  MediaRequestAccessDenied: "MEDIA_REQUEST_ACCESS_DENIED",
+  MediaRequestDeleteDenied: "MEDIA_REQUEST_DELETE_DENIED",
+  MediaRequestQueryRequired: "MEDIA_REQUEST_QUERY_REQUIRED",
+  MediaRequestPayloadEmpty: "MEDIA_REQUEST_PAYLOAD_EMPTY",
+  MediaSearchSourceFailed: "MEDIA_SEARCH_SOURCE_FAILED",
+  MediaInventorySearchFailed: "MEDIA_INVENTORY_SEARCH_FAILED",
+  MediaAdminRoleRequired: "MEDIA_ADMIN_ROLE_REQUIRED",
+  InternalSecretInvalid: "INTERNAL_SECRET_INVALID",
+  // 配置备份 / 恢复
+  ConfigBackupListFailed: "CONFIG_BACKUP_LIST_FAILED",
+  ConfigBackupCreateFailed: "CONFIG_BACKUP_CREATE_FAILED",
+  ConfigBackupNotFound: "CONFIG_BACKUP_NOT_FOUND",
+  ConfigBackupInvalid: "CONFIG_BACKUP_INVALID",
+  ConfigBackupVerifyFailed: "CONFIG_BACKUP_VERIFY_FAILED",
+  ConfigBackupDeleteFailed: "CONFIG_BACKUP_DELETE_FAILED",
+  // 违规 / 黑名单 / 批量
+  ViolationIDInvalid: "VIOLATION_ID_INVALID",
+  ViolationConfirmRequired: "VIOLATION_CONFIRM_REQUIRED",
+  ViolationClearFailed: "VIOLATION_CLEAR_FAILED",
+  BatchConfirmRequired: "BATCH_CONFIRM_REQUIRED",
+  BatchUIDsRequired: "BATCH_UIDS_REQUIRED",
+  BatchTooManyTargets: "BATCH_TOO_MANY_TARGETS",
+  // Telegram 内部绑定
+  TGBindCodeNotFound: "TG_BIND_CODE_NOT_FOUND",
+  TGBindTGIDInvalid: "TG_BIND_TGID_INVALID",
+  TGBindTargetTaken: "TG_BIND_TARGET_TAKEN",
+  TGBindGroupCheckFailed: "TG_BIND_GROUP_CHECK_FAILED",
+  TGBindGroupMembershipRequired: "TG_BIND_GROUP_MEMBERSHIP_REQUIRED",
   BadRequest: "BAD_REQUEST",
   Unauthorized: "UNAUTHORIZED",
   Forbidden: "FORBIDDEN",

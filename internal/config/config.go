@@ -231,6 +231,11 @@ func Load(path string) (Config, error) {
 	// CookieSecure 必须显式从 toml 读，否则 production.toml 里的
 	// `session_cookie_secure = true` 实际上从未生效。
 	cfg.CookieSecure = reader.boolValue(cfg.CookieSecure, "Security.session_cookie_secure", "API.session_cookie_secure", "session_cookie_secure")
+	// CookieSameSite 同样必须从 toml 读取，否则 production.toml 里的
+	// `session_cookie_samesite = "Strict"` 仅在通过环境变量覆盖时才会生效。
+	if v := strings.ToLower(strings.TrimSpace(reader.stringValue("", "Security.session_cookie_samesite", "API.session_cookie_samesite", "session_cookie_samesite"))); v != "" {
+		cfg.CookieSameSite = v
+	}
 	cfg.BotInternalSecret = reader.stringValue(cfg.BotInternalSecret, "Security.bot_internal_secret", "bot_internal_secret")
 	cfg.EmbyURL = reader.stringValue(cfg.EmbyURL, "Emby.emby_url", "emby_url")
 	cfg.EmbyToken = reader.stringValue(cfg.EmbyToken, "Emby.emby_token", "emby_token")

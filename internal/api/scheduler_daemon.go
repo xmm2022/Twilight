@@ -88,7 +88,10 @@ func (a *App) runScheduledJob(ctx context.Context, jobID string) {
 	// 协程入口加 panic recover，避免单次任务崩溃带垮整个调度器。
 	defer func() {
 		if r := recover(); r != nil {
-			zap.L().Error("scheduler job panic", zap.String("job_id", jobID), zap.Any("panic", r))
+			// 使用 zap.String + redactSensitiveText：避免 zap.Any 走 ReflectType
+			// 反射 dump 整个 panic 值（panic value 可能是携带 token/password 字段
+			// 的 struct，反射编码会绕过 sensitiveLogKey 字符串脱敏）。
+			zap.L().Error("scheduler job panic", zap.String("job_id", jobID), zap.String("panic", redactSensitiveText(fmt.Sprintf("%v", r))))
 		}
 	}()
 	runCtx, finish, ok := a.startSchedulerRun(ctx, jobID)
@@ -138,7 +141,9 @@ func (a *App) startManualSchedulerJob(ctx context.Context, jobID string, params 
 		// 同 runScheduledJob 的保护：panic 不能逃出协程。
 		defer func() {
 			if r := recover(); r != nil {
-				zap.L().Error("manual scheduler job panic", zap.String("job_id", jobID), zap.Int64("run_id", run.ID), zap.Any("panic", r))
+				// 同上：panic value 走 zap.String + redact 路径，杜绝 ReflectType
+				// 反射输出绕过敏感字段脱敏。
+				zap.L().Error("manual scheduler job panic", zap.String("job_id", jobID), zap.Int64("run_id", run.ID), zap.String("panic", redactSensitiveText(fmt.Sprintf("%v", r))))
 			}
 		}()
 		defer finish()

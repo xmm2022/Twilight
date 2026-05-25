@@ -44,7 +44,7 @@ func (a *App) handleListViolations(w http.ResponseWriter, r *http.Request, _ Par
 func (a *App) handleDeleteViolation(w http.ResponseWriter, r *http.Request, params Params) {
 	id, err := strconv.ParseInt(params["violation_id"], 10, 64)
 	if err != nil || id <= 0 {
-		fail(w, http.StatusBadRequest, "invalid violation ID")
+		failWithCode(w, http.StatusBadRequest, ErrViolationIDInvalid, "invalid violation ID")
 		return
 	}
 	if statusFromError(w, a.store.DeleteViolationLog(id)) {
@@ -57,11 +57,11 @@ func (a *App) handleDeleteViolation(w http.ResponseWriter, r *http.Request, para
 func (a *App) handleClearViolations(w http.ResponseWriter, r *http.Request, _ Params) {
 	payload := decodeMap(r)
 	if stringValue(payload, "confirm") != confirmClearViolations {
-		fail(w, http.StatusBadRequest, "需要确认短语 confirm="+confirmClearViolations)
+		failWithCode(w, http.StatusBadRequest, ErrViolationConfirmReq, "需要确认短语 confirm="+confirmClearViolations)
 		return
 	}
 	if err := a.store.ClearViolationLogs(); err != nil {
-		fail(w, http.StatusInternalServerError, "清除失败")
+		failWithCode(w, http.StatusInternalServerError, ErrViolationClearFailed, "清除失败")
 		return
 	}
 	ok(w, "all violation logs cleared", nil)

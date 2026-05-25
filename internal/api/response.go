@@ -44,32 +44,32 @@ func defaultErrorCode(status int, success bool) string {
 	}
 	switch status {
 	case http.StatusBadRequest:
-		return "BAD_REQUEST"
+		return ErrBadRequest
 	case http.StatusUnauthorized:
-		return "UNAUTHORIZED"
+		return ErrUnauthorized
 	case http.StatusForbidden:
-		return "FORBIDDEN"
+		return ErrForbidden
 	case http.StatusNotFound:
-		return "NOT_FOUND"
+		return ErrNotFound
 	case http.StatusMethodNotAllowed:
-		return "METHOD_NOT_ALLOWED"
+		return ErrMethodNotAllowed
 	case http.StatusConflict:
-		return "CONFLICT"
+		return ErrConflict
 	case http.StatusGone:
-		return "GONE"
+		return ErrGone
 	case http.StatusRequestEntityTooLarge:
-		return "PAYLOAD_TOO_LARGE"
+		return ErrPayloadTooLarge
 	case http.StatusTooManyRequests:
-		return "RATE_LIMITED"
+		return ErrRateLimited
 	case http.StatusBadGateway:
-		return "UPSTREAM_ERROR"
+		return ErrUpstreamError
 	case http.StatusServiceUnavailable:
-		return "SERVICE_UNAVAILABLE"
+		return ErrServiceUnavailable
 	default:
 		if status >= 500 {
-			return "INTERNAL_ERROR"
+			return ErrInternal
 		}
-		return "REQUEST_FAILED"
+		return ErrRequestFailed
 	}
 }
 

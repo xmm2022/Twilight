@@ -12,17 +12,33 @@ import (
 
 func (a *App) handleBangumiWebhook(w http.ResponseWriter, r *http.Request, _ Params) {
 	if !a.cfg.BangumiEnabled {
-		fail(w, http.StatusBadRequest, "Bangumi 同步未启用")
+		failWithCode(w, http.StatusBadRequest, ErrBangumiSyncDisabled, "Bangumi 同步未启用")
 		return
 	}
-	secret := firstNonEmpty(r.URL.Query().Get("token"), r.Header.Get("X-Twilight-Bangumi-Token"), r.Header.Get("X-Webhook-Token"))
+	// 优先 header，避免 secret 被上游代理 / CDN access log 记录到 query string。
+	// query token 仍被读取以兼容旧回调，但每次命中都会打 Warn 提示运维迁移到
+	// X-Twilight-Bangumi-Token 头。
+	secret := firstNonEmpty(r.Header.Get("X-Twilight-Bangumi-Token"), r.Header.Get("X-Webhook-Token"))
+	usingQuerySecret := false
+	if secret == "" {
+		if q := r.URL.Query().Get("token"); q != "" {
+			secret = q
+			usingQuerySecret = true
+		}
+	}
 	payload := decodeMap(r)
 	if secret == "" {
 		secret = stringValue(payload, "token")
 	}
 	if a.cfg.BangumiWebhookSecret == "" || subtle.ConstantTimeCompare([]byte(secret), []byte(a.cfg.BangumiWebhookSecret)) != 1 {
-		fail(w, http.StatusForbidden, "Webhook 密钥无效")
+		failWithCode(w, http.StatusForbidden, ErrUnauthorized, "Webhook 密钥无效")
 		return
+	}
+	if usingQuerySecret {
+		zap.L().Warn(
+			"bangumi webhook 仍在使用 ?token= 查询参数；查询字符串可能被代理 / CDN access log 收集，请尽快改用 X-Twilight-Bangumi-Token 头",
+			zap.String("remote", r.RemoteAddr),
+		)
 	}
 	item, _ := payload["Item"].(map[string]any)
 	eventName := strings.ToLower(firstNonEmpty(asString(payload["Event"]), asString(payload["NotificationType"]), asString(payload["Name"])))

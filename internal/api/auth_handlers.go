@@ -26,6 +26,15 @@ import (
 	"github.com/prejudice-studio/twilight/internal/validate"
 )
 
+// checkAvailableRatePerMin 限制 /api/v1/users/register/availability 的 IP 桶速率。
+// 数值要点：
+//   - 普通用户在注册表单上反复改用户名 < 10 次/分钟，30 留出宽裕缓冲；
+//   - 脚本化用户名枚举攻击通常 60-1000 RPS，30/min 足以让其无法在合理时间
+//     完成有意义的字典扫描；
+//   - 该端点是 AuthPublic，无 cookie，所以唯一可控维度是 IP；命中后返回
+//     RATE_LIMITED，前端走通用"稍后重试"路径，不暴露任何用户名差异。
+const checkAvailableRatePerMin = 30
+
 func (a *App) handleLogin(w http.ResponseWriter, r *http.Request, _ Params) {
 	if !a.allowRate(r.Context(), rateKey("login:", a.clientIP(r)), a.cfg.RateLimitLoginPerMinute, time.Minute) {
 		failWithCode(w, http.StatusTooManyRequests, ErrLoginRateLimited, "登录过于频繁，请稍后再试")
@@ -214,6 +223,18 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request, _ Params) {
 		failWithCode(w, http.StatusBadRequest, ErrUsernameInvalid, err.Error())
 		return
 	}
+	// 当 ConfiguredAdmins 配置存在时，首注册必须命中（用户名 / UID）才允许在
+	// RegisterEnabled=false 状态下走"空 DB bootstrap"通道。否则任何外部用户
+	// 都可以在 RegisterEnabled=false 的部署里抢先注册并自动成为 Admin。
+	//   - 配置了 AdminUsernames / AdminUIDs，且首注册命中 ⇒ 允许进入下游、role=Admin
+	//   - 配置了 AdminUsernames / AdminUIDs，但首注册未命中 ⇒ 直接拒绝
+	//   - 未配置 ConfiguredAdmins ⇒ 维持旧"首注册即 Admin"语义（兜底引导路径）
+	hasConfiguredAdmins := len(a.cfg.AdminUIDs) > 0 || len(a.cfg.AdminUsernames) > 0
+	bootstrapMode := a.store.UserCount() == 0
+	if bootstrapMode && hasConfiguredAdmins && !configuredAdminMatchSets(a.configuredAdminUIDSet(), a.configuredAdminUsernameSet(), 0, username) {
+		failWithCode(w, http.StatusForbidden, ErrRegisterDisabled, "系统初始管理员已通过配置指定，请使用配置的用户名注册")
+		return
+	}
 	if err := validate.ValidatePasswordStrength(password); err != nil {
 		failWithCode(w, http.StatusBadRequest, ErrPasswordWeak, err.Error())
 		return
@@ -285,6 +306,14 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request, _ Params) {
 }
 
 func (a *App) handleRegisterAvailability(w http.ResponseWriter, r *http.Request, _ Params) {
+	// 反枚举：未限速时攻击者可遍历常见用户名表来收集账户清单。
+	// 这里使用独立桶 register-availability:<ip>，30 次 / 分钟，足够普通用户在
+	// 注册表单上反复尝试用户名，但封堵脚本化扫描。命中限速时返回 429 + RATE_LIMITED，
+	// 前端按通用 RATE_LIMITED 引导即可。
+	if !a.allowRate(r.Context(), rateKey("register-availability:", a.clientIP(r)), checkAvailableRatePerMin, time.Minute) {
+		failWithCode(w, http.StatusTooManyRequests, ErrRateLimited, "请求过于频繁，请稍后再试")
+		return
+	}
 	username := strings.TrimSpace(r.URL.Query().Get("username"))
 	available := true
 	message := ""

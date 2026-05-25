@@ -692,9 +692,10 @@ func validateCORSOriginsStartup(origins []string) {
 
 // validateTrustedProxyStartup 在启动 / reload 时核验"信任代理头 + 上游 CIDR"
 // 这对配置：
-//   - TrustProxyHeaders=true 但 TrustedProxyCIDRs 为空：保留旧行为（信任所有
-//     上游），但打 Error 提醒——任何客户端都可以伪造 X-Forwarded-For 绕过 IP
-//     限流 / 黑名单；
+//   - TrustProxyHeaders=true 但 TrustedProxyCIDRs 为空：打 Error 提醒——
+//     upstreamIsTrustedProxy 在 CIDRs 为空时直接返回 false（fail-closed），
+//     意味着 trust_proxy_headers=true 此时实际无效，所有 IP 限流 / 黑名单
+//     都基于 TCP 对端地址。运维必须补全 CIDR 才能生效。
 //   - 单条 CIDR 解析失败：打 Warn 列出出错条目，调用方仍然按剩余可用条目工作；
 //   - TrustProxyHeaders=false 且 CIDRs 非空：打 Info 提示 CIDRs 当前不会生效，
 //     避免运维误以为已经启用。
@@ -732,8 +733,9 @@ func validateTrustedProxyStartup(trust bool, cidrs []string) {
 	if valid == 0 {
 		zap.L().Error(
 			"trust_proxy_headers=true 但 trusted_proxy_cidrs 未配置任何有效条目；"+
-				"任何调用方都可伪造 X-Forwarded-For 绕过 IP 限流 / 黑名单。"+
-				"请补 API.trusted_proxy_cidrs（CIDR 或单 IP，逗号分隔）",
+				"代理头将被忽略（fail-closed），所有 IP 维度策略基于 TCP 对端地址。"+
+				"如需消费 X-Forwarded-For / X-Real-IP / CF-Connecting-IP，请补 "+
+				"API.trusted_proxy_cidrs（CIDR 或单 IP，逗号分隔）",
 			zap.Strings("configured_cidrs", cidrs),
 		)
 	}
@@ -883,9 +885,27 @@ func (a *App) clientIP(r *http.Request) string {
 				return value
 			}
 		}
+		// XFF 右向左剥离：直接对端是受信代理，但代理本身可能再被另一层
+		// 受信代理转发；攻击者控制的客户端在最左端塞任何字符串。我们从
+		// 最右一跳开始，逐跳验证是否仍处于 TrustedProxyCIDRs 范围内，
+		// 第一个不在范围内的 IP 才是真实客户端 IP。
+		// 例：XFF = "spoofed, 1.1.1.1, 10.0.0.5"，RemoteAddr=10.0.0.1，
+		//   trusted = [10.0.0.0/24]，则结果应为 1.1.1.1（spoofed 不可信）。
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			if first := parseClientIPHeader(strings.Split(xff, ",")[0]); first != "" {
-				return first
+			parts := strings.Split(xff, ",")
+			for i := len(parts) - 1; i >= 0; i-- {
+				ipStr := parseClientIPHeader(parts[i])
+				if ipStr == "" {
+					continue
+				}
+				// 最左侧（i==0）始终视为客户端原始 IP，直接返回。
+				if i == 0 {
+					return ipStr
+				}
+				if upstreamIsTrustedProxy(ipStr, a.cfg.TrustedProxyCIDRs) {
+					continue
+				}
+				return ipStr
 			}
 		}
 	}
@@ -900,11 +920,12 @@ func (a *App) clientIP(r *http.Request) string {
 // 列表里。返回 true 时，clientIP 才会消费 X-Forwarded-For / X-Real-IP / CF-* 这
 // 些可被任意调用方伪造的代理头；否则一律走 RemoteAddr。
 //
-// 兼容回落：cidrs 为空时保留旧行为（信任所有对端），由启动期 WARN 引导运维补
-// 配置；这样不会让仅依赖 TrustProxyHeaders=true 的旧部署一夜失效。
+// 安全策略：cidrs 为空 ⇒ 返回 false（fail-closed）。
+// 配置不完整时直接走 RemoteAddr，由启动期日志引导运维补全 TrustedProxyCIDRs，
+// 避免任何人通过伪造 X-Forwarded-For 绕过 IP 限速 / 黑名单。
 func upstreamIsTrustedProxy(remoteAddr string, cidrs []string) bool {
 	if len(cidrs) == 0 {
-		return true
+		return false
 	}
 	host := remoteAddr
 	if h, _, err := net.SplitHostPort(remoteAddr); err == nil {

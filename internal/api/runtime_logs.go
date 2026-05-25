@@ -366,6 +366,12 @@ func sanitizeZapField(field zapcore.Field) zapcore.Field {
 			return zap.String(field.Key, redactSensitiveText(err.Error()))
 		}
 	}
+	// ReflectType / 任意未识别的复合类型：强制走 fmt.Sprint -> redact -> zap.String，
+	// 否则 zap encoder 会在底层用反射输出原 interface（panic value、map、struct 等
+	// 会原样展开），绕过敏感字段脱敏。
+	if field.Type == zapcore.ReflectType {
+		return zap.String(field.Key, redactSensitiveText(zapFieldValueString(field)))
+	}
 	text := zapFieldValueString(field)
 	if redacted := redactSensitiveText(text); redacted != text {
 		return zap.String(field.Key, redacted)

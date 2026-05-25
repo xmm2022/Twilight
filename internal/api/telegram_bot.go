@@ -18,7 +18,9 @@ func (a *App) RunTelegramBot(ctx context.Context) error {
 	// 协程入口加 panic recover：单条 update 处理崩溃不应让整个 bot 退出。
 	defer func() {
 		if r := recover(); r != nil {
-			zap.L().Error("telegram bot panic", zap.Any("panic", r))
+			// 改用 zap.String：panic value 反射 dump 可能含 token / chat 私密内容；
+			// 走脱敏分支保证不绕过 sensitiveLogKey / redactSensitiveText 链路。
+			zap.L().Error("telegram bot panic", zap.String("panic", redactSensitiveText(fmt.Sprintf("%v", r))))
 		}
 	}()
 	offset := int64(0)
@@ -56,7 +58,7 @@ func (a *App) RunTelegramBot(ctx context.Context) error {
 			activeConfig = currentConfig
 			offset = 0
 			a.setTelegramRuntimeStatus(true, nil)
-			zap.L().Info("Telegram bot polling started", zap.Any("username", me["username"]))
+			zap.L().Info("Telegram bot polling started", zap.String("username", asString(me["username"])))
 		}
 		updates, err := a.telegramGetUpdates(ctx, offset)
 		if err != nil {
@@ -78,7 +80,9 @@ func (a *App) RunTelegramBot(ctx context.Context) error {
 				// 单条 update 处理 panic 隔离：一条坏消息不能让整个 bot 退出。
 				defer func() {
 					if r := recover(); r != nil {
-						zap.L().Error("telegram update panic", zap.Any("update_id", u["update_id"]), zap.Any("panic", r))
+						// update_id 走 numeric 提取避免 zap.Any 反射；panic value 同理强制
+						// 经 redact 转字符串，避免 reflect 路径输出原始 chat / user 数据。
+						zap.L().Error("telegram update panic", zap.Int64("update_id", int64(numeric(u["update_id"]))), zap.String("panic", redactSensitiveText(fmt.Sprintf("%v", r))))
 					}
 				}()
 				a.handleTelegramUpdate(ctx, u)
