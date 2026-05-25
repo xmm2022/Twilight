@@ -870,6 +870,54 @@ func (s *Store) Save() error {
 	return s.saveLocked()
 }
 
+// snapshotStateLocked 把当前 s.state 序列化再反序列化得到一份独立副本，
+// 用于 mutateAndSaveLocked 的回滚。State 内大量 map/slice 是引用类型，
+// 浅拷贝不能隔离后续修改；JSON 往返一次比 reflect.DeepCopy 简单且与
+// 已有的 refreshLocked 走同一条路径（次数等量级，开销可接受）。
+func (s *Store) snapshotStateLocked() (State, error) {
+	s.state.ensure()
+	data, err := json.Marshal(&s.state)
+	if err != nil {
+		return State{}, err
+	}
+	var clone State
+	if err := json.Unmarshal(data, &clone); err != nil {
+		return State{}, err
+	}
+	clone.ensure()
+	return clone, nil
+}
+
+// mutateAndSaveLocked 把"读最新状态 → 变更 → 持久化 → 失败回滚"模板化。
+// 调用方必须已经持有 s.mu 写锁；helper 内部不再额外加锁。
+//
+// 旧的写者模板"refreshLocked → 改 s.state → saveLocked"在 saveLocked 失败
+// 后让内存与磁盘发散：DeleteUser 这种串改 12+ 个 map 的级联尤其危险，
+// 一次磁盘故障即留下"用户已从 Users 删除但 InviteRelations 还在"的孤儿态。
+// 这里在变更前用 snapshotStateLocked 拍快照，save 失败时用快照覆盖回去，
+// 保证内存与磁盘要么一起前进、要么一起回到上一个一致点。
+//
+// mutate 自身返回 error 时不会触发 save / 回滚——还没真改盘，调用方自行处理。
+func (s *Store) mutateAndSaveLocked(mutate func() error) error {
+	if err := s.refreshLocked(); err != nil {
+		return err
+	}
+	prev, err := s.snapshotStateLocked()
+	if err != nil {
+		return err
+	}
+	if err := mutate(); err != nil {
+		// mutate 失败：本身就不打算落盘，状态可能被改了一半，回滚到快照。
+		s.state = prev
+		return err
+	}
+	if err := s.saveLocked(); err != nil {
+		s.state = prev
+		return err
+	}
+	return nil
+}
+
 func (s *Store) saveLocked() error {
 	s.state.ensure()
 	var (
@@ -1195,29 +1243,34 @@ func (s *Store) UserCount() int {
 func (s *Store) CreateUser(u User) (User, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.refreshLocked(); err != nil {
+	var created User
+	err := s.mutateAndSaveLocked(func() error {
+		for _, existing := range s.state.Users {
+			if strings.EqualFold(existing.Username, u.Username) {
+				return ErrConflict
+			}
+		}
+		now := time.Now().Unix()
+		u.UID = s.state.NextUserID
+		s.state.NextUserID++
+		if u.CreatedAt == 0 {
+			u.CreatedAt = now
+		}
+		if u.RegisterTime == 0 {
+			u.RegisterTime = now
+		}
+		if u.ExpiredAt == 0 {
+			u.ExpiredAt = -1
+		}
+		u.Active = true
+		s.state.Users[u.UID] = u
+		created = u
+		return nil
+	})
+	if err != nil {
 		return User{}, err
 	}
-	for _, existing := range s.state.Users {
-		if strings.EqualFold(existing.Username, u.Username) {
-			return User{}, ErrConflict
-		}
-	}
-	now := time.Now().Unix()
-	u.UID = s.state.NextUserID
-	s.state.NextUserID++
-	if u.CreatedAt == 0 {
-		u.CreatedAt = now
-	}
-	if u.RegisterTime == 0 {
-		u.RegisterTime = now
-	}
-	if u.ExpiredAt == 0 {
-		u.ExpiredAt = -1
-	}
-	u.Active = true
-	s.state.Users[u.UID] = u
-	return u, s.saveLocked()
+	return created, nil
 }
 
 func (s *Store) FindUserByUsername(username string) (User, bool) {
@@ -1252,18 +1305,23 @@ func (s *Store) User(uid int64) (User, bool) {
 func (s *Store) UpdateUser(uid int64, fn func(*User) error) (User, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.refreshLocked(); err != nil {
+	var updated User
+	err := s.mutateAndSaveLocked(func() error {
+		u, ok := s.state.Users[uid]
+		if !ok {
+			return ErrNotFound
+		}
+		if err := fn(&u); err != nil {
+			return err
+		}
+		s.state.Users[uid] = u
+		updated = u
+		return nil
+	})
+	if err != nil {
 		return User{}, err
 	}
-	u, ok := s.state.Users[uid]
-	if !ok {
-		return User{}, ErrNotFound
-	}
-	if err := fn(&u); err != nil {
-		return User{}, err
-	}
-	s.state.Users[uid] = u
-	return u, s.saveLocked()
+	return updated, nil
 }
 
 // SetUserRoleAtomic 在同一把写锁内做 last-admin 计数 + 写入。
@@ -1276,27 +1334,32 @@ func (s *Store) UpdateUser(uid int64, fn func(*User) error) (User, error) {
 func (s *Store) SetUserRoleAtomic(uid int64, newRole int) (User, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.refreshLocked(); err != nil {
-		return User{}, err
-	}
-	u, ok := s.state.Users[uid]
-	if !ok {
-		return User{}, ErrNotFound
-	}
-	if u.Role == RoleAdmin && u.Active && newRole != RoleAdmin {
-		others := 0
-		for _, other := range s.state.Users {
-			if other.UID != u.UID && other.Role == RoleAdmin && other.Active {
-				others++
+	var updated User
+	err := s.mutateAndSaveLocked(func() error {
+		u, ok := s.state.Users[uid]
+		if !ok {
+			return ErrNotFound
+		}
+		if u.Role == RoleAdmin && u.Active && newRole != RoleAdmin {
+			others := 0
+			for _, other := range s.state.Users {
+				if other.UID != u.UID && other.Role == RoleAdmin && other.Active {
+					others++
+				}
+			}
+			if others == 0 {
+				return ErrLastAdmin
 			}
 		}
-		if others == 0 {
-			return User{}, ErrLastAdmin
-		}
+		u.Role = newRole
+		s.state.Users[uid] = u
+		updated = u
+		return nil
+	})
+	if err != nil {
+		return User{}, err
 	}
-	u.Role = newRole
-	s.state.Users[uid] = u
-	return u, s.saveLocked()
+	return updated, nil
 }
 
 // SetUserActiveAtomic 与 SetUserRoleAtomic 同理，处理"禁用最后一个 active admin"。
@@ -1304,27 +1367,32 @@ func (s *Store) SetUserRoleAtomic(uid int64, newRole int) (User, error) {
 func (s *Store) SetUserActiveAtomic(uid int64, active bool) (User, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.refreshLocked(); err != nil {
-		return User{}, err
-	}
-	u, ok := s.state.Users[uid]
-	if !ok {
-		return User{}, ErrNotFound
-	}
-	if u.Active && !active && u.Role == RoleAdmin {
-		others := 0
-		for _, other := range s.state.Users {
-			if other.UID != u.UID && other.Role == RoleAdmin && other.Active {
-				others++
+	var updated User
+	err := s.mutateAndSaveLocked(func() error {
+		u, ok := s.state.Users[uid]
+		if !ok {
+			return ErrNotFound
+		}
+		if u.Active && !active && u.Role == RoleAdmin {
+			others := 0
+			for _, other := range s.state.Users {
+				if other.UID != u.UID && other.Role == RoleAdmin && other.Active {
+					others++
+				}
+			}
+			if others == 0 {
+				return ErrLastAdmin
 			}
 		}
-		if others == 0 {
-			return User{}, ErrLastAdmin
-		}
+		u.Active = active
+		s.state.Users[uid] = u
+		updated = u
+		return nil
+	})
+	if err != nil {
+		return User{}, err
 	}
-	u.Active = active
-	s.state.Users[uid] = u
-	return u, s.saveLocked()
+	return updated, nil
 }
 
 // BindUserTelegramAtomic 同把锁内：唯一性校验 + admin 自保 + 写入。
@@ -1333,27 +1401,35 @@ func (s *Store) SetUserActiveAtomic(uid int64, active bool) (User, error) {
 func (s *Store) BindUserTelegramAtomic(uid int64, tgid int64, currentUID int64) (User, int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.refreshLocked(); err != nil {
-		return User{}, 0, err
-	}
-	u, ok := s.state.Users[uid]
-	if !ok {
-		return User{}, 0, ErrNotFound
-	}
-	if u.Role == RoleAdmin && u.UID != currentUID {
-		return User{}, 0, ErrConflict
-	}
-	if tgid != 0 {
-		for _, other := range s.state.Users {
-			if other.UID != uid && other.TelegramID == tgid {
-				return User{}, 0, ErrConflict
+	var (
+		updated User
+		old     int64
+	)
+	err := s.mutateAndSaveLocked(func() error {
+		u, ok := s.state.Users[uid]
+		if !ok {
+			return ErrNotFound
+		}
+		if u.Role == RoleAdmin && u.UID != currentUID {
+			return ErrConflict
+		}
+		if tgid != 0 {
+			for _, other := range s.state.Users {
+				if other.UID != uid && other.TelegramID == tgid {
+					return ErrConflict
+				}
 			}
 		}
+		old = u.TelegramID
+		u.TelegramID = tgid
+		s.state.Users[uid] = u
+		updated = u
+		return nil
+	})
+	if err != nil {
+		return User{}, 0, err
 	}
-	old := u.TelegramID
-	u.TelegramID = tgid
-	s.state.Users[uid] = u
-	return u, old, s.saveLocked()
+	return updated, old, nil
 }
 
 // BindUserEmbyAtomic 同把锁内做 EmbyID 唯一性 + force rebind。
@@ -1363,32 +1439,39 @@ func (s *Store) BindUserTelegramAtomic(uid int64, tgid int64, currentUID int64) 
 func (s *Store) BindUserEmbyAtomic(uid int64, embyID, embyUsername string, force bool) (User, int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.refreshLocked(); err != nil {
-		return User{}, 0, err
-	}
-	u, ok := s.state.Users[uid]
-	if !ok {
-		return User{}, 0, ErrNotFound
-	}
-	displaced := int64(0)
-	if embyID != "" {
-		for _, other := range s.state.Users {
-			if other.UID != uid && other.EmbyID == embyID {
-				if !force {
-					return User{}, 0, ErrConflict
+	var (
+		updated   User
+		displaced int64
+	)
+	err := s.mutateAndSaveLocked(func() error {
+		u, ok := s.state.Users[uid]
+		if !ok {
+			return ErrNotFound
+		}
+		if embyID != "" {
+			for _, other := range s.state.Users {
+				if other.UID != uid && other.EmbyID == embyID {
+					if !force {
+						return ErrConflict
+					}
+					other.EmbyID = ""
+					other.EmbyUsername = ""
+					s.state.Users[other.UID] = other
+					displaced = other.UID
+					break
 				}
-				other.EmbyID = ""
-				other.EmbyUsername = ""
-				s.state.Users[other.UID] = other
-				displaced = other.UID
-				break
 			}
 		}
+		u.EmbyID = embyID
+		u.EmbyUsername = embyUsername
+		s.state.Users[uid] = u
+		updated = u
+		return nil
+	})
+	if err != nil {
+		return User{}, 0, err
 	}
-	u.EmbyID = embyID
-	u.EmbyUsername = embyUsername
-	s.state.Users[uid] = u
-	return u, displaced, s.saveLocked()
+	return updated, displaced, nil
 }
 
 // DeleteUser 删除用户并级联清理所有 UID-键控的衍生数据。
@@ -1411,124 +1494,123 @@ func (s *Store) BindUserEmbyAtomic(uid int64, embyID, embyUsername string, force
 func (s *Store) DeleteUser(uid int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.refreshLocked(); err != nil {
-		return err
-	}
-	if _, ok := s.state.Users[uid]; !ok {
-		return ErrNotFound
-	}
-	delete(s.state.Users, uid)
-
-	// API keys 与会话凭证：必须清理，否则用户被删后旧 key 仍可调用接口。
-	for id, key := range s.state.APIKeys {
-		if key.UID == uid {
-			delete(s.state.APIKeys, id)
+	return s.mutateAndSaveLocked(func() error {
+		if _, ok := s.state.Users[uid]; !ok {
+			return ErrNotFound
 		}
-	}
+		delete(s.state.Users, uid)
 
-	// 邀请码：邀请人 / 接收人任一为该用户都失效。
-	for code, invite := range s.state.InviteCodes {
-		if invite.InviterUID == uid || invite.UID == uid || invite.UsedByUID == uid {
-			delete(s.state.InviteCodes, code)
-		}
-	}
-
-	// 邀请关系：自身作为 child 与作为 parent 的关系都断开（避免邀请树留孤儿）。
-	delete(s.state.InviteRelations, uid)
-	for child, rel := range s.state.InviteRelations {
-		if rel.ParentUID == uid {
-			delete(s.state.InviteRelations, child)
-		}
-	}
-
-	// 求片记录：用户撤销，待办求片随之消失。
-	for id, req := range s.state.MediaRequests {
-		if req.UID == uid {
-			delete(s.state.MediaRequests, id)
-		}
-	}
-
-	// 签到积分 / 历史。
-	delete(s.state.Signin, uid)
-
-	// 设备指纹：要必须清，否则同 UID 重新创建（管理员复用编号）会继承
-	// 旧设备的 trusted 标记，等价于"复用 UID 直接绕过设备校验"。
-	for id, dev := range s.state.Devices {
-		if dev.UID == uid {
-			delete(s.state.Devices, id)
-		}
-	}
-
-	// 登录日志：包含 IP / 设备名 / Country 等个人信息，按 GDPR 右擦除。
-	if len(s.state.LoginLogs) > 0 {
-		filtered := s.state.LoginLogs[:0]
-		for _, log := range s.state.LoginLogs {
-			if log.UID != uid {
-				filtered = append(filtered, log)
+		// API keys 与会话凭证：必须清理，否则用户被删后旧 key 仍可调用接口。
+		for id, key := range s.state.APIKeys {
+			if key.UID == uid {
+				delete(s.state.APIKeys, id)
 			}
 		}
-		s.state.LoginLogs = filtered
-	}
 
-	// 播放记录。
-	if len(s.state.PlaybackRecords) > 0 {
-		filtered := s.state.PlaybackRecords[:0]
-		for _, p := range s.state.PlaybackRecords {
-			if p.UID != uid {
-				filtered = append(filtered, p)
+		// 邀请码：邀请人 / 接收人任一为该用户都失效。
+		for code, invite := range s.state.InviteCodes {
+			if invite.InviterUID == uid || invite.UID == uid || invite.UsedByUID == uid {
+				delete(s.state.InviteCodes, code)
 			}
 		}
-		s.state.PlaybackRecords = filtered
-	}
 
-	// 待审/已审的换绑请求：业务对象随用户消亡。
-	// 注意：仅清理"作为申请者 UID"的记录；ReviewerUID 字段保留（审计轨迹）。
-	for id, req := range s.state.RebindRequests {
-		if req.UID == uid {
-			delete(s.state.RebindRequests, id)
+		// 邀请关系：自身作为 child 与作为 parent 的关系都断开（避免邀请树留孤儿）。
+		delete(s.state.InviteRelations, uid)
+		for child, rel := range s.state.InviteRelations {
+			if rel.ParentUID == uid {
+				delete(s.state.InviteRelations, child)
+			}
 		}
-	}
 
-	// 绑定码（注册/绑定 telegram 流程的临时 ticket）。
-	for code, bc := range s.state.BindCodes {
-		if bc.UID == uid {
-			delete(s.state.BindCodes, code)
+		// 求片记录：用户撤销，待办求片随之消失。
+		for id, req := range s.state.MediaRequests {
+			if req.UID == uid {
+				delete(s.state.MediaRequests, id)
+			}
 		}
-	}
 
-	// RegCode：保留 regcode 本身（管理员资产），仅抹掉对该用户的 UID 引用。
-	for code, rc := range s.state.RegCodes {
-		dirty := false
-		if rc.UsedBy == uid {
-			rc.UsedBy = 0
-			dirty = true
+		// 签到积分 / 历史。
+		delete(s.state.Signin, uid)
+
+		// 设备指纹：要必须清，否则同 UID 重新创建（管理员复用编号）会继承
+		// 旧设备的 trusted 标记，等价于"复用 UID 直接绕过设备校验"。
+		for id, dev := range s.state.Devices {
+			if dev.UID == uid {
+				delete(s.state.Devices, id)
+			}
 		}
-		if len(rc.UsedByUIDs) > 0 {
-			pruned := rc.UsedByUIDs[:0]
-			for _, u := range rc.UsedByUIDs {
-				if u != uid {
-					pruned = append(pruned, u)
+
+		// 登录日志：包含 IP / 设备名 / Country 等个人信息，按 GDPR 右擦除。
+		if len(s.state.LoginLogs) > 0 {
+			filtered := s.state.LoginLogs[:0]
+			for _, log := range s.state.LoginLogs {
+				if log.UID != uid {
+					filtered = append(filtered, log)
 				}
 			}
-			if len(pruned) != len(rc.UsedByUIDs) {
-				rc.UsedByUIDs = pruned
-				dirty = true
+			s.state.LoginLogs = filtered
+		}
+
+		// 播放记录。
+		if len(s.state.PlaybackRecords) > 0 {
+			filtered := s.state.PlaybackRecords[:0]
+			for _, p := range s.state.PlaybackRecords {
+				if p.UID != uid {
+					filtered = append(filtered, p)
+				}
+			}
+			s.state.PlaybackRecords = filtered
+		}
+
+		// 待审/已审的换绑请求：业务对象随用户消亡。
+		// 注意：仅清理"作为申请者 UID"的记录；ReviewerUID 字段保留（审计轨迹）。
+		for id, req := range s.state.RebindRequests {
+			if req.UID == uid {
+				delete(s.state.RebindRequests, id)
 			}
 		}
-		if dirty {
-			s.state.RegCodes[code] = rc
-		}
-	}
 
-	// 公告作者匿名化：公告本体不删，只清掉 CreatedByUID 引用。
-	for id, ann := range s.state.Announcements {
-		if ann.CreatedByUID == uid {
-			ann.CreatedByUID = 0
-			s.state.Announcements[id] = ann
+		// 绑定码（注册/绑定 telegram 流程的临时 ticket）。
+		for code, bc := range s.state.BindCodes {
+			if bc.UID == uid {
+				delete(s.state.BindCodes, code)
+			}
 		}
-	}
 
-	return s.saveLocked()
+		// RegCode：保留 regcode 本身（管理员资产），仅抹掉对该用户的 UID 引用。
+		for code, rc := range s.state.RegCodes {
+			dirty := false
+			if rc.UsedBy == uid {
+				rc.UsedBy = 0
+				dirty = true
+			}
+			if len(rc.UsedByUIDs) > 0 {
+				pruned := rc.UsedByUIDs[:0]
+				for _, u := range rc.UsedByUIDs {
+					if u != uid {
+						pruned = append(pruned, u)
+					}
+				}
+				if len(pruned) != len(rc.UsedByUIDs) {
+					rc.UsedByUIDs = pruned
+					dirty = true
+				}
+			}
+			if dirty {
+				s.state.RegCodes[code] = rc
+			}
+		}
+
+		// 公告作者匿名化：公告本体不删，只清掉 CreatedByUID 引用。
+		for id, ann := range s.state.Announcements {
+			if ann.CreatedByUID == uid {
+				ann.CreatedByUID = 0
+				s.state.Announcements[id] = ann
+			}
+		}
+
+		return nil
+	})
 }
 
 func (s *Store) ListUsers() []User {
