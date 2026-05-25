@@ -1243,6 +1243,46 @@ func maskAPIKey(key string) (prefix, suffix, masked string) {
 	return prefix, suffix, prefix + "..." + suffix
 }
 
+// requireAdmin 是 admin-only handler 的入口断言。AuthAdmin 路由已在
+// dispatcher（app.go:611）处把非 admin 阻挡在外，但 handler 自身再确认一次
+// caller 角色，避免：
+//
+//   1. 路由表手抖把 admin handler 挂到 AuthUser；
+//   2. 同一 handler 同时挂在 AuthUser / AuthAdmin 两条路由（典型如
+//      handleLoginHistory / handleWatchStats / handleDevices），handler 内部
+//      靠 path string 推断鉴权时漏判；
+//   3. 未来引入 ApiKey / TG webhook 等新鉴权来源时绕过 AuthAdmin。
+//
+// 写为 true 时表示已写 403，调用方直接 return 即可。
+func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
+	if current(r).User.Role != store.RoleAdmin {
+		failWithCode(w, http.StatusForbidden, ErrUserProtected, "权限不足")
+		return true
+	}
+	return false
+}
+
+// requireAdminForUIDParam 用于"AuthUser / AuthAdmin 共用 handler，路径上有
+// :uid 时必须是 admin"的场景：在 :uid 存在但 caller 不是 admin 的情况下回
+// 403。返回 (target uid, written 403)；调用方在 written 为 true 时直接
+// return。target uid 解析失败则回退到 caller 自身（保留现状），但若 :uid 是
+// 字符串且 parse 失败应改为 400（R44-7 单独跟进）。
+func requireAdminForUIDParam(w http.ResponseWriter, r *http.Request, params Params) (int64, bool) {
+	caller := current(r).User
+	if params["uid"] == "" {
+		return caller.UID, false
+	}
+	if caller.Role != store.RoleAdmin {
+		failWithCode(w, http.StatusForbidden, ErrUserProtected, "权限不足")
+		return 0, true
+	}
+	paramUID, err := int64Param(params, "uid")
+	if err != nil || paramUID <= 0 {
+		return caller.UID, false
+	}
+	return paramUID, false
+}
+
 func statusFromError(w http.ResponseWriter, err error) bool {
 	if err == nil {
 		return false

@@ -487,12 +487,12 @@ func (a *App) handleUserSettings(w http.ResponseWriter, r *http.Request, _ Param
 }
 
 func (a *App) handleDevices(w http.ResponseWriter, r *http.Request, params Params) {
-	uid := current(r).User.UID
-	if params["uid"] != "" {
-		paramUID, err := int64Param(params, "uid")
-		if err == nil && paramUID > 0 {
-			uid = paramUID
-		}
+	// :uid 仅出现在 AuthAdmin 路由（/api/v1/security/users/:uid/devices）。
+	// 走 requireAdminForUIDParam 把"caller 不是 admin 但路径带 :uid"路由错配
+	// 的情况打回 403，避免 user A 走错路由就拿 user B 的设备列表。
+	uid, written := requireAdminForUIDParam(w, r, params)
+	if written {
+		return
 	}
 	items := []map[string]any{}
 	for _, d := range a.store().ListDevices(uid) {
@@ -542,13 +542,14 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request, _ Params) {
 	ok(w, "OK", items)
 }
 
-func (a *App) handleLoginHistory(w http.ResponseWriter, r *http.Request, _ Params) {
-	uid := current(r).User.UID
-	parts := splitPath(r.URL.Path)
-	if len(parts) > 0 {
-		if last, err := strconv.ParseInt(parts[len(parts)-1], 10, 64); err == nil && strings.Contains(r.URL.Path, "/security/login-history/") {
-			uid = last
-		}
+func (a *App) handleLoginHistory(w http.ResponseWriter, r *http.Request, params Params) {
+	// 路由表把 /security/login-history（AuthUser）和 /security/login-history/:uid
+	// （AuthAdmin）挂到同 handler。原实现完全靠 splitPath + Contains 推断 uid，
+	// 字符串变化或路由重排都会让鉴权静默失效。改为读 params["uid"]，并显式断
+	// 言"路径带 :uid 必须是 admin"。
+	uid, written := requireAdminForUIDParam(w, r, params)
+	if written {
+		return
 	}
 	limit := clamp(queryInt(r, "limit", 50), 1, 100)
 	logs := a.store().LoginHistory(uid, false, 0, limit)
@@ -560,9 +561,11 @@ func (a *App) handleLoginHistory(w http.ResponseWriter, r *http.Request, _ Param
 }
 
 func (a *App) handleBlockDevice(w http.ResponseWriter, r *http.Request, params Params) {
-	uid := current(r).User.UID
-	if params["uid"] != "" {
-		uid, _ = int64Param(params, "uid")
+	// :uid 只能来自 AuthAdmin 路由；若 AuthUser 路由表手抖加上 :uid，下面这条
+	// 断言会立刻 403，避免 user A 用伪造路径 block user B 的设备。
+	uid, written := requireAdminForUIDParam(w, r, params)
+	if written {
+		return
 	}
 	deviceID := params["device_id"]
 	if deviceID == "" {
@@ -1770,6 +1773,13 @@ func (a *App) handleCreateStandaloneEmby(w http.ResponseWriter, r *http.Request,
 }
 
 func (a *App) handleAdminBindEmby(w http.ResponseWriter, r *http.Request, params Params) {
+	// 显式 admin 断言。AuthAdmin 路由（routes.go:177）已挡住非 admin，但 admin
+	// 强力 mutating handler 必须自己再确认一次：未来若有人把这个 handler 同
+	// 时挂到 AuthUser 路由（手抖 / 复制粘贴），dispatcher 不会拦下，handler
+	// 这一行会。
+	if requireAdmin(w, r) {
+		return
+	}
 	targetUID, _ := int64Param(params, "uid")
 	body := decodeMap(r)
 	embyIDInput := stringValue(body, "emby_id")
@@ -1911,20 +1921,32 @@ func (a *App) handleExportPlayback(w http.ResponseWriter, r *http.Request, _ Par
 	cw.Flush()
 }
 
-func (a *App) handleWatchStats(w http.ResponseWriter, r *http.Request, _ Params) {
-	uid := current(r).User.UID
-	parts := splitPath(r.URL.Path)
+func (a *App) handleWatchStats(w http.ResponseWriter, r *http.Request, params Params) {
+	caller := current(r).User
+	uid := caller.UID
 	global := false
-	if len(parts) > 0 {
-		last := parts[len(parts)-1]
-		if last == "global" {
-			global = true
-			uid = 0
-		} else if parsed, err := strconv.ParseInt(last, 10, 64); err == nil && (strings.Contains(r.URL.Path, "/watch-stats/") || strings.Contains(r.URL.Path, "/stats/user/")) {
-			uid = parsed
+	// 路由表把 /stats/me、/stats/user/:uid（AuthUser）、/batch/watch-stats、
+	// /batch/watch-stats/:uid（AuthAdmin）、/batch/watch-stats/global（AuthAdmin）
+	// 都映射到本 handler。原实现 splitPath + Contains 推断既不直观也容易在
+	// 增减路由时漏判。改为：global 走最后一段是 "global" 的硬约定，:uid 走
+	// params；最后用 caller.Role == admin || uid == self 做统一鉴权。
+	if parts := splitPath(r.URL.Path); len(parts) > 0 && parts[len(parts)-1] == "global" {
+		global = true
+		uid = 0
+	} else if params["uid"] != "" {
+		paramUID, err := int64Param(params, "uid")
+		if err == nil && paramUID > 0 {
+			uid = paramUID
 		}
 	}
-	if strings.Contains(r.URL.Path, "/stats/user/") && current(r).User.Role != store.RoleAdmin && uid != current(r).User.UID {
+	// belt-and-suspenders：global / 跨用户视图必须是 admin。AuthAdmin 已挡住
+	// 主流量，但 path-string 之前是真实存在的鉴权依据，整改后保留显式断言
+	// 防止路由表手抖。
+	if global && caller.Role != store.RoleAdmin {
+		failWithCode(w, http.StatusForbidden, ErrUserProtected, "权限不足")
+		return
+	}
+	if uid != caller.UID && caller.Role != store.RoleAdmin {
 		failWithCode(w, http.StatusForbidden, ErrWatchStatsForbidden, "cannot view another user's watch stats")
 		return
 	}
