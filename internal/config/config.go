@@ -376,7 +376,7 @@ func defaults() Config {
 		PostgresPort:         5432,
 		PostgresUser:         "twilight",
 		PostgresDatabase:     "twilight",
-		PostgresSSLMode:      "disable",
+		PostgresSSLMode:      "prefer",
 		PostgresMaxOpenConns: 8,
 		PostgresMaxIdleConns: 4,
 		UploadDir:            "uploads",

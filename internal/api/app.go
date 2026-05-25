@@ -129,7 +129,7 @@ func New(cfg config.Config, st *store.Store) (*App, error) {
 	// applyCORS 默认就附带 Allow-Credentials: true，浏览器规范本就拒绝
 	// `*` + credentials 组合；早期管理员若误填 `*` 会得到一个静默无效的配置。
 	// 这里在启动 / reload 时强提示，配 .Error 让审计/告警系统能抓到。
-	validateCORSOriginsStartup(cfg.CORSOrigins)
+	validateCORSOriginsStartup(cfg.CORSOrigins, cfg.AllowCredential)
 	validateTrustedProxyStartup(cfg.TrustProxyHeaders, cfg.TrustedProxyCIDRs)
 	ConfigureRuntimeLoggingStore(st, cfg.ZapLevel(), cfg.RuntimeLogLimit)
 	return app, nil
@@ -267,7 +267,7 @@ func (a *App) reloadConfigLocked() (map[string]any, error) {
 	a.applyConfiguredAdmins()
 	// reload 也走一遍 CORS 校验，捕获 hot reload 引入的错配置。
 	if !sameStringSlice(previous.CORSOrigins, next.CORSOrigins) {
-		validateCORSOriginsStartup(next.CORSOrigins)
+		validateCORSOriginsStartup(next.CORSOrigins, next.AllowCredential)
 	}
 	if previous.TrustProxyHeaders != next.TrustProxyHeaders ||
 		!sameStringSlice(previous.TrustedProxyCIDRs, next.TrustedProxyCIDRs) {
@@ -652,11 +652,12 @@ func (a *App) applyCORS(w http.ResponseWriter, r *http.Request) bool {
 //
 // 函数本身不返回 error，仅打印 —— App 不会因为 CORS 错配置启动失败，
 // 因为反代/容器重启场景下这往往是非致命的退化。
-func validateCORSOriginsStartup(origins []string) {
+func validateCORSOriginsStartup(origins []string, allowCredential bool) {
 	if len(origins) == 0 {
 		return
 	}
 	var hasWildcard bool
+	var hasLocalhost bool
 	var invalid []string
 	cleaned := make([]string, 0, len(origins))
 	for _, raw := range origins {
@@ -672,6 +673,10 @@ func validateCORSOriginsStartup(origins []string) {
 			invalid = append(invalid, o)
 			continue
 		}
+		lower := strings.ToLower(o)
+		if strings.Contains(lower, "://localhost") || strings.Contains(lower, "://127.0.0.1") || strings.Contains(lower, "://[::1]") {
+			hasLocalhost = true
+		}
 		cleaned = append(cleaned, o)
 	}
 	if hasWildcard {
@@ -686,6 +691,16 @@ func validateCORSOriginsStartup(origins []string) {
 		zap.L().Warn(
 			"cors_origins 含无法解析的条目，已忽略；条目必须是 scheme://host[:port]，无 path/query/fragment",
 			zap.Strings("invalid_entries", invalid),
+		)
+	}
+	// AllowCredential=true 同时放行 localhost / 127.0.0.1 / [::1] 在生产环境是高危：
+	// 任何用户在本机起 dev 前端就能携带 cookie 跨站访问。dev 场景应通过显式 dev profile
+	// 而不是默认放行。
+	if allowCredential && hasLocalhost {
+		zap.L().Error(
+			"cors_origins 中包含 localhost/127.0.0.1，且 allow_credential=true。"+
+				"生产部署请移除本地回环 origin，或将 allow_credential 设为 false。",
+			zap.Strings("configured_origins", origins),
 		)
 	}
 }
