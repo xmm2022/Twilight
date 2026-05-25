@@ -968,7 +968,8 @@ func (a *App) issueSessionCookies(w http.ResponseWriter, sessionToken string, ex
 // 校验规则：
 //  1. 必须有 csrf cookie
 //  2. 必须有 X-CSRF-Token header
-//  3. 两者使用 subtle.ConstantTimeCompare 比对
+//  3. 长度满足最小要求（防止 0 长 / 1 字符等退化值通过 ConstantTimeCompare）
+//  4. 两者使用 subtle.ConstantTimeCompare 比对
 //
 // 任一失败返回 false。调用点应回 403 + AUTH_CSRF_MISSING。
 func (a *App) verifyCSRFToken(r *http.Request) bool {
@@ -983,8 +984,19 @@ func (a *App) verifyCSRFToken(r *http.Request) bool {
 	if len(header) != len(cookie.Value) {
 		return false
 	}
+	// newCSRFToken 固定输出 64 字符 hex（32 字节随机），任何 < 16 字符的输入
+	// 都不可能是合法 token，且让 ConstantTimeCompare 退化成几乎零成本路径，
+	// 攻击者通过响应时间 / 错误格式可以快速过滤候选。直接拒掉。
+	if len(header) < csrfTokenMinLen {
+		return false
+	}
 	return subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(header)) == 1
 }
+
+// csrfTokenMinLen 是 verifyCSRFToken 接受的 token 最小长度。当前 newCSRFToken
+// 输出 64 字符 hex；这里设 16 既覆盖任何缩短的探测尝试，也给将来切到更短编码
+// （例如 base64url 22 字符）留余量。
+const csrfTokenMinLen = 16
 
 func sameSite(value string) http.SameSite {
 	switch strings.ToLower(value) {
