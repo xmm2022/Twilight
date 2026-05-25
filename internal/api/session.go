@@ -242,23 +242,24 @@ func (s *sessionStore) DeleteUser(ctx context.Context, uid int64) {
 	}
 	s.mu.Unlock()
 
-	// Also remove from PostgreSQL and collect tokens for Redis cleanup
+	// Also remove from PostgreSQL. Use DELETE ... RETURNING token in a single
+	// statement so we collect tokens for Redis cleanup atomically — the old
+	// SELECT-then-DELETE pair left a window where another connection could
+	// INSERT a fresh session for this uid between the two statements: the new
+	// token would either be missed by Redis cleanup (left dangling) or wiped
+	// by the broad DELETE (kicking a user who just logged in).
 	if db := s.pgDB(); db != nil {
-		if s.redis != nil {
-			// Fetch tokens before deleting so we can remove from Redis
-			rows, err := db.QueryContext(ctx,
-				`SELECT token FROM twilight_sessions WHERE uid = $1`, uid)
-			if err == nil {
-				for rows.Next() {
-					var token string
-					if rows.Scan(&token) == nil {
-						_ = s.redis.Del(ctx, s.prefix+token)
-					}
+		rows, err := db.QueryContext(ctx,
+			`DELETE FROM twilight_sessions WHERE uid = $1 RETURNING token`, uid)
+		if err == nil {
+			for rows.Next() {
+				var token string
+				if rows.Scan(&token) == nil && s.redis != nil {
+					_ = s.redis.Del(ctx, s.prefix+token)
 				}
-				rows.Close()
 			}
+			rows.Close()
 		}
-		_, _ = db.ExecContext(ctx, `DELETE FROM twilight_sessions WHERE uid = $1`, uid)
 	}
 }
 
