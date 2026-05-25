@@ -1053,7 +1053,61 @@ func (s *Store) Snapshot() ([]byte, error) {
 	}
 	state := s.state
 	state.ensure()
+	// PG 后端：runtime logs 落在独立表 `twilight_runtime_logs`，不会进入
+	// `twilight_state` 的 jsonb。Snapshot 必须把它们也读出来塞进 State，否则：
+	//   - PG → JSON 迁移会永久丢日志；
+	//   - 备份/恢复时 state 与 audit/runtime 两条线时点错位（admin 看到"已恢复"
+	//     但日志仍是恢复点之后的最新数据）。
+	// 这里持锁期间额外做一次 SELECT，不影响并发写（只读快照）。
+	if s.db != nil {
+		logs, nextID, err := s.snapshotRuntimeLogsLocked()
+		if err != nil {
+			return nil, err
+		}
+		state.RuntimeLogs = logs
+		if nextID > state.NextRuntimeLogID {
+			state.NextRuntimeLogID = nextID
+		}
+	}
 	return json.MarshalIndent(state, "", "  ")
+}
+
+// snapshotRuntimeLogsLocked 必须在持有 s.mu 的情况下调用，从 PG 拉出所有
+// runtime_logs（按 id 升序）以及 next_id（max(id)+1）。limit 暂不裁剪：
+// 备份要求时点完整，超大表的取舍交由保留策略（PruneRuntimeLogs）控制。
+func (s *Store) snapshotRuntimeLogsLocked() ([]RuntimeLogEntry, int64, error) {
+	rows, err := s.db.QueryContext(context.Background(), `
+SELECT id, time, level, message, COALESCE(attrs, '{}'::jsonb)::text
+FROM twilight_runtime_logs
+ORDER BY id ASC`)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var maxID int64
+	out := []RuntimeLogEntry{}
+	for rows.Next() {
+		var entry RuntimeLogEntry
+		var attrsText string
+		if err := rows.Scan(&entry.ID, &entry.Time, &entry.Level, &entry.Message, &attrsText); err != nil {
+			return nil, 0, err
+		}
+		if attrsText != "" {
+			_ = json.Unmarshal([]byte(attrsText), &entry.Attrs)
+		}
+		if entry.ID > maxID {
+			maxID = entry.ID
+		}
+		out = append(out, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	nextID := int64(1)
+	if maxID > 0 {
+		nextID = maxID + 1
+	}
+	return out, nextID, nil
 }
 
 func (s *Store) LoadSnapshot(data []byte) error {
@@ -1065,7 +1119,71 @@ func (s *Store) LoadSnapshot(data []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.state = state
-	return s.saveLocked()
+	if err := s.saveLocked(); err != nil {
+		return err
+	}
+	// PG 后端：把 snapshot 里的 runtime_logs 显式回写到独立表，避免恢复后
+	// twilight_state 走到老时点而 twilight_runtime_logs 仍是最新数据。
+	// 失败不致命（state 已经写回），但要 surface 给调用方决定是否重试。
+	if s.db != nil {
+		if err := s.replaceRuntimeLogsLocked(state.RuntimeLogs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// replaceRuntimeLogsLocked 必须在持有 s.mu 的情况下调用：用事务清空表再批量
+// COPY 入库。中途失败回滚。空 entries 也走 TRUNCATE，使快照"无日志"语义被严格
+// 遵守（避免恢复后还能看到恢复点之后的日志）。
+func (s *Store) replaceRuntimeLogsLocked(entries []RuntimeLogEntry) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if tx != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	if _, err := tx.ExecContext(ctx, `TRUNCATE TABLE twilight_runtime_logs RESTART IDENTITY`); err != nil {
+		return err
+	}
+	if len(entries) > 0 {
+		stmt, err := tx.PrepareContext(ctx, `INSERT INTO twilight_runtime_logs (id, time, level, message, attrs) VALUES ($1, $2, $3, $4, $5::jsonb)`)
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			attrs, mErr := json.Marshal(entry.Attrs)
+			if mErr != nil {
+				_ = stmt.Close()
+				return mErr
+			}
+			id := entry.ID
+			if id <= 0 {
+				continue
+			}
+			if _, err := stmt.ExecContext(ctx, id, entry.Time, entry.Level, entry.Message, string(attrs)); err != nil {
+				_ = stmt.Close()
+				return err
+			}
+		}
+		if err := stmt.Close(); err != nil {
+			return err
+		}
+		// 显式把 sequence 推到 max(id) 之后，下一次 INSERT 不会撞上历史 id。
+		if _, err := tx.ExecContext(ctx, `SELECT setval(pg_get_serial_sequence('twilight_runtime_logs', 'id'), COALESCE((SELECT MAX(id) FROM twilight_runtime_logs), 1))`); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	tx = nil
+	return nil
 }
 
 func (s *Store) Backup(dir string) (BackupInfo, error) {
@@ -1086,15 +1204,10 @@ func (s *Store) BackupWithNote(dir, note string) (BackupInfo, error) {
 	now := time.Now().UTC()
 	name := "twilight_state_" + now.Format("20060102_150405") + "_" + strconv.FormatInt(now.UnixNano()%1e9, 10) + ".json"
 	path := filepath.Join(dir, name)
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return BackupInfo{}, err
-	}
-	if _, err := file.Write(data); err != nil {
-		_ = file.Close()
-		return BackupInfo{}, err
-	}
-	if err := file.Close(); err != nil {
+	// 备份必须走 tmp + fsync(file) + rename + fsync(dir)：旧实现只是 OpenFile +
+	// Write + Close，crash/掉电会留下半截 JSON 文件，ListBackups 仍把它列出来；
+	// 后续 RestoreFrom 解析失败 → admin 永远没法回到那一时点。
+	if err := writeFileAtomicSync(path, data, 0o600); err != nil {
 		return BackupInfo{}, err
 	}
 	info := BackupInfo{Name: name, Path: path, Size: int64(len(data)), CreatedAt: now.Unix(), Note: normalizeBackupNote(note)}
@@ -1181,7 +1294,50 @@ func writeBackupNote(path, note string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(BackupMetaPath(path), data, 0o600)
+	// note 元数据同样走 atomic 写盘，避免半截 JSON 让 ReadBackupNote 静默丢 note。
+	return writeFileAtomicSync(BackupMetaPath(path), data, 0o600)
+}
+
+// WriteFileAtomicSync 是 writeFileAtomicSync 的导出别名，供 api 层数据库迁移
+// 等需要落地"用户可恢复备份"的路径复用同一份原子写盘语义。
+func WriteFileAtomicSync(path string, data []byte, perm os.FileMode) error {
+	return writeFileAtomicSync(path, data, perm)
+}
+
+// writeFileAtomicSync 把 data 原子地写入 path：tmp 写完先 fsync 文件，
+// 关闭后 rename，再 fsync 父目录。任一步失败清理 tmp 后返回 error。
+// saveLocked / BackupWithNote / writeBackupNote / 数据库迁移文件状态写盘
+// 共用此 helper，避免每个调用点单独维护一份持久化语义。
+func writeFileAtomicSync(path string, data []byte, perm os.FileMode) error {
+	tmp := path + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	_ = os.Chmod(path, perm)
+	if dir, dirErr := os.Open(filepath.Dir(path)); dirErr == nil {
+		_ = dir.Sync()
+		_ = dir.Close()
+	}
+	return nil
 }
 
 func normalizeBackupNote(note string) string {
