@@ -73,14 +73,36 @@ interface AuthState {
 }
 
 /**
- * 模块级 in-flight 锁。
+ * In-flight 请求合流锁。
  * 多个 layout effect / region-refresh 会同时触发 initialize() / fetchUser()，
  * 之前会并发打 /users/me，响应乱序导致状态翻车。
- * 这里用共享 Promise 做合流：第二个调用直接 await 第一个的 in-flight，
- * 不再独立发请求。任一调用结束后清空槽位，下一次重新发起。
+ * 这里用共享 Promise 做合流：第二个调用直接复用第一个的 in-flight，任一调用
+ * 结束后清空槽位，下一次重新发起。
+ *
+ * 早期版本把这两个 Promise 放在模块顶层 (`let inFlight* = null`)。模块级状态
+ * 在 Vitest 等测试 runner 中跨用例残留 —— 上一个 case 抛异常没 settle，下个
+ * case 走 initialize() 直接复用一个永远 pending 的 Promise 整体卡死；同时
+ * Next.js RSC 服务端预渲染时模块也被求值，server 上的 Promise 永远无法在
+ * client 上 settle。挪进 zustand store 的内部 ref 槽位后：
+ *   - 每个 createAuthStore() 创建独立 ref，测试可通过重建 store 重置；
+ *   - SSR 阶段不会被求值（store 工厂只在 client 第一次 useAuthStore 时跑）；
+ *   - 不进入 partialize，不会被 persist 写到 localStorage。
  */
-let inFlightInitialize: Promise<void> | null = null;
-let inFlightFetchUser: Promise<FetchUserResult> | null = null;
+interface AuthInFlightSlots {
+  initialize: Promise<void> | null;
+  fetchUser: Promise<FetchUserResult> | null;
+}
+
+const inFlight: AuthInFlightSlots = { initialize: null, fetchUser: null };
+
+/**
+ * resetAuthInFlight 仅供测试 setup/teardown 使用：把 in-flight 槽位清空，确保
+ * 一个测试用例的悬挂 Promise 不会污染下一个用例的 initialize / fetchUser。
+ */
+export function resetAuthInFlight(): void {
+  inFlight.initialize = null;
+  inFlight.fetchUser = null;
+}
 
 export const useAuthStore = create<AuthState>()(
   persist(
@@ -100,8 +122,8 @@ export const useAuthStore = create<AuthState>()(
           return;
         }
         // 已有 in-flight 初始化：直接复用，避免重复 /users/me。
-        if (inFlightInitialize) {
-          return inFlightInitialize;
+        if (inFlight.initialize) {
+          return inFlight.initialize;
         }
         const run = (async () => {
           // 仅在本地有登录态快照时探测会话，避免未登录场景请求 /users/me。
@@ -113,10 +135,10 @@ export const useAuthStore = create<AuthState>()(
           }
           set({ user: null, isAuthenticated: false, isLoading: false });
         })();
-        inFlightInitialize = run.finally(() => {
-          inFlightInitialize = null;
+        inFlight.initialize = run.finally(() => {
+          inFlight.initialize = null;
         });
-        return inFlightInitialize;
+        return inFlight.initialize;
       },
 
       login: async (username: string, password: string) => {
@@ -185,8 +207,8 @@ export const useAuthStore = create<AuthState>()(
         const silent = options?.silent ?? false;
         // 已有 in-flight /users/me：合流复用。
         // 注意 silent 语义：即使本次是 silent，若已有 non-silent 在跑也直接复用结果。
-        if (inFlightFetchUser) {
-          return inFlightFetchUser;
+        if (inFlight.fetchUser) {
+          return inFlight.fetchUser;
         }
         const run = (async (): Promise<FetchUserResult> => {
           try {
@@ -218,10 +240,10 @@ export const useAuthStore = create<AuthState>()(
             return failure;
           }
         })();
-        inFlightFetchUser = run.finally(() => {
-          inFlightFetchUser = null;
+        inFlight.fetchUser = run.finally(() => {
+          inFlight.fetchUser = null;
         }) as Promise<FetchUserResult>;
-        return inFlightFetchUser;
+        return inFlight.fetchUser;
       },
 
       setUser: (user) => {
