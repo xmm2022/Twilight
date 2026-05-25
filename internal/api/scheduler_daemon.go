@@ -206,8 +206,12 @@ func schedulerFinishedRun(jobID, runType, trigger string, started int64, summary
 	errText := ""
 	if err != nil {
 		status = "failed"
-		message = err.Error()
-		errText = err.Error()
+		// SchedulerRun.Message / Error 会被 PG INSERT 持久化，admin 后台直接
+		// 显示。job 内部错误链常包含 git remote URL（含明文 PAT）、emby
+		// /Auth 响应（含 password fragment）、telegram API 错误（含 bot
+		// token URL）等敏感字段。统一走 redactSensitiveText。
+		message = redactSensitiveText(err.Error())
+		errText = message
 		if errors.Is(err, context.Canceled) {
 			message = "job terminated by administrator"
 			errText = message

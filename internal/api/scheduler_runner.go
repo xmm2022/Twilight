@@ -428,7 +428,11 @@ func (a *App) runSchedulerJob(r *http.Request, jobID string) (map[string]any, []
 				}
 				failedCount++
 				if len(logs) < 20 {
-					logs = append(logs, fmt.Sprintf("failed to inspect tg=%d uid=%d: %s", target.TelegramID, target.UID, err.Error()))
+					// err 来自 telegram bot API，body 偶尔会带 bot token 反弹（API
+					// 4xx 时 telegram 偶尔在 description 里回显请求 URL）。logs 落
+					// 到 SchedulerRun.Logs 后被持久化到 PG，admin 后台可见，必须
+					// 走 redactSensitiveText 脱敏。
+					logs = append(logs, fmt.Sprintf("failed to inspect tg=%d uid=%d: %s", target.TelegramID, target.UID, redactSensitiveText(err.Error())))
 				}
 				telegramRateLimitPause(err)
 				continue
@@ -444,7 +448,8 @@ func (a *App) runSchedulerJob(r *http.Request, jobID string) (map[string]any, []
 			if err := a.telegramKickChatMember(r.Context(), chats[0], target.TelegramID); err != nil {
 				failedCount++
 				if len(logs) < 20 {
-					logs = append(logs, fmt.Sprintf("failed to kick tg=%d uid=%d: %s", target.TelegramID, target.UID, err.Error()))
+					// 同上：tg API 错误持久化前必须脱敏。
+					logs = append(logs, fmt.Sprintf("failed to kick tg=%d uid=%d: %s", target.TelegramID, target.UID, redactSensitiveText(err.Error())))
 				}
 				telegramRateLimitPause(err)
 				continue
