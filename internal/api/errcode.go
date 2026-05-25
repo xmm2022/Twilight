@@ -242,6 +242,7 @@ const (
 	ErrLibraryNotSelfService      ErrCode = "LIBRARY_NOT_SELF_SERVICE"
 	ErrDeviceIDRequired           ErrCode = "DEVICE_ID_REQUIRED"
 	ErrIPRequired                 ErrCode = "IP_REQUIRED"
+	ErrIPBlacklistDurationInvalid ErrCode = "IP_BLACKLIST_DURATION_INVALID"
 	ErrUploadRateLimited          ErrCode = "UPLOAD_RATE_LIMITED"
 	ErrUploadInvalidPayload       ErrCode = "UPLOAD_INVALID_PAYLOAD"
 	ErrUploadFileMissing          ErrCode = "UPLOAD_FILE_MISSING"

@@ -607,7 +607,20 @@ func (a *App) handleAddIPBlacklist(w http.ResponseWriter, r *http.Request, _ Par
 		failWithCode(w, http.StatusBadRequest, ErrIPRequired, "IP 不能为空")
 		return
 	}
+	// hours 上限：10 年。time.Duration 是 int64 纳秒，hours * time.Hour 在 hours
+	// 接近 math.MaxInt32 时会整数溢出，得到一个绕到过去的 expireAt（负数）。
+	// admin 误填或 admin 凭据被盗时可借此构造"永久封禁"或"立即解封"的歧义状态，
+	// 把 IP 黑名单做成不可信视图。-1 仍按"永久"语义保留，超过 87600 直接拒。
+	const maxBlacklistHours = 24 * 365 * 10
 	hours := intValue(payload, "hours", -1)
+	if hours > maxBlacklistHours {
+		failWithCode(w, http.StatusBadRequest, ErrIPBlacklistDurationInvalid, "封禁时长超出允许范围")
+		return
+	}
+	if hours == 0 || (hours < 0 && hours != -1) {
+		failWithCode(w, http.StatusBadRequest, ErrIPBlacklistDurationInvalid, "封禁时长非法")
+		return
+	}
 	expireAt := int64(-1)
 	if hours > 0 {
 		expireAt = time.Now().Add(time.Duration(hours) * time.Hour).Unix()

@@ -192,6 +192,7 @@ export type ErrCode =
   | "LIBRARY_NOT_SELF_SERVICE"
   | "DEVICE_ID_REQUIRED"
   | "IP_REQUIRED"
+  | "IP_BLACKLIST_DURATION_INVALID"
   | "UPLOAD_RATE_LIMITED"
   | "UPLOAD_INVALID_PAYLOAD"
   | "UPLOAD_FILE_MISSING"
@@ -453,6 +454,7 @@ export const ErrCodes = {
   LibraryNotSelfService: "LIBRARY_NOT_SELF_SERVICE",
   DeviceIDRequired: "DEVICE_ID_REQUIRED",
   IPRequired: "IP_REQUIRED",
+  IPBlacklistDurationInvalid: "IP_BLACKLIST_DURATION_INVALID",
   UploadRateLimited: "UPLOAD_RATE_LIMITED",
   UploadInvalidPayload: "UPLOAD_INVALID_PAYLOAD",
   UploadFileMissing: "UPLOAD_FILE_MISSING",
