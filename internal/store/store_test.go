@@ -3,6 +3,7 @@ package store
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -118,6 +119,12 @@ func TestStaleStoreWriteDoesNotDropRegCodes(t *testing.T) {
 	// 用一份 state.json" 的 stale-clobber 路径已经不可能在生产中触达。
 	// 这里改为契约测试：断言锁会立刻挡住第二个 Open，而第一个 Close
 	// 之后 Open 又能正常成功。
+	//
+	// 非 Unix 平台（Windows）上 flock_other.go 是 no-op，多进程部署的建
+	// 议是切到 Postgres 后端，这里直接跳过避免 CI 误报。
+	if runtime.GOOS == "windows" {
+		t.Skip("flock 仅在 Unix 平台启用；Windows 不强制单进程")
+	}
 	path := filepath.Join(t.TempDir(), "state.json")
 	first, err := Open(path)
 	if err != nil {
