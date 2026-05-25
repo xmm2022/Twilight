@@ -505,16 +505,16 @@ func legacyGenerateRegCode(format string, codeType int, algorithm string) string
 	return strings.ToUpper(code)
 }
 
-func (a *App) previewCode(code string, user store.User) (map[string]any, string, bool) {
+func (a *App) previewCode(ctx context.Context, code string, user store.User) (map[string]any, string, bool) {
 	if reg, ok := a.store().RegCode(code); ok {
 		// Decoy code: record violation and apply configured action
 		if reg.IsDecoy {
-			a.recordViolation(user, code, "regcode_decoy", "使用诱饵注册码")
+			a.recordViolation(ctx, user, code, "regcode_decoy", "使用诱饵注册码")
 			return nil, "", false
 		}
 		// Target username restriction: record violation if mismatch
 		if reg.TargetUsername != "" && !strings.EqualFold(reg.TargetUsername, user.Username) {
-			a.recordViolation(user, code, "regcode_target_mismatch", "使用指名注册码（目标用户: "+reg.TargetUsername+"）")
+			a.recordViolation(ctx, user, code, "regcode_target_mismatch", "使用指名注册码（目标用户: "+reg.TargetUsername+"）")
 			return nil, "", false
 		}
 		if regcodeStatus(reg) != "available" {
@@ -553,7 +553,13 @@ func (a *App) previewCode(code string, user store.User) (map[string]any, string,
 }
 
 // recordViolation logs a code violation and applies the configured punitive action.
-func (a *App) recordViolation(user store.User, code, codeType, reason string) {
+// 入参 ctx 通常来自 r.Context()，用于控制审计写入与本地操作的取消语义；
+// 但 disable_user / disable_emby 这类副作用一旦决定执行，就不能因为客户端
+// 在响应回写前断开就半途而废 —— 否则会出现"违规已记入日志、惩罚却没生效"
+// 的灰区。使用 context.WithoutCancel 把请求 ctx 的 deadline / cancel 摘掉、
+// 仅保留 trace value，既不会被 client disconnect 中断，又不会像
+// context.Background() 那样彻底丢掉链路上下文。
+func (a *App) recordViolation(ctx context.Context, user store.User, code, codeType, reason string) {
 	if a.userIsProtected(user) {
 		action := strings.ToLower(strings.TrimSpace(a.cfg().DecoyAction))
 		if action == "" {
@@ -599,11 +605,11 @@ func (a *App) recordViolation(user store.User, code, codeType, reason string) {
 		} else {
 			// 违规自动禁用：会话立即失效，避免 stale token 在 SessionTTL 到期前
 			// 仍可访问。
-			a.sessions().DeleteUser(context.Background(), user.UID)
+			a.sessions().DeleteUser(context.WithoutCancel(ctx), user.UID)
 		}
 	case "disable_emby":
 		if user.EmbyID != "" {
-			_ = a.embySetUserEnabled(context.Background(), user.EmbyID, false)
+			_ = a.embySetUserEnabled(context.WithoutCancel(ctx), user.EmbyID, false)
 		}
 	}
 }

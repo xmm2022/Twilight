@@ -344,7 +344,7 @@ func (a *App) handleRenew(w http.ResponseWriter, r *http.Request, _ Params) {
 	if a.requireNonEmbyAdmin(w, r, p.User) {
 		return
 	}
-	preview, source, okPreview := a.previewCode(regCode, p.User)
+	preview, source, okPreview := a.previewCode(r.Context(), regCode, p.User)
 	if !okPreview || source != "regcode" || int(numeric(preview["type"])) != 2 {
 		failWithCode(w, http.StatusBadRequest, ErrRenewCodeInvalid, "续期码无效、已用完、已过期或不属于当前用户")
 		return

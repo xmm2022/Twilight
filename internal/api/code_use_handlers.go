@@ -17,7 +17,7 @@ func (a *App) handleUseCode(w http.ResponseWriter, r *http.Request, _ Params) {
 		failWithCode(w, http.StatusBadRequest, ErrCodeEmpty, "卡码不能为空")
 		return
 	}
-	preview, source, okPreview := a.previewCode(code, p.User)
+	preview, source, okPreview := a.previewCode(r.Context(), code, p.User)
 	if !okPreview {
 		failWithCode(w, http.StatusBadRequest, ErrCodeInvalid, "卡码无效或已过期")
 		return
