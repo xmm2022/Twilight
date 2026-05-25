@@ -271,21 +271,29 @@ func (a *App) saveConfigContent(content string) (map[string]any, int, string) {
 	if err := os.WriteFile(tmpPath, []byte(content), 0o600); err != nil {
 		return nil, http.StatusInternalServerError, "保存临时配置失败"
 	}
-	if hadExisting {
-		_ = os.Remove(configFile)
-	}
+	// 不要在 Rename 之前 Remove configFile：POSIX rename(2) 已经原子替换目标，
+	// 提前 Remove 反而打开了一个 "configFile 不存在" 的窗口——若此时进程被
+	// SIGKILL 或磁盘忽然写满（Rename 失败 + 下一行 WriteFile rollback 也失败）
+	// 系统下次启动找不到 config.toml 就直接 fail-fast。
 	if err := os.Rename(tmpPath, configFile); err != nil {
-		if hadExisting {
-			_ = os.WriteFile(configFile, existing, 0o600)
-		}
 		_ = os.Remove(tmpPath)
+		if hadExisting {
+			// 原文件 Rename 之前从未被改动，无需 rollback；这里仅做保险记录路径。
+			return nil, http.StatusInternalServerError, "替换配置失败"
+		}
 		return nil, http.StatusInternalServerError, "替换配置失败"
 	}
 	reloadInfo, err := a.reloadConfig()
 	if err != nil {
 		if hadExisting {
-			_ = os.Remove(configFile)
-			_ = os.WriteFile(configFile, existing, 0o600)
+			// 热重载失败回滚：先把旧内容写到 tmp，再原子 rename 替换；避免
+			// 走 Remove + WriteFile 这条会再次留下"无 config.toml"窗口的旧路径。
+			rollbackTmp := configFile + "." + stamp + ".rollback.tmp"
+			if writeErr := os.WriteFile(rollbackTmp, existing, 0o600); writeErr == nil {
+				if renameErr := os.Rename(rollbackTmp, configFile); renameErr != nil {
+					_ = os.Remove(rollbackTmp)
+				}
+			}
 			_, _ = a.reloadConfig()
 		}
 		return nil, http.StatusBadRequest, "配置已回滚，热重载失败: " + err.Error()
