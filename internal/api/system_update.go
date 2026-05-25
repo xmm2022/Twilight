@@ -178,7 +178,11 @@ func applyGitUpdate(ctx context.Context, repoURL, branch string, restartServices
 	}
 	response := map[string]any{"success": true, "message": message, "code": 200, "project_root": projectRoot, "repo_url": redactGitURL(repoURL), "branch": branch, "dry_run": false, "updated": updated, "restart_requested": restartServices, "restart_scheduled": restartScheduled, "restart_method": restartMethod, "restart_available": commandExists("systemctl"), "services": outServices, "dirty_before": dirtyBefore, "stash_created": stashCreated, "stash_restored": stashRestored, "stash_conflicts": stashConflicts, "before": before, "results": results}
 	if stateErr != nil {
-		response["after_error"] = stateErr.Error()
+		// stateErr 来自 git/系统命令链，stderr 可能携带 https://user:PAT@host
+		// 形式的明文凭据；BATCH_07 阶段已经把命令 stdout/stderr 走 redact，
+		// 但这里 state 收尾错误是直接 .Error() 拼回 response，前端 admin 面板
+		// 与浏览器历史就拿到了原始 token。统一走 redactSensitiveText。
+		response["after_error"] = redactSensitiveText(stateErr.Error())
 	} else {
 		response["after"] = after
 	}
