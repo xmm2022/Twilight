@@ -36,6 +36,14 @@ var backgroundGradientPattern = regexp.MustCompile(`(?i)^(linear-gradient|radial
 
 func (a *App) handleGetBackground(w http.ResponseWriter, r *http.Request, params Params) {
 	uid, _ := int64Param(params, "uid")
+	// 背景配置允许包含 url、blur、opacity 等用户自定义内容；按 :uid 任意拉取
+	// 等价于"登录后枚举他人 uid → 反推 username 是否存在 + 拿到他们的背景偏好"。
+	// 限制为本人或管理员，与 handleGetAvatar 同步收口。
+	p := current(r)
+	if uid != p.User.UID && p.User.Role != store.RoleAdmin {
+		failWithCode(w, http.StatusNotFound, ErrUserNotFound, "user not found")
+		return
+	}
 	u, okUser := a.store.User(uid)
 	if !okUser {
 		failWithCode(w, http.StatusNotFound, ErrUserNotFound, "user not found")
@@ -164,6 +172,14 @@ func (a *App) handleDeleteBackground(w http.ResponseWriter, r *http.Request, _ P
 
 func (a *App) handleGetAvatar(w http.ResponseWriter, r *http.Request, params Params) {
 	uid, _ := int64Param(params, "uid")
+	// 头像接口同时返回 username，给登录用户提供了"按 uid 反查 username"的枚举面，
+	// 旧实现允许任意 AuthUser 拉任意 uid 的头像 + 用户名。前端只用 user.uid
+	// （settings/appearance、sidebar），所以收口为本人或管理员可读。
+	p := current(r)
+	if uid != p.User.UID && p.User.Role != store.RoleAdmin {
+		failWithCode(w, http.StatusNotFound, ErrUserNotFound, "user not found")
+		return
+	}
 	u, okUser := a.store.User(uid)
 	if !okUser {
 		failWithCode(w, http.StatusNotFound, ErrUserNotFound, "user not found")
