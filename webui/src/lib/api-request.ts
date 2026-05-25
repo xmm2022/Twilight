@@ -62,8 +62,88 @@ function isAbortError(error: unknown): boolean {
   return false;
 }
 
+function isTimeoutError(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === "TimeoutError") {
+    return true;
+  }
+  if (error instanceof Error && error.name === "TimeoutError") {
+    return true;
+  }
+  return false;
+}
+
 function requestMethod(options: RequestInit, fallback = "GET"): string {
   return (options.method || fallback).toString().toUpperCase();
+}
+
+/** 默认 fetch 超时（毫秒）。慢响应或 socket 挂起时让 Promise 不至于永挂。 */
+const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
+/** 表单 / multipart 上传放宽到 2 分钟，覆盖较大背景图 / 头像。 */
+const FORM_REQUEST_TIMEOUT_MS = 120_000;
+
+/**
+ * 把"调用方 signal"与"超时 signal"合并成一个：任一触发都 abort。
+ * 走 AbortSignal.timeout + AbortSignal.any 优先（现代浏览器/Node 18+），
+ * 退化路径手写同样语义，保证 SSR / 老浏览器也能跑。
+ *
+ * timeoutMs 传 0 / Infinity 表示不加超时；典型用于 SSE / 长轮询通道，调用方
+ * 应当传入自己的 signal（fetch 完后立即关流不会受 20s 限制影响）。
+ *
+ * 返回 cleanup 函数，无论 fetch 成功/失败都应调用，否则未触发的 setTimeout
+ * 会留 200~500 个挂起的定时器。
+ */
+function withTimeoutSignal(
+  caller: AbortSignal | null | undefined,
+  timeoutMs: number,
+): { signal: AbortSignal | undefined; cleanup: () => void; isTimeout: () => boolean } {
+  const finite = Number.isFinite(timeoutMs) && timeoutMs > 0;
+  if (!finite && !caller) {
+    return { signal: undefined, cleanup: () => {}, isTimeout: () => false };
+  }
+  if (!finite) {
+    return { signal: caller ?? undefined, cleanup: () => {}, isTimeout: () => false };
+  }
+
+  // 优先使用原生 AbortSignal.timeout / any（Node 20、Chromium 124+、Safari 17+）。
+  type AbortStatic = typeof AbortSignal & {
+    timeout?: (ms: number) => AbortSignal;
+    any?: (signals: AbortSignal[]) => AbortSignal;
+  };
+  const native = AbortSignal as AbortStatic;
+  if (typeof native.timeout === "function") {
+    const timeoutSig = native.timeout(timeoutMs);
+    if (!caller) {
+      return { signal: timeoutSig, cleanup: () => {}, isTimeout: () => timeoutSig.aborted };
+    }
+    if (typeof native.any === "function") {
+      return {
+        signal: native.any([caller, timeoutSig]),
+        cleanup: () => {},
+        isTimeout: () => timeoutSig.aborted && !caller.aborted,
+      };
+    }
+  }
+
+  // 退化路径：手动桥接。
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort(new DOMException("timeout", "TimeoutError"));
+  }, timeoutMs);
+  const onCallerAbort = () => controller.abort(caller?.reason);
+  if (caller) {
+    if (caller.aborted) controller.abort(caller.reason);
+    else caller.addEventListener("abort", onCallerAbort, { once: true });
+  }
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timer);
+      caller?.removeEventListener("abort", onCallerAbort);
+    },
+    isTimeout: () => timedOut,
+  };
 }
 
 /**
@@ -236,7 +316,16 @@ async function parseApiResponse<T>(
   }
 }
 
-export async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
+export interface ApiRequestExtraOptions {
+  /** 自定义超时（毫秒）；传 0 / Infinity 表示不加超时（SSE / 长轮询场景）。 */
+  timeoutMs?: number;
+}
+
+export async function apiRequest<T>(
+  endpoint: string,
+  options: RequestInit = {},
+  extra: ApiRequestExtraOptions = {},
+): Promise<ApiResponse<T>> {
   const headers: Record<string, string> = {
     "Accept": "application/json; charset=utf-8",
     "Content-Type": "application/json; charset=utf-8",
@@ -254,14 +343,27 @@ export async function apiRequest<T>(endpoint: string, options: RequestInit = {})
     if (csrf) headers["X-CSRF-Token"] = csrf;
   }
 
+  const timeoutMs = extra.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  const guard = withTimeoutSignal(options.signal ?? null, timeoutMs);
+
   let response: Response;
   try {
     response = await fetch(url, {
       ...options,
       headers,
       credentials: "include",
+      signal: guard.signal ?? options.signal ?? null,
     });
   } catch (error) {
+    if (guard.isTimeout() || isTimeoutError(error)) {
+      throw new ApiError({
+        status: 0,
+        endpoint,
+        method,
+        errorCode: "REQUEST_TIMEOUT",
+        message: `请求超时：${describeApiTarget(endpoint, method)}\n网络或后端响应过慢，请稍后重试。`,
+      });
+    }
     if (isAbortError(error)) {
       throw error;
     }
@@ -269,6 +371,8 @@ export async function apiRequest<T>(endpoint: string, options: RequestInit = {})
     throw new Error(
       `无法连接后端接口：${describeApiTarget(endpoint, method)}\n请检查后端服务是否启动、API 地址是否正确、反向代理是否可达.`
     );
+  } finally {
+    guard.cleanup();
   }
 
   const data = await parseApiResponse<T>(response, endpoint, method);
@@ -291,6 +395,7 @@ export async function apiRequestForm<T>(
   endpoint: string,
   formData: FormData,
   method: "POST" | "PUT" = "POST",
+  extra: ApiRequestExtraOptions = {},
 ): Promise<ApiResponse<T>> {
   const headers: Record<string, string> = {
     "Accept": "application/json; charset=utf-8",
@@ -303,6 +408,9 @@ export async function apiRequestForm<T>(
   const url = `${API_BASE}/api/v1${endpoint}`;
   const methodName = method.toUpperCase();
 
+  const timeoutMs = extra.timeoutMs ?? FORM_REQUEST_TIMEOUT_MS;
+  const guard = withTimeoutSignal(null, timeoutMs);
+
   let response: Response;
   try {
     response = await fetch(url, {
@@ -310,8 +418,18 @@ export async function apiRequestForm<T>(
       headers,
       body: formData,
       credentials: "include",
+      signal: guard.signal ?? null,
     });
   } catch (error) {
+    if (guard.isTimeout() || isTimeoutError(error)) {
+      throw new ApiError({
+        status: 0,
+        endpoint,
+        method: methodName,
+        errorCode: "REQUEST_TIMEOUT",
+        message: `上传超时：${describeApiTarget(endpoint, methodName)}\n文件较大或网络较慢，请稍后重试。`,
+      });
+    }
     if (isAbortError(error)) {
       throw error;
     }
@@ -319,6 +437,8 @@ export async function apiRequestForm<T>(
     throw new Error(
       `无法连接后端接口：${describeApiTarget(endpoint, methodName)}\n请检查后端服务是否启动、API 地址是否正确、反向代理是否可达。`
     );
+  } finally {
+    guard.cleanup();
   }
 
   const data = await parseApiResponse<T>(response, endpoint, methodName);
