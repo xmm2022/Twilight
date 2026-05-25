@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { api, type UserInfo } from "@/lib/api";
+import { ApiError } from "@/lib/api-request";
 
 /**
  * login() 后端响应轻量校验。
@@ -220,17 +221,33 @@ export const useAuthStore = create<AuthState>()(
               set({ user: userRes.data, isAuthenticated: true, isLoading: false });
               return { success: true };
             }
+            // 后端 200 但 envelope.success=false 的极少数路径：保守按未鉴权处理。
             set({ user: null, isAuthenticated: false, isLoading: false });
             return { success: false, errorCode: userRes.error_code };
           } catch (err: unknown) {
-            // ApiError 由 lib/api-request.ts 抛出，携带 errorCode/backendMessage；
-            // 网络错误（fetch 抛 TypeError）则没有 errorCode。
-            const apiErr = err as { errorCode?: string } | null;
-            set({ user: null, isAuthenticated: false, isLoading: false });
+            // 关键不变量：只有 server 明确返回 401 才能把 isAuthenticated 翻成 false。
+            // fetch 抛 TypeError（DNS / 离线 / CORS preflight 失败）、超时、502/503
+            // 这些都是临时故障 —— 用户不应该因为路由器抽筋就被静默踢出登录。
+            // 之前一律清空 user/isAuthenticated 会让 layout 立刻跳转 /signin，
+            // 用户回来还得重新输密码，体验上比"先卡一下再恢复"差得多。
+            const apiErr = err instanceof ApiError ? err : null;
+            const isAuthFailure = apiErr?.isAuth() ?? false;
+            if (isAuthFailure) {
+              // 服务端权威 401：会话真的失效了，清持久化 + 内存态。
+              set({ user: null, isAuthenticated: false, isLoading: false });
+              try {
+                useAuthStore.persist.clearStorage();
+              } catch {
+                // 浏览器禁用 localStorage 时静默失败
+              }
+            } else {
+              // 非 401：保留既有 isAuthenticated，只是结束 loading。
+              set({ isLoading: false });
+            }
             const failure: FetchUserResult = {
               success: false,
               errorCode: apiErr?.errorCode,
-              networkError: !apiErr?.errorCode,
+              networkError: apiErr === null,
             };
             if (process.env.NODE_ENV !== "production") {
               // dev only：生产环境此处仍静默，避免控制台噪声。
