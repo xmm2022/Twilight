@@ -203,36 +203,72 @@ export default function DashboardPage() {
   }, [embyRegisterStored, refreshStoredEmbyRegisterStatus]);
 
   const loadDashboardData = useCallback(async (signal?: AbortSignal) => {
-    const [tgRes, embyRes, urlsRes, reqRes, signinRes, registerRes] = await Promise.all([
-      api.getTelegramStatus().catch(() => null),
-      api.getEmbyInfo().catch(() => null),
-      api.getEmbyUrls().catch(() => null),
-      api.getMyRequests(signal).catch(() => null),
-      api.getSigninSummary().catch(() => null),
-      api.getRegisterAvailability().catch(() => null),
+    // 之前每个子接口都包了 .catch(() => null) + Promise.all：任何失败都会被
+    // 静默丢弃，dashboard 显示一切正常但数据缺一块（典型表现是 emby 卡片
+    // 空白、签到状态错位）。改用 allSettled + 统计失败数量：
+    //   - 网络偶发失败：toast 提示并允许用户重试，不像之前那样静默；
+    //   - signal aborted：是 useAsyncResource 卸载触发的正常路径，跳过提示;
+    //   - dev 环境额外打 console.warn 方便定位是哪一路接口挂了。
+    // 注意：必须按位置展开调用，不能 tasks.map(t => t.run())，否则 TS 会把
+    // 各路返回类型联合起来，导致 setState 的入参类型推断丢精度。
+    const [tgSettled, embySettled, urlsSettled, reqSettled, signinSettled, registerSettled] = await Promise.allSettled([
+      api.getTelegramStatus(),
+      api.getEmbyInfo(),
+      api.getEmbyUrls(),
+      api.getMyRequests(signal),
+      api.getSigninSummary(),
+      api.getRegisterAvailability(),
     ]);
 
-    if (signinRes && signinRes.success && signinRes.data) {
-      setSigninSummary(signinRes.data);
+    const failed: string[] = [];
+    const inspect = (name: string, settled: PromiseSettledResult<unknown>) => {
+      if (settled.status !== "rejected") return;
+      const reason = settled.reason as { name?: string } | undefined;
+      // AbortError 是组件卸载 / 路由切换时正常的取消信号，不算失败。
+      if (reason?.name === "AbortError") return;
+      failed.push(name);
+      if (process.env.NODE_ENV !== "production") {
+        // eslint-disable-next-line no-console
+        console.warn(`[dashboard] sub-resource ${name} failed`, settled.reason);
+      }
+    };
+    inspect("telegram_status", tgSettled);
+    inspect("emby_info", embySettled);
+    inspect("emby_urls", urlsSettled);
+    inspect("my_requests", reqSettled);
+    inspect("signin_summary", signinSettled);
+    inspect("register_availability", registerSettled);
+
+    if (signinSettled.status === "fulfilled" && signinSettled.value.success && signinSettled.value.data) {
+      setSigninSummary(signinSettled.value.data);
+    }
+    if (tgSettled.status === "fulfilled" && tgSettled.value.success && tgSettled.value.data) {
+      setTelegramStatus(tgSettled.value.data);
+    }
+    if (embySettled.status === "fulfilled" && embySettled.value.success && embySettled.value.data) {
+      setEmbyInfo(embySettled.value.data);
+    }
+    if (urlsSettled.status === "fulfilled" && urlsSettled.value.success && urlsSettled.value.data) {
+      applyEmbyUrls(urlsSettled.value.data);
+    }
+    if (reqSettled.status === "fulfilled" && reqSettled.value.success && Array.isArray(reqSettled.value.data)) {
+      setMyRequests(reqSettled.value.data);
+    }
+    if (registerSettled.status === "fulfilled" && registerSettled.value.success && registerSettled.value.data) {
+      setRegisterAvailability(registerSettled.value.data);
     }
 
-    if (tgRes && tgRes.success && tgRes.data) {
-      setTelegramStatus(tgRes.data);
-    }
-    if (embyRes && embyRes.success && embyRes.data) {
-      setEmbyInfo(embyRes.data);
-    }
-    if (urlsRes && urlsRes.success && urlsRes.data) {
-      applyEmbyUrls(urlsRes.data);
-    }
-    if (reqRes && reqRes.success && Array.isArray(reqRes.data)) {
-      setMyRequests(reqRes.data);
-    }
-    if (registerRes && registerRes.success && registerRes.data) {
-      setRegisterAvailability(registerRes.data);
+    // 仅在用户没主动卸载页面（signal 没 abort）的情况下提示。
+    // 多个失败合并成一条 toast，避免雪片式通知。
+    if (failed.length > 0 && !signal?.aborted) {
+      toast({
+        title: "部分仪表盘数据加载失败",
+        description: `失败模块：${failed.join("、")}。点击右上角刷新可重试。`,
+        variant: "destructive",
+      });
     }
     return true;
-  }, [applyEmbyUrls]);
+  }, [applyEmbyUrls, toast]);
 
   const {
     isLoading,
