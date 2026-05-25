@@ -1253,6 +1253,14 @@ func statusFromError(w http.ResponseWriter, err error) bool {
 		failWithCode(w, http.StatusBadRequest, ErrBadRequest, "资源已过期")
 		return true
 	}
+	// ErrLastAdmin 之前由各 handler 单独 errors.Is 分支判，漏一处就直接降级
+	// 到下面的 ErrInternal/500，前端拿到泛化错误码无法 routing 到"最后一个
+	// 管理员"提示。集中映射后所有调用 statusFromError 的路径自动获得正确的
+	// 409 + ErrAdminLastAdminProtected。
+	if errors.Is(err, store.ErrLastAdmin) {
+		failWithCode(w, http.StatusConflict, ErrAdminLastAdminProtected, "无法移除最后一个管理员的权限，系统至少需要一个管理员")
+		return true
+	}
 	failWithCode(w, http.StatusInternalServerError, ErrInternal, "操作失败")
 	return true
 }
