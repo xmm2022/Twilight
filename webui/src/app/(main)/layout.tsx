@@ -6,6 +6,7 @@ import { useAuthStore } from "@/store/auth";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { EmbyPendingModal } from "@/components/emby-pending-modal";
+import { ErrorBoundary } from "@/components/error-boundary";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTheme } from "next-themes";
@@ -233,7 +234,9 @@ export default function MainLayout({
         <div className="flex min-h-screen min-w-0 flex-1 flex-col lg:pl-72">
           <Header />
           <main id="main-content" tabIndex={-1} className="mx-auto w-full min-w-0 max-w-[1680px] flex-1 px-2 py-3 sm:p-4 md:p-6 xl:p-8">
-            <div className="section-surface">{children}</div>
+            <div className="section-surface">
+              <ErrorBoundary>{children}</ErrorBoundary>
+            </div>
           </main>
         </div>
       </div>
