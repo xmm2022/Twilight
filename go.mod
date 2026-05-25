@@ -33,11 +33,3 @@ require (
 replace github.com/jackc/pgservicefile => github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761
 
 replace github.com/jackc/puddle/v2 => github.com/jackc/puddle/v2 v2.2.2
-
-replace golang.org/x/crypto => golang.org/x/crypto v0.39.0
-
-replace github.com/stretchr/testify => github.com/stretchr/testify v1.10.0
-
-replace golang.org/x/sync => golang.org/x/sync v0.7.0
-
-replace golang.org/x/text => golang.org/x/text v0.26.0
