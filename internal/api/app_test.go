@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -2665,4 +2666,74 @@ func TestDecodeMapEnforcesSizeAndDepthLimits(t *testing.T) {
 			t.Fatalf("expected non-empty map for shallow body")
 		}
 	})
+}
+
+// TestSharedHTTPClientRefusesCrossHostRedirect 锁定 sharedHTTPClient 的
+// CheckRedirect 策略：跨主机 302 必须被拒绝，调用方拿到 redirect 错误而非
+// 让 token / api_key 等自定义凭据被 Go 默认 follow 行为发到第三方。
+func TestSharedHTTPClientRefusesCrossHostRedirect(t *testing.T) {
+	// attacker 模拟外部恶意目标：如果 Go 真的 follow，会把 X-Emby-Token 这类
+	// 自定义头原样转发过来。我们靠 onAttacker 计数器断言 *没有* 命中。
+	var hitAttacker int32
+	attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hitAttacker, 1)
+		// 把所有自定义头回传，便于断言泄露。
+		for k, v := range r.Header {
+			for _, vv := range v {
+				w.Header().Add("X-Echo-"+k, vv)
+			}
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer attacker.Close()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, attacker.URL+"/exfil", http.StatusFound)
+	}))
+	defer upstream.Close()
+
+	headers := map[string]string{
+		"X-Emby-Token":  "super-secret-token",
+		"Authorization": "Bearer secret",
+	}
+	err := getJSON(context.Background(), upstream.URL+"/", headers, nil)
+	if err == nil {
+		t.Fatalf("expected error from cross-host redirect, got nil")
+	}
+	// 错误信息中应包含 redirect refused / status 3xx 字样
+	msg := err.Error()
+	if !strings.Contains(msg, "redirect") && !strings.Contains(msg, "302") && !strings.Contains(msg, "Location") {
+		t.Fatalf("expected redirect-refused error, got %q", msg)
+	}
+	if got := atomic.LoadInt32(&hitAttacker); got != 0 {
+		t.Fatalf("attacker host received %d requests, expected 0 (token would have leaked)", got)
+	}
+}
+
+// TestSharedHTTPClientFollowsSameHostRedirect 锁定同主机 302 仍然能正常 follow，
+// 避免 CheckRedirect 把合理的 trailing-slash / index 重定向也禁掉。
+func TestSharedHTTPClientFollowsSameHostRedirect(t *testing.T) {
+	var hits int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/redirect", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/final", http.StatusFound)
+	})
+	mux.HandleFunc("/final", func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	var dst map[string]any
+	if err := getJSON(context.Background(), srv.URL+"/redirect", nil, &dst); err != nil {
+		t.Fatalf("same-host redirect failed: %v", err)
+	}
+	if got := atomic.LoadInt32(&hits); got != 1 {
+		t.Fatalf("expected /final to be hit once, got %d", got)
+	}
+	if dst["ok"] != true {
+		t.Fatalf("expected ok:true, got %v", dst)
+	}
 }

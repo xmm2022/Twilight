@@ -35,7 +35,41 @@ var sharedHTTPTransport = &http.Transport{
 // sharedHTTPClient 是 transport-only 共享 client，不带 client.Timeout，
 // 所有超时都通过传入的 ctx 控制（context.DeadlineExceeded 优雅取消，
 // 而 client.Timeout 触发的是连接强杀，不利于排查）。
-var sharedHTTPClient = &http.Client{Transport: sharedHTTPTransport}
+//
+// CheckRedirect 显式拒绝跨主机重定向。Go 默认策略只剥离 Authorization /
+// Cookie / WWW-Authenticate 三个头，**不会**剥离自定义头；而本 client
+// 的所有调用方（Emby `X-Emby-Token`、Telegram bot token in URL、Bangumi
+// `Authorization: Bearer`、TMDB `api_key=` 查询串）都会把可信凭据带在
+// 跨主机依然保留的位置。一个被入侵 / 错配的上游 302 到攻击者控制的 host
+// 就足以把 token 原样泄露。当前所有调用方都是单次 JSON 请求，没有任何
+// 路径需要跨主机 follow；同主机（scheme + host:port 完全一致）保留最多
+// 5 跳以应对 trailing-slash / index 这类合理重定向。
+var sharedHTTPClient = &http.Client{
+	Transport:     sharedHTTPTransport,
+	CheckRedirect: sameHostRedirectPolicy,
+}
+
+// sameHostRedirectPolicy 只允许同 scheme + 同 host:port 的重定向，且最多 5 跳。
+// 跨主机直接返回 ErrUseLastResponse —— 调用方拿到的是原始 302 响应（结合
+// `resp.StatusCode >= 400` 检查会被当作非预期状态返回错误，不会出现 token
+// 已被发到第三方的窗口）。
+func sameHostRedirectPolicy(req *http.Request, via []*http.Request) error {
+	if len(via) >= 5 {
+		return http.ErrUseLastResponse
+	}
+	if len(via) == 0 {
+		return nil
+	}
+	prev := via[len(via)-1].URL
+	next := req.URL
+	if prev == nil || next == nil {
+		return http.ErrUseLastResponse
+	}
+	if !strings.EqualFold(prev.Scheme, next.Scheme) || !strings.EqualFold(prev.Host, next.Host) {
+		return http.ErrUseLastResponse
+	}
+	return nil
+}
 
 func getJSON(ctx context.Context, endpoint string, headers map[string]string, dst any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
@@ -98,6 +132,17 @@ func doJSONRequestWithTimeout(req *http.Request, dst any, timeout time.Duration)
 			return fmt.Errorf("remote status %d: %s", resp.StatusCode, truncateString(detail, 300))
 		}
 		return fmt.Errorf("remote status %d", resp.StatusCode)
+	}
+	// 3xx 仅会出现在 sameHostRedirectPolicy 拒绝的跨主机 / 超跳数场景：
+	// Client 拿到原始 3xx 响应，不再继续 follow。把 Location 当作错误抛出，
+	// 既能让调用方明确感知"被禁的重定向"，又不会因为 json.Unmarshal HTML/空 body
+	// 报出难以定位的错。Token 在这一刻还没被发到第三方。
+	if resp.StatusCode >= 300 {
+		loc := strings.TrimSpace(resp.Header.Get("Location"))
+		if loc == "" {
+			return fmt.Errorf("remote status %d: cross-host or excessive redirect refused", resp.StatusCode)
+		}
+		return fmt.Errorf("remote status %d: cross-host redirect refused (Location=%s)", resp.StatusCode, truncateString(loc, 200))
 	}
 	if dst == nil {
 		return nil
