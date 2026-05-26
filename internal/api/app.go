@@ -376,6 +376,17 @@ func (a *App) reloadConfigLocked() (map[string]any, error) {
 	if previous.Host != next.Host || previous.Port != next.Port {
 		restartRequired = append(restartRequired, "listen_addr")
 	}
+	// liveApplied 列出"本次 reload 后立即对运行中的 handler 生效"的字段。
+	// 这些字段都不缓存到任何长寿命对象上：要么走 a.cfg() 在每次请求时重读
+	// （SessionCookie / CookieSecure / CookieSameSite / RegisterEnabled /
+	// 各类 RateLimit*），要么作为 reload 自身重建链路的输入（DatabaseDriver /
+	// RedisURL / SessionTTL / Postgres pool / ZapLevel）。
+	//
+	// 这一段的目的不是改变行为——之前 cookie 三件套就是被实时读的——而是
+	// 把"哪些字段实际生效 / 哪些不生效"做成可观察的响应字段，避免运营手改
+	// 配置后只看到 200 而不知道是不是真的下发了。restartRequired 仍然只覆盖
+	// listen_addr：那是唯一一个 reload 无法替换的整体监听器。
+	liveApplied := liveAppliedConfigFields(previous, next)
 	a.configSignature = configFileSignature(next.ConfigFile)
 
 	info := map[string]any{
@@ -383,12 +394,76 @@ func (a *App) reloadConfigLocked() (map[string]any, error) {
 		"config_file":         next.ConfigFile,
 		"reinitialized":       reinitialized,
 		"restart_required":    restartRequired,
+		"live_applied":        liveApplied,
 		"active_database":     nextState.store.Backend(),
 		"configured_database": next.DatabaseDriver,
 		"runtime_restarted":   len(reinitialized) > 0,
 	}
-	zap.L().Info("config hot reloaded", zap.String("config_file", next.ConfigFile), zap.String("reinitialized", strings.Join(reinitialized, ",")), zap.String("restart_required", strings.Join(restartRequired, ",")))
+	zap.L().Info("config hot reloaded", zap.String("config_file", next.ConfigFile), zap.String("reinitialized", strings.Join(reinitialized, ",")), zap.String("restart_required", strings.Join(restartRequired, ",")), zap.String("live_applied", strings.Join(liveApplied, ",")))
 	return info, nil
+}
+
+// liveAppliedConfigFields 返回本次 reload 中"实际值发生变化且立即对运行
+// 时生效"的字段名（首字母 lower / TOML key 风格）。给出这一列表是为了让
+// /admin/config/reload 的响应能区分三种状态：
+//   - reinitialized: 引发重建（store / sessions / limiter / postgres / logger）
+//   - live_applied: 字段值变化但走 a.cfg() 实时重读，无需重建对象
+//   - restart_required: 字段变化需要进程重启（目前只有 listen_addr）
+//
+// 字段没出现 = 字段没变。空列表 = reload 仅触发过 reinit，没有更细粒度的
+// 即时变更。这一函数是纯读，不写任何运行时状态。
+func liveAppliedConfigFields(previous, next config.Config) []string {
+	out := []string{}
+	add := func(name string) { out = append(out, name) }
+	if previous.SessionCookie != next.SessionCookie {
+		add("session_cookie_name")
+	}
+	if previous.CookieSecure != next.CookieSecure {
+		add("session_cookie_secure")
+	}
+	if !strings.EqualFold(previous.CookieSameSite, next.CookieSameSite) {
+		add("session_cookie_samesite")
+	}
+	if previous.RegisterEnabled != next.RegisterEnabled {
+		add("register_enabled")
+	}
+	if previous.AllowPendingRegister != next.AllowPendingRegister {
+		add("allow_pending_register")
+	}
+	if previous.MediaRequestEnabled != next.MediaRequestEnabled {
+		add("media_request_enabled")
+	}
+	if previous.SigninEnabled != next.SigninEnabled {
+		add("signin_enabled")
+	}
+	if previous.InviteEnabled != next.InviteEnabled {
+		add("invite_enabled")
+	}
+	if previous.RateLimitEnabled != next.RateLimitEnabled {
+		add("rate_limit_enabled")
+	}
+	if previous.RateLimitGlobalPerMinute != next.RateLimitGlobalPerMinute {
+		add("rate_limit_global_per_minute")
+	}
+	if previous.RateLimitAPIKeyDefaultPerMinute != next.RateLimitAPIKeyDefaultPerMinute {
+		add("rate_limit_apikey_default_per_minute")
+	}
+	if !sameStringSlice(previous.CORSOrigins, next.CORSOrigins) {
+		add("cors_origins")
+	}
+	if previous.AllowCredential != next.AllowCredential {
+		add("allow_credential")
+	}
+	if previous.TrustProxyHeaders != next.TrustProxyHeaders {
+		add("trust_proxy_headers")
+	}
+	if !sameStringSlice(previous.TrustedProxyCIDRs, next.TrustedProxyCIDRs) {
+		add("trusted_proxy_cidrs")
+	}
+	if previous.MaxUploadSize != next.MaxUploadSize {
+		add("max_upload_size")
+	}
+	return out
 }
 
 func (a *App) reloadConfigIfChanged() {

@@ -1108,6 +1108,82 @@ func TestConfigFileChangeHotReloadsRuntimeLogLevel(t *testing.T) {
 	}
 }
 
+// TestReloadConfigSurfacesLiveAppliedFields 锁定 reload 响应里的
+// `live_applied` 列表必须列出本次实际生效的 cookie 三件套（session_cookie /
+// cookie_secure / cookie_samesite），并且写出来的 cookie header 立刻反映
+// 新配置。这是 R55-2 整改的可观察性合同：cookie 字段不会"沉默成功"也不会
+// "沉默失败"——值真的变了就出现在 live_applied，下一次 setSessionCookie
+// 就用新值。
+func TestReloadConfigSurfacesLiveAppliedFields(t *testing.T) {
+	app := newTestApp(t)
+	app.cfg().ConfigFile = filepath.Join(app.cfg().DatabaseDir, "config.toml")
+
+	writeCfg := func(cookieName, sameSite string, secure bool) {
+		t.Helper()
+		content := "[Global]\n" +
+			"databases_dir = " + strconv.Quote(app.cfg().DatabaseDir) + "\n\n" +
+			"[Database]\n" +
+			"driver = " + strconv.Quote(app.cfg().DatabaseDriver) + "\n" +
+			"backup_dir = " + strconv.Quote(app.cfg().DatabaseBackupDir) + "\n" +
+			"state_file = " + strconv.Quote(app.cfg().StateFile) + "\n\n" +
+			"[Security]\n" +
+			"session_cookie_name = " + strconv.Quote(cookieName) + "\n" +
+			"session_cookie_samesite = " + strconv.Quote(sameSite) + "\n" +
+			"session_cookie_secure = " + strconv.FormatBool(secure) + "\n"
+		if err := os.WriteFile(app.cfg().ConfigFile, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// 起手把进程内 cfg 也对齐到 writeCfg("twilight_session","lax",false)，
+	// 否则 defaults() 里 CookieSecure=true 会让 previous→next 看不到差异。
+	app.cfg().SessionCookie = "twilight_session"
+	app.cfg().CookieSecure = false
+	app.cfg().CookieSameSite = "lax"
+	writeCfg("twilight_session", "lax", false)
+	app.configSignature = configFileSignature(app.cfg().ConfigFile)
+
+	// 注册一个账户，使后续 login 能成功（reload 之后才测 cookie，避免 reload
+	// 期间替换 store 把 user 抹掉的歧义）。
+	_ = doJSON(app, http.MethodPost, "/api/v1/users/register", `{"username":"reloadops","password":"Password123456"}`, nil)
+
+	// 改 cookie 三件套并触发 reload
+	writeCfg("twilight_secure_session", "strict", true)
+	info, err := app.reloadConfig()
+	if err != nil {
+		t.Fatalf("reload returned err: %v", err)
+	}
+	live, _ := info["live_applied"].([]string)
+	expected := map[string]bool{"session_cookie_name": false, "session_cookie_secure": false, "session_cookie_samesite": false}
+	for _, name := range live {
+		if _, ok := expected[name]; ok {
+			expected[name] = true
+		}
+	}
+	for name, seen := range expected {
+		if !seen {
+			t.Fatalf("live_applied missing %q, got %v", name, live)
+		}
+	}
+
+	// 走一次登录，断言 Set-Cookie 用的就是新名字 + Secure + SameSite=Strict
+	login := doJSON(app, http.MethodPost, "/api/v1/auth/login", `{"username":"reloadops","password":"Password123456"}`, nil)
+	if login.Code != http.StatusOK {
+		t.Fatalf("login after reload status=%d body=%s", login.Code, login.Body.String())
+	}
+	cookies := login.Result().Cookies()
+	sess := findCookie(cookies, "twilight_secure_session")
+	if sess == nil {
+		t.Fatalf("expected new session cookie name, got %#v", cookies)
+	}
+	if !sess.Secure {
+		t.Fatalf("expected Secure=true after reload, got %#v", sess)
+	}
+	if sess.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("expected SameSite=Strict after reload, got %v", sess.SameSite)
+	}
+}
+
 func TestConfigSchemaRendersTelegramNewlines(t *testing.T) {
 	values := configValues(config.Config{
 		TelegramBotStartText: "第一行\n第二行",
