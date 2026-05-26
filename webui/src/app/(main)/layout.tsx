@@ -198,7 +198,15 @@ export default function MainLayout({
   // 加载中 / 未登录都保持 loader，等到 router.push 真的导航走再卸载，
   // 避免出现"白屏一帧 → 跳转"的肉眼可见闪烁。
   // 同时等待 persist 还原（isHydrated）避免登录态闪烁。
-  if (!isHydrated || isLoading || !isAuthenticated) {
+  //
+  // pathname.startsWith('/admin') && !isAdmin 也走 loader：上方 useEffect
+  // 用 router.push('/dashboard') 把普通用户从 /admin/* 踢回 dashboard，但
+  // router.push 是异步的——在它真正完成前，老逻辑会先把 admin 侧边栏 / 头部
+  // chrome 渲染出来再被替换。这是 BATCH_11 R54 已经处理过、又被新一轮重构
+  // 写回去的"管理面板闪一帧"回归。把 admin 路径下非管理员也并入 loader 分
+  // 支，admin chrome 永远不会出现在非 admin 用户的视口里。
+  const isPendingAdminRedirect = pathname.startsWith("/admin") && !isAdmin;
+  if (!isHydrated || isLoading || !isAuthenticated || isPendingAdminRedirect) {
     return (
       <div className="flex h-screen items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />

@@ -1,14 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 
 /**
- * Middleware: per-request CSP nonce。
+ * Middleware：per-request CSP nonce + 服务端 session cookie 守卫。
  *
- * 旧实现把 `script-src 'self' 'unsafe-inline'` 写死在 next.config.mjs，
- * 反射型 XSS 一旦把 `<script>` 注进 DOM 就直接执行。Next 16 对自己注入的
- * 内联引导脚本不会预先 hash，要么 unsafe-inline，要么 nonce。
+ * 两件事合在一起做的原因是 Next 的 middleware 是请求最早的 server-side hook，
+ * 想避开"未登录用户先看到管理面板再被 client-side router.push('/login') 踢
+ * 走"的肉眼闪烁，必须在 RSC payload 写出之前就完成 redirect——而 RSC payload
+ * 是由这个 middleware 之后的 React 服务器渲染产出的。
  *
- * 这里走 nonce 路线：
- *   1. 每次请求生成一次 16 字节随机 nonce（base64）。
+ * ## CSP nonce
+ *
+ * 旧实现 `script-src 'self' 'unsafe-inline'` 写死在 next.config.mjs，反射型
+ * XSS 一旦把 `<script>` 注进 DOM 就直接执行。Next 16 对自己注入的内联引导
+ * 脚本不会预先 hash，要么 unsafe-inline，要么 nonce。这里走 nonce 路线：
+ *
+ *   1. 每次请求生成 16 字节随机 nonce（base64）。
  *   2. 通过请求头 `x-nonce` 传给 RSC，业务代码用 `headers().get('x-nonce')`
  *      给 next/script 设置 nonce 属性；Next 框架本身的内联脚本在响应头里
  *      看到 `nonce-XXX` 后会自动复用同一个值。
@@ -18,9 +24,66 @@ import { NextRequest, NextResponse } from "next/server";
  *   4. 与 next.config.mjs 中静态的安全响应头（X-Frame-Options / HSTS / 等）
  *      共存：那批不依赖请求上下文，留在静态层减少 middleware 开销。
  *
- * 跳过 matcher：静态资源 / 图片 / favicon 等不会嵌脚本，没必要每次重算 nonce。
+ * ## Session cookie 守卫
+ *
+ * 后端在登录成功时写 `twilight_session`（HttpOnly + SameSite=Lax）。客户端
+ * JS 拿不到，但 middleware 在 server 端可以读：
+ *
+ *   - protectedPrefixes 里的路径若没有 cookie ⇒ 302 -> /login?next=<path>
+ *   - authPrefixes 里的路径若已有 cookie ⇒ 302 -> /dashboard
+ *
+ * 注意：cookie 仅证明"曾经登录过"，session 是否真的有效仍由后端在每个 API
+ * 请求里校验；这里的目的只是消除 SSR 阶段的"先渲染管理面板，再被 client
+ * effect 踢走"闪烁，不替代后端鉴权。前端的 router 仍然保留 useEffect 兜底，
+ * 应对"cookie 还在但被 server 标记 invalid / 5xx 后清掉"的退化场景。
  */
+
+const protectedPrefixes = [
+  "/dashboard",
+  "/admin",
+  "/announcements",
+  "/invite",
+  "/media",
+  "/score",
+  "/settings",
+];
+
+const authPrefixes = ["/login", "/register", "/forgot-password"];
+
+const SESSION_COOKIE = "twilight_session";
+
+function pathMatches(pathname: string, prefixes: string[]): boolean {
+  for (const prefix of prefixes) {
+    if (pathname === prefix || pathname.startsWith(prefix + "/")) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function middleware(request: NextRequest) {
+  const { pathname, search } = request.nextUrl;
+  const hasSession = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
+
+  // 1) 未登录访问受保护页面 → 直接 302 到 /login？next=...
+  //    用 redirect 而不是 rewrite：浏览器地址栏要变成 /login，避免用户在
+  //    一个看起来仍在 /admin 的 URL 上看到登录页（既会让书签错乱，也容易
+  //    被钓鱼站借用）。`next` 仅在白名单内才回填，避免 open redirect。
+  if (!hasSession && pathMatches(pathname, protectedPrefixes)) {
+    const loginURL = new URL("/login", request.url);
+    if (pathMatches(pathname, protectedPrefixes)) {
+      loginURL.searchParams.set("next", pathname + (search || ""));
+    }
+    return NextResponse.redirect(loginURL);
+  }
+
+  // 2) 已登录访问登录/注册/找回密码 → 直接送回 /dashboard，避免回退按钮
+  //    把已登录用户卡在登录页上反复 submit。
+  if (hasSession && pathMatches(pathname, authPrefixes)) {
+    return NextResponse.redirect(new URL("/dashboard", request.url));
+  }
+
+  // 3) 走到这里说明鉴权 OK，继续做 CSP nonce 注入。
   // 16 字节足够抵御穷举（128 bit），编码后 24 字符。
   const random = new Uint8Array(16);
   crypto.getRandomValues(random);
