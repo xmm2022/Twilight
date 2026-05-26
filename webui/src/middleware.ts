@@ -18,9 +18,19 @@ import { NextRequest, NextResponse } from "next/server";
  *   2. 通过请求头 `x-nonce` 传给 RSC，业务代码用 `headers().get('x-nonce')`
  *      给 next/script 设置 nonce 属性；Next 框架本身的内联脚本在响应头里
  *      看到 `nonce-XXX` 后会自动复用同一个值。
- *   3. 响应头里 `script-src 'self' 'nonce-XXX' 'strict-dynamic'`；
- *      `strict-dynamic` 让带 nonce 的脚本动态加载的子脚本继承信任，免去
- *      给每个 _next/static chunk 单独维护 hash。`'self'` 留作 CSP1/2 兜底。
+ *   3. 响应头里 `script-src 'self' 'nonce-XXX'`。
+ *      历史上这里曾叠加 `'strict-dynamic'`，理论收益是"带 nonce 的脚本动
+ *      态加载的子脚本自动继承信任，免去给每个 _next/static chunk 单独维
+ *      护 hash"。但 `'strict-dynamic'` 一旦出现就会让浏览器忽略 `'self'`
+ *      —— Next 16 的 auto-nonce 注入对 RSC payload 里 parser 插入的
+ *      `<script src="/_next/static/chunks/...">` 偶尔漏标 nonce（已知
+ *      vercel/next.js issue），生产环境就会出现一条 chunk 因没有 nonce
+ *      被整段拒绝，整页白屏。
+ *
+ *      去掉 `'strict-dynamic'` 后：内联 bootstrap 仍走 nonce 通过；同源
+ *      chunk 走 `'self'` 通过；XSS 表面跟之前一样——本应用从来不通过
+ *      `<script src=>` 加载第三方脚本，`'self'` 不比 `'strict-dynamic'`
+ *      宽松。
  *   4. 与 next.config.mjs 中静态的安全响应头（X-Frame-Options / HSTS / 等）
  *      共存：那批不依赖请求上下文，留在静态层减少 middleware 开销。
  *
@@ -100,7 +110,7 @@ export function middleware(request: NextRequest) {
 
   const csp = [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${scriptExtras}`,
+    `script-src 'self' 'nonce-${nonce}'${scriptExtras}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "font-src 'self' data:",
