@@ -77,7 +77,11 @@ func (a *App) runDueSchedulerJobs(ctx context.Context) {
 		if !a.schedulerJobDue(jobID, spec, time.Now()) {
 			continue
 		}
-		go a.runScheduledJob(ctx, jobID)
+		// runScheduledJob 现在自己负责 fork 内部 goroutine：daemon 在拿到锁 +
+		// 落库 auto 记录之前不返回，下一轮 tick 调用 schedulerJobDue 时 PG 上
+		// 的 auto 记录已经可见——之前 `go a.runScheduledJob` 让 INSERT 还没
+		// 落地 ticker 就推进了 30s，慢 PG 上偶发同 job 二次起跑。
+		a.runScheduledJob(ctx, jobID)
 	}
 }
 
@@ -121,43 +125,50 @@ func (a *App) schedulerJobDue(jobID string, spec map[string]any, now time.Time) 
 }
 
 func (a *App) runScheduledJob(ctx context.Context, jobID string) {
-	// 协程入口加 panic recover，避免单次任务崩溃带垮整个调度器。
-	defer func() {
-		if r := recover(); r != nil {
-			// 使用 zap.String + redactSensitiveText：避免 zap.Any 走 ReflectType
-			// 反射 dump 整个 panic 值（panic value 可能是携带 token/password 字段
-			// 的 struct，反射编码会绕过 sensitiveLogKey 字符串脱敏）。
-			zap.L().Error("scheduler job panic", zap.String("job_id", jobID), zap.String("panic", redactSensitiveText(fmt.Sprintf("%v", r))))
-		}
-	}()
+	// 同步段：拿锁 + INSERT auto run 记录。daemon 在这两步完成前 *不* 返回，
+	// 保证下一轮 30s tick 调用 schedulerJobDue 时 PG 已经能看到这条 auto 行；
+	// 之前整个函数运行在 `go a.runScheduledJob` 里，慢 PG 上 INSERT 还没落
+	// 盘 ticker 就推进了，schedulerJobDue 看不到 last → 又一次判定 due → 同
+	// job 并发起跑。重活仍在内层 goroutine 跑，daemon 主循环不会被堵住。
 	runCtx, finish, ok := a.startSchedulerRun(ctx, jobID)
 	if !ok {
 		return
 	}
-	defer finish()
 	started := time.Now().Unix()
-	run := store.SchedulerRun{JobID: jobID, Type: "auto", Trigger: "scheduler", Status: "running", Message: "running", StartedAt: started}
-	run, err := a.store().AddSchedulerRunReturning(run)
+	run, err := a.store().AddSchedulerRunReturning(store.SchedulerRun{JobID: jobID, Type: "auto", Trigger: "scheduler", Status: "running", Message: "running", StartedAt: started})
 	if err != nil {
+		finish()
 		zap.L().Warn("scheduler job run record create failed", zap.String("job_id", jobID), zap.Error(err))
 		return
 	}
 	zap.L().Info("scheduler job started", zap.String("job_id", jobID), zap.String("type", "auto"), zap.Int64("run_id", run.ID))
-	req, _ := http.NewRequestWithContext(runCtx, http.MethodPost, "/scheduler/internal", nil)
-	summary, logs, err := a.runSchedulerJob(req, jobID)
-	finished := schedulerFinishedRun(jobID, "auto", "scheduler", started, summary, logs, err)
-	finished.ID = run.ID
-	if _, updateErr := a.store().UpdateSchedulerRun(run.ID, func(run *store.SchedulerRun) error {
-		*run = finished
-		return nil
-	}); updateErr != nil {
-		zap.L().Warn("scheduler job run record update failed", zap.String("job_id", jobID), zap.Int64("run_id", run.ID), zap.Error(updateErr))
-	}
-	if err != nil {
-		zap.L().Warn("scheduler job failed", zap.String("job_id", jobID), zap.Error(err))
-	} else {
-		zap.L().Info("scheduler job completed", zap.String("job_id", jobID))
-	}
+	go func() {
+		// 协程入口加 panic recover，避免单次任务崩溃带垮整个调度器。
+		defer func() {
+			if r := recover(); r != nil {
+				// 使用 zap.String + redactSensitiveText：避免 zap.Any 走 ReflectType
+				// 反射 dump 整个 panic 值（panic value 可能是携带 token/password 字段
+				// 的 struct，反射编码会绕过 sensitiveLogKey 字符串脱敏）。
+				zap.L().Error("scheduler job panic", zap.String("job_id", jobID), zap.Int64("run_id", run.ID), zap.String("panic", redactSensitiveText(fmt.Sprintf("%v", r))))
+			}
+		}()
+		defer finish()
+		req, _ := http.NewRequestWithContext(runCtx, http.MethodPost, "/scheduler/internal", nil)
+		summary, logs, jobErr := a.runSchedulerJob(req, jobID)
+		finished := schedulerFinishedRun(jobID, "auto", "scheduler", started, summary, logs, jobErr)
+		finished.ID = run.ID
+		if _, updateErr := a.store().UpdateSchedulerRun(run.ID, func(current *store.SchedulerRun) error {
+			*current = finished
+			return nil
+		}); updateErr != nil {
+			zap.L().Warn("scheduler job run record update failed", zap.String("job_id", jobID), zap.Int64("run_id", run.ID), zap.Error(updateErr))
+		}
+		if jobErr != nil {
+			zap.L().Warn("scheduler job failed", zap.String("job_id", jobID), zap.Error(jobErr))
+		} else {
+			zap.L().Info("scheduler job completed", zap.String("job_id", jobID))
+		}
+	}()
 }
 
 func (a *App) startManualSchedulerJob(ctx context.Context, jobID string, params map[string]any) (store.SchedulerRun, bool) {

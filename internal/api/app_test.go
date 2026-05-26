@@ -1883,6 +1883,40 @@ func TestSchedulerManualRunUpdatesSingleHistoryEntry(t *testing.T) {
 	}
 }
 
+// TestSchedulerAutoRunRecordVisibleBeforeReturn 复现 R56-1：之前 daemon 用
+// `go a.runScheduledJob` 异步起动，AddSchedulerRunReturning 还没落库 daemon
+// 主循环就推进到下一轮 tick，schedulerJobDue 看不到新 auto 记录就再判 due
+// 一次。改造后 runScheduledJob 在拿到锁 + INSERT 完成之前 *不* 返回，重活
+// 仍走内层 goroutine。这条测试在 runScheduledJob 返回的瞬间断言 PG 已经有
+// 这条 running 记录——即拿到了"daemon 视角下的 last 已经更新"的可观测保证。
+func TestSchedulerAutoRunRecordVisibleBeforeReturn(t *testing.T) {
+	app := newTestApp(t)
+	before := app.store().SchedulerRuns("daily_stats", 10)
+	if len(before) != 0 {
+		t.Fatalf("precondition: expected no daily_stats runs, got %d", len(before))
+	}
+	app.runScheduledJob(context.Background(), "daily_stats")
+	// 同步段返回时记录必须已经在 store 里——不论内层 goroutine 是否已经 finish。
+	immediate := app.store().SchedulerRuns("daily_stats", 10)
+	if len(immediate) != 1 {
+		t.Fatalf("auto run record not persisted before runScheduledJob returned: %#v", immediate)
+	}
+	if immediate[0].Type != "auto" || immediate[0].Trigger != "scheduler" {
+		t.Fatalf("unexpected auto run row: %#v", immediate[0])
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for app.schedulerJobRunning("daily_stats") && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if app.schedulerJobRunning("daily_stats") {
+		t.Fatal("auto scheduler job did not finish in time")
+	}
+	final := app.store().SchedulerRuns("daily_stats", 10)
+	if len(final) != 1 || final[0].ID != immediate[0].ID || final[0].Status != "success" || final[0].FinishedAt == 0 {
+		t.Fatalf("auto run did not converge to success: %#v", final)
+	}
+}
+
 func TestSchedulerManualTriggerSpecDisablesAutoRun(t *testing.T) {
 	app := newTestApp(t)
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/scheduler/jobs/daily_stats/schedule", strings.NewReader(`{"type":"manual"}`))
