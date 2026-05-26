@@ -982,6 +982,7 @@ func (a *App) setSessionCookie(w http.ResponseWriter, token string, expires time
 		Name:     a.cfg().SessionCookie,
 		Value:    token,
 		Path:     "/",
+		Domain:   a.cfg().CookieDomain,
 		Expires:  expires,
 		MaxAge:   int(time.Until(expires).Seconds()),
 		HttpOnly: true,
@@ -992,8 +993,12 @@ func (a *App) setSessionCookie(w http.ResponseWriter, token string, expires time
 }
 
 func (a *App) clearSessionCookie(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{Name: a.cfg().SessionCookie, Path: "/", MaxAge: -1, Expires: time.Unix(0, 0), HttpOnly: true, Secure: a.cfg().CookieSecure, SameSite: sameSite(a.cfg().CookieSameSite)})
-	http.SetCookie(w, &http.Cookie{Name: a.csrfCookieName(), Path: "/", MaxAge: -1, Expires: time.Unix(0, 0), HttpOnly: false, Secure: a.cfg().CookieSecure, SameSite: sameSite(a.cfg().CookieSameSite)})
+	// 清除时 Domain 必须与 setSessionCookie 完全一致，否则浏览器会按
+	// "default-domain (= 设置时的请求 host)" 寻找另一份同名 cookie，登出
+	// 留下幽灵 cookie 的概率极高——这正是双子域部署里常见的"登出后再访
+	// 问还是登录态"现象。
+	http.SetCookie(w, &http.Cookie{Name: a.cfg().SessionCookie, Path: "/", Domain: a.cfg().CookieDomain, MaxAge: -1, Expires: time.Unix(0, 0), HttpOnly: true, Secure: a.cfg().CookieSecure, SameSite: sameSite(a.cfg().CookieSameSite)})
+	http.SetCookie(w, &http.Cookie{Name: a.csrfCookieName(), Path: "/", Domain: a.cfg().CookieDomain, MaxAge: -1, Expires: time.Unix(0, 0), HttpOnly: false, Secure: a.cfg().CookieSecure, SameSite: sameSite(a.cfg().CookieSameSite)})
 }
 
 // csrfCookieName 返回 CSRF cookie 名，固定为 session cookie 名 + "_csrf" 后缀。
@@ -1014,11 +1019,18 @@ func newCSRFToken() (string, error) {
 // setCSRFCookie 写一个非 HttpOnly 的 CSRF cookie，前端 JS 可读后塞进
 // X-CSRF-Token 请求头。配合 verifyCSRFToken 形成"双提交 cookie"模式：
 // 攻击者站点不能跨域读 cookie 也无法伪造同名 header，所以无法构造合法 mutating 请求。
+//
+// Domain 与 setSessionCookie 共用 CookieDomain：双子域部署里 webui 必须能在
+// 自己的 origin 上读到 csrf cookie，把值塞进 X-CSRF-Token 再向 API 子域发请
+// 求；不写 Domain 时该 cookie 只属于 API 子域，webui JS 永远读不到，
+// "双提交"实际上变成"单提交"，前端要么自己降级到读响应 body 里的 csrf_token
+// （我们目前的兜底），要么直接 403。
 func (a *App) setCSRFCookie(w http.ResponseWriter, token string, expires time.Time) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     a.csrfCookieName(),
 		Value:    token,
 		Path:     "/",
+		Domain:   a.cfg().CookieDomain,
 		Expires:  expires,
 		MaxAge:   int(time.Until(expires).Seconds()),
 		HttpOnly: false, // CRITICAL：必须可被前端 JS 读取

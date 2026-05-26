@@ -3713,3 +3713,91 @@ func TestForgotPasswordRejectsExpiredAccount(t *testing.T) {
 		t.Fatalf("R62-7 regression: forgot-password modified password despite expired entitlement")
 	}
 }
+
+// TestSessionCookieRespectsConfiguredDomain 锁住 R62-cookie-domain 修复：
+// 双子域部署（webui = twilight.example.com / API = twilightapi.example.com）
+// 必须把 session + csrf cookie 显式打上注册域 ".example.com"，否则浏览器把
+// cookie 锁在 API 子域，webui 这边的 Next middleware 读不到，已登录用户访
+// 问 /dashboard 直接被 302 回 /login —— 用户视角即"登录成功但不跳转面板"。
+//
+// 这里走 runtime.Store 直接替换 cfg，是因为 New() 之后 cfg 副本存在
+// runtimeState 里，单纯改 a.cfg() 返回的指针字段会被下次 reload 覆盖。
+//
+// 关于 ".example.com" vs "example.com"：RFC 6265 已把前缀点视为兼容形式，
+// net/http 的 cookie 解析器会把它剥掉再回填到 cookie.Domain；浏览器实际收到
+// 的 Set-Cookie 文本里仍是 Domain=example.com，对子域共享语义没影响。这里
+// 测试比对的是 Go 解析后的形态，所以用 "example.com"（无前缀点）。
+func TestSessionCookieRespectsConfiguredDomain(t *testing.T) {
+	app := newTestApp(t)
+	rt := app.runtime.Load()
+	next := *rt
+	next.cfg.CookieDomain = ".example.com"
+	app.runtime.Store(&next)
+
+	const wantDomain = "example.com"
+
+	register := doJSON(app, http.MethodPost, "/api/v1/users/register", `{"username":"admin","password":"Admin123456"}`, nil)
+	if register.Code != http.StatusCreated {
+		t.Fatalf("register status = %d body=%s", register.Code, register.Body.String())
+	}
+	login := doJSON(app, http.MethodPost, "/api/v1/auth/login", `{"username":"admin","password":"Admin123456"}`, nil)
+	if login.Code != http.StatusOK {
+		t.Fatalf("login status = %d body=%s", login.Code, login.Body.String())
+	}
+	session := findCookie(login.Result().Cookies(), "twilight_session")
+	csrf := findCookie(login.Result().Cookies(), "twilight_session_csrf")
+	if session == nil || csrf == nil {
+		t.Fatalf("missing cookies: session=%v csrf=%v", session, csrf)
+	}
+	if session.Domain != wantDomain {
+		t.Fatalf("session cookie Domain = %q, want %q", session.Domain, wantDomain)
+	}
+	if csrf.Domain != wantDomain {
+		t.Fatalf("csrf cookie Domain = %q, want %q", csrf.Domain, wantDomain)
+	}
+
+	// 登出时 expire cookie 也必须复用同一 Domain，否则浏览器会按 default-domain
+	// (= 设置时的请求 host) 寻找另一份同名 cookie，删除失败 → "登出后再访问还是
+	// 登录态"幽灵 cookie。
+	logout := doJSONWithHeaders(app, http.MethodPost, "/api/v1/auth/logout", "", []*http.Cookie{session, csrf}, map[string]string{"X-CSRF-Token": csrf.Value})
+	if logout.Code != http.StatusOK {
+		t.Fatalf("logout status = %d body=%s", logout.Code, logout.Body.String())
+	}
+	for _, c := range logout.Result().Cookies() {
+		if c.Name != "twilight_session" && c.Name != "twilight_session_csrf" {
+			continue
+		}
+		if c.Domain != wantDomain {
+			t.Fatalf("logout %q cookie Domain = %q, want %q", c.Name, c.Domain, wantDomain)
+		}
+		if c.MaxAge >= 0 {
+			t.Fatalf("logout %q cookie MaxAge = %d, want negative (immediate expiry)", c.Name, c.MaxAge)
+		}
+	}
+}
+
+// TestSessionCookieOmitsDomainWhenUnset 守住单 origin 部署的旧行为：未配置
+// CookieDomain 时 Set-Cookie 不应写出 Domain= 属性，让浏览器把 cookie 锁回
+// 设置时的精确 host —— 这是单 origin 部署里更窄的暴露面。
+func TestSessionCookieOmitsDomainWhenUnset(t *testing.T) {
+	app := newTestApp(t)
+	register := doJSON(app, http.MethodPost, "/api/v1/users/register", `{"username":"admin","password":"Admin123456"}`, nil)
+	if register.Code != http.StatusCreated {
+		t.Fatalf("register status = %d body=%s", register.Code, register.Body.String())
+	}
+	login := doJSON(app, http.MethodPost, "/api/v1/auth/login", `{"username":"admin","password":"Admin123456"}`, nil)
+	if login.Code != http.StatusOK {
+		t.Fatalf("login status = %d body=%s", login.Code, login.Body.String())
+	}
+	session := findCookie(login.Result().Cookies(), "twilight_session")
+	csrf := findCookie(login.Result().Cookies(), "twilight_session_csrf")
+	if session == nil || csrf == nil {
+		t.Fatal("missing session/csrf cookies on default config")
+	}
+	if session.Domain != "" {
+		t.Fatalf("session cookie Domain = %q, want empty (host-only)", session.Domain)
+	}
+	if csrf.Domain != "" {
+		t.Fatalf("csrf cookie Domain = %q, want empty (host-only)", csrf.Domain)
+	}
+}

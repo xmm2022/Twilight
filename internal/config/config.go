@@ -67,6 +67,18 @@ type Config struct {
 	SessionTTL     time.Duration
 	CookieSecure   bool
 	CookieSameSite string
+	// CookieDomain 让 session / csrf cookie 显式跨子域共享。
+	// 典型双子域部署：webui = https://twilight.example.com，API =
+	// https://twilightapi.example.com。后端 Set-Cookie 默认不带 Domain，
+	// 浏览器把 cookie 锁在 twilightapi.example.com，于是：
+	//   1) webui 这边的 fetch(API_BASE, {credentials:"include"}) 不会回发，
+	//      鉴权请求一概 401；
+	//   2) Next middleware 跑在 twilight.example.com 上读不到 twilight_session
+	//      cookie，已登录用户被踢回 /login，闭环出现"登录成功后不跳转"。
+	// 把 CookieDomain 设成 ".example.com"（或 "example.com"），两子域共用
+	// 同一 cookie，链路立刻通。留空保持单 origin 部署的旧行为——单 origin 时
+	// 写 Domain 反而会扩大暴露面。
+	CookieDomain string
 
 	EmbyURL                        string
 	EmbyToken                      string
@@ -236,6 +248,7 @@ func Load(path string) (Config, error) {
 	if v := strings.ToLower(strings.TrimSpace(reader.stringValue("", "Security.session_cookie_samesite", "API.session_cookie_samesite", "session_cookie_samesite"))); v != "" {
 		cfg.CookieSameSite = v
 	}
+	cfg.CookieDomain = strings.TrimSpace(reader.stringValue(cfg.CookieDomain, "Security.session_cookie_domain", "API.session_cookie_domain", "session_cookie_domain"))
 	cfg.BotInternalSecret = reader.stringValue(cfg.BotInternalSecret, "Security.bot_internal_secret", "bot_internal_secret")
 	cfg.EmbyURL = reader.stringValue(cfg.EmbyURL, "Emby.emby_url", "emby_url")
 	cfg.EmbyToken = reader.stringValue(cfg.EmbyToken, "Emby.emby_token", "emby_token")
@@ -563,6 +576,9 @@ func applyEnv(cfg *Config) {
 	}
 	if v := os.Getenv("TWILIGHT_SESSION_COOKIE_SAMESITE"); v != "" {
 		cfg.CookieSameSite = strings.ToLower(v)
+	}
+	if v := strings.TrimSpace(os.Getenv("TWILIGHT_SESSION_COOKIE_DOMAIN")); v != "" {
+		cfg.CookieDomain = v
 	}
 	if v := os.Getenv("TWILIGHT_SESSION_TTL_SECONDS"); v != "" {
 		seconds := int64Value(v, int64(cfg.SessionTTL/time.Second))
