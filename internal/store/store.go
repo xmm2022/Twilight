@@ -92,6 +92,13 @@ type State struct {
 	RebindRequests      map[int64]RebindRequest        `json:"rebind_requests"`
 	TelegramRoster      map[string]TelegramRosterEntry `json:"telegram_roster"`
 	ViolationLogs       []ViolationLog                 `json:"violation_logs"`
+	// TelegramBotOffset 持久化最近一次成功 ack 的 update_id+1。
+	// 重启 / token 切换时直接从这个值恢复，避免对 24h backlog 重新分发。
+	// 0 表示未设置 / 历史 state，按"从 0 开始"处理（getUpdates 会拿到队列里
+	// 全部待 ack 消息，与历史行为一致；只是后续 ack 会立即收敛）。
+	// 不放入 RuntimeMeta：为了让所有写入路径自然走 mutateAndSaveLocked，
+	// 与 NextSchedulerRunID 这类整数计数器保持同构。
+	TelegramBotOffset int64 `json:"telegram_bot_offset"`
 }
 
 type User struct {
@@ -2757,6 +2764,45 @@ func (s *Store) ClearViolationLogs() error {
 	defer s.mu.Unlock()
 	return s.mutateAndSaveLocked(func() error {
 		s.state.ViolationLogs = nil
+		return nil
+	})
+}
+
+// TelegramBotOffset 读取持久化的 getUpdates offset。新部署 / 历史 state
+// 没有该字段时返回 0，调用方按"未设置"处理。
+func (s *Store) TelegramBotOffset() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.refreshLocked(); err != nil {
+		return 0
+	}
+	return s.state.TelegramBotOffset
+}
+
+// SetTelegramBotOffset 持久化 offset。仅当传入值大于当前值才写入：getUpdates
+// 是单调推进的，倒退（极少见，仅 token 切换 / 测试场景）应当走显式
+// ResetTelegramBotOffset，不通过常规写路径意外覆盖。
+func (s *Store) SetTelegramBotOffset(offset int64) error {
+	if offset <= 0 {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mutateAndSaveLocked(func() error {
+		if offset > s.state.TelegramBotOffset {
+			s.state.TelegramBotOffset = offset
+		}
+		return nil
+	})
+}
+
+// ResetTelegramBotOffset 主动清零，bot 在检测到 username 变更（不同 bot
+// 实例）时调用，避免错把旧 bot 的 offset 套到新 bot 上。
+func (s *Store) ResetTelegramBotOffset() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mutateAndSaveLocked(func() error {
+		s.state.TelegramBotOffset = 0
 		return nil
 	})
 }

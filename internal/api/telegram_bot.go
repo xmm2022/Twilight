@@ -23,8 +23,11 @@ func (a *App) RunTelegramBot(ctx context.Context) error {
 			zap.L().Error("telegram bot panic", zap.String("panic", redactSensitiveText(fmt.Sprintf("%v", r))))
 		}
 	}()
-	offset := int64(0)
-	activeConfig := ""
+	// 启动时从 store 恢复上一次成功 ack 的 offset，避免进程重启后把 24h 内
+	// 已经处理过的 update 重新分发一遍（telegramConfirmBindCode 这类有副作用
+	// 的命令会被重放）。0 = 历史 state / 新部署，按 getUpdates 默认行为走。
+	offset := a.store().TelegramBotOffset()
+	activeBot := ""
 	for {
 		select {
 		case <-ctx.Done():
@@ -42,23 +45,33 @@ func (a *App) RunTelegramBot(ctx context.Context) error {
 				continue
 			}
 		}
-		currentConfig := strings.TrimSpace(a.cfg().TelegramAPIURL) + "|" + strings.TrimSpace(a.cfg().TelegramBotToken)
-		if currentConfig != activeConfig {
-			me, err := a.telegramGetMe(ctx)
-			if err != nil {
-				a.setTelegramRuntimeStatus(false, err)
-				zap.L().Warn("Telegram bot initialization failed", zap.Error(err))
-				select {
-				case <-ctx.Done():
-					return nil
-				case <-time.After(3 * time.Second):
-					continue
-				}
+		// botIdentity = 当前 bot 的 username。token 改了但 bot 实体（同一
+		// @bot_name）不变时复用旧 offset 是正确的；只有 bot 实体真的换了才
+		// 必须 reset，否则会把新 bot 的真实 update 当成"已处理"丢掉。
+		me, err := a.telegramGetMe(ctx)
+		if err != nil {
+			a.setTelegramRuntimeStatus(false, err)
+			zap.L().Warn("Telegram bot initialization failed", zap.Error(err))
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(3 * time.Second):
+				continue
 			}
-			activeConfig = currentConfig
+		}
+		botIdentity := strings.TrimSpace(asString(me["username"]))
+		if botIdentity != "" && activeBot != "" && botIdentity != activeBot {
+			// bot 实体切换：旧 offset 和新 bot 的 update 序列没有任何关系，
+			// 必须 reset 否则会跳过新 bot 的真实初始 update。
+			if err := a.store().ResetTelegramBotOffset(); err != nil {
+				zap.L().Warn("reset telegram offset failed", zap.Error(err))
+			}
 			offset = 0
+		}
+		if botIdentity != "" && botIdentity != activeBot {
+			activeBot = botIdentity
 			a.setTelegramRuntimeStatus(true, nil)
-			zap.L().Info("Telegram bot polling started", zap.String("username", asString(me["username"])))
+			zap.L().Info("Telegram bot polling started", zap.String("username", botIdentity), zap.Int64("resume_offset", offset))
 		}
 		updates, err := a.telegramGetUpdates(ctx, offset)
 		if err != nil {
@@ -87,6 +100,14 @@ func (a *App) RunTelegramBot(ctx context.Context) error {
 				}()
 				a.handleTelegramUpdate(ctx, u)
 			}(update)
+		}
+		// 整个 batch 处理完成才推进持久化 offset：一旦写入成功，下一次重启
+		// 不会再分发到已 ack 的 update。SetTelegramBotOffset 内部做单调防退化，
+		// 偶尔的 store 写失败只是不更新 disk，下一轮 batch 会再尝试。
+		if len(updates) > 0 {
+			if err := a.store().SetTelegramBotOffset(offset); err != nil {
+				zap.L().Warn("persist telegram offset failed", zap.Error(err), zap.Int64("offset", offset))
+			}
 		}
 	}
 }
