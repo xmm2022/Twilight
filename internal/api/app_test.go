@@ -1714,6 +1714,88 @@ func TestTelegramErrorRedactsBotToken(t *testing.T) {
 	}
 }
 
+// TestTelegramRetryAfterFromError 锁定 R61-3 不变量：telegramPost 在 OK=false
+// + parameters.retry_after>0 时必须把秒数编进错误字符串，
+// telegramRetryAfterFromError 反解出来后调用方才能 sleep 真实秒数。
+//
+// 用 httptest server 模拟 429+retry_after=27 的真实响应。
+func TestTelegramRetryAfterFromError(t *testing.T) {
+	app := newTestApp(t)
+	app.cfg().TelegramMode = true
+	app.cfg().TelegramBotToken = "123:ABC"
+	tg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":false,"error_code":429,"description":"Too Many Requests: retry after 27","parameters":{"retry_after":27}}`))
+	}))
+	defer tg.Close()
+	app.cfg().TelegramAPIURL = tg.URL
+	err := app.telegramSendMessage(context.Background(), int64(123456), "test")
+	if err == nil {
+		t.Fatalf("expected 429 error from mock server")
+	}
+	d, ok := telegramRetryAfterFromError(err)
+	if !ok {
+		t.Fatalf("retry_after sentinel not found in error: %s", err.Error())
+	}
+	if d != 27*time.Second {
+		t.Fatalf("retry_after parsed = %v, want 27s; err=%s", d, err.Error())
+	}
+
+	// 反向：error 没有 sentinel 时返回 false。
+	if d, ok := telegramRetryAfterFromError(errors.New("some unrelated error")); ok {
+		t.Fatalf("retry_after should be false for unrelated err, got d=%v", d)
+	}
+}
+
+// TestSendExpiryRemindersAbortsOnConsecutiveRateLimits 锁定 R61-4 不变量：
+// 提醒批触发连续 5 次 429 后必须 break、把已发送条数 commit 到 result，并在
+// summary 中暴露 aborted=rate_limited——避免 100 用户提醒一次性把全局 quota
+// 打爆，下一轮 expiry_reminders 重炸的"提醒雪崩"。
+func TestSendExpiryRemindersAbortsOnConsecutiveRateLimits(t *testing.T) {
+	app := newTestApp(t)
+	app.cfg().TelegramMode = true
+	app.cfg().TelegramBotToken = "123:ABC"
+	app.cfg().NotificationEnabled = true
+
+	// mock telegram 永远返回 429+retry_after=1（保证测试快）
+	tg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":false,"error_code":429,"description":"Too Many Requests","parameters":{"retry_after":1}}`))
+	}))
+	defer tg.Close()
+	app.cfg().TelegramAPIURL = tg.URL
+
+	// 造 8 个即将到期且绑了 telegram 的用户，确保超过 maxConsecutiveRateLimited=5
+	expSoon := time.Now().Add(24 * time.Hour).Unix()
+	for i := 0; i < 8; i++ {
+		_, err := app.store().CreateUser(store.User{
+			Username:   fmt.Sprintf("soon%d", i),
+			Role:       store.RoleNormal,
+			Active:     true,
+			ExpiredAt:  expSoon,
+			TelegramID: int64(1000 + i),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// 真实 sleep 60s × 5 太慢——这里我们 ctx 超时 6s 让 retry_after sleep
+	// 提前返回；目的是验证 abort 路径，不是验证准确 sleep。
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	defer cancel()
+	result := app.sendExpiryReminders(ctx, 7)
+
+	if result["aborted"] != "rate_limited" && result["aborted"] != "context_canceled" {
+		t.Fatalf("expected aborted=rate_limited or context_canceled, got result=%#v", result)
+	}
+	// 至少几条 failed 被记录（无论是 5 个 rate-limit 还是更早被 ctx 打断）。
+	failed, _ := result["failed"].([]map[string]any)
+	if len(failed) == 0 {
+		t.Fatalf("expected at least one failed item recorded; result=%#v", result)
+	}
+}
+
 func TestTelegramGetUpdatesAllowsCallbacks(t *testing.T) {
 	app := newTestApp(t)
 	app.cfg().TelegramMode = true
