@@ -38,39 +38,42 @@ func writeJSONWithCode(w http.ResponseWriter, status int, success bool, errorCod
 	})
 }
 
+// statusToErrorCode 把 HTTP status 直接映射到协议层 ErrCode。
+// 历史实现是一连串 case 字面量，每加一个 status 就要改一处 switch；
+// 用 map 改成纯数据后：
+//
+//   1. 增删 status 只改一行字面量，避免 case 顺序与漏写；
+//   2. response_test.go 可以直接 range map 反向校验，确保 errcode.go
+//      的常量没有被静默改动；
+//   3. 5xx 不在 map 里，由 defaultErrorCode 兜底为 ErrInternal——这是
+//      经验：未知 5xx 一律算服务端故障，不要随便回成 REQUEST_FAILED
+//      让前端把它当用户输入错误重试。
+var statusToErrorCode = map[int]string{
+	http.StatusBadRequest:            ErrBadRequest,
+	http.StatusUnauthorized:          ErrUnauthorized,
+	http.StatusForbidden:             ErrForbidden,
+	http.StatusNotFound:              ErrNotFound,
+	http.StatusMethodNotAllowed:      ErrMethodNotAllowed,
+	http.StatusConflict:              ErrConflict,
+	http.StatusGone:                  ErrGone,
+	http.StatusRequestEntityTooLarge: ErrPayloadTooLarge,
+	http.StatusTooManyRequests:       ErrRateLimited,
+	http.StatusBadGateway:            ErrUpstreamError,
+	http.StatusServiceUnavailable:    ErrServiceUnavailable,
+	http.StatusInternalServerError:   ErrInternal,
+}
+
 func defaultErrorCode(status int, success bool) string {
 	if success {
 		return ""
 	}
-	switch status {
-	case http.StatusBadRequest:
-		return ErrBadRequest
-	case http.StatusUnauthorized:
-		return ErrUnauthorized
-	case http.StatusForbidden:
-		return ErrForbidden
-	case http.StatusNotFound:
-		return ErrNotFound
-	case http.StatusMethodNotAllowed:
-		return ErrMethodNotAllowed
-	case http.StatusConflict:
-		return ErrConflict
-	case http.StatusGone:
-		return ErrGone
-	case http.StatusRequestEntityTooLarge:
-		return ErrPayloadTooLarge
-	case http.StatusTooManyRequests:
-		return ErrRateLimited
-	case http.StatusBadGateway:
-		return ErrUpstreamError
-	case http.StatusServiceUnavailable:
-		return ErrServiceUnavailable
-	default:
-		if status >= 500 {
-			return ErrInternal
-		}
-		return ErrRequestFailed
+	if code, ok := statusToErrorCode[status]; ok {
+		return code
 	}
+	if status >= 500 {
+		return ErrInternal
+	}
+	return ErrRequestFailed
 }
 
 func ok(w http.ResponseWriter, message string, data any) {
