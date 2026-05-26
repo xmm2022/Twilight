@@ -10,7 +10,7 @@ const nextConfig = {
   async rewrites() {
     const rules = [
       {
-        source: '/favicon.ico',
+        source: '/favicon.png',
         destination: '/favicon.png',
       },
     ];
