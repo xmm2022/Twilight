@@ -273,6 +273,138 @@ func TestAPIKeyFlow(t *testing.T) {
 	}
 }
 
+// TestAPIKeyAuthSources 锁定 authenticateAPIKey 的三条入口（X-API-Key 头 /
+// Authorization Bearer/ApiKey / ?apikey= 查询串）以及 AllowQuery 门禁的回归
+// 行为：query 路径在 AllowQuery=false 时必须 401（避免 referer / log 中泄露
+// 的 key 被重放），同时携带 header 与 query 时 header 优先（保留旧客户端兼
+// 容性，又不会被一个开放的 query 串旁路掉 AllowQuery 限制）。
+func TestAPIKeyAuthSources(t *testing.T) {
+	app := newTestApp(t)
+	cookies := registerAndLogin(t, app, "alice", "Password123456")
+
+	createKey := func(name string, allowQuery bool) string {
+		body := fmt.Sprintf(`{"name":%q,"rate_limit":120,"allow_query":%t}`, name, allowQuery)
+		rec := doJSONWithHeaders(app, http.MethodPost, "/api/v1/users/me/apikeys", body, cookies, map[string]string{"X-Twilight-Client": "webui"})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("create key %s status=%d body=%s", name, rec.Code, rec.Body.String())
+		}
+		var env envelope
+		if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+			t.Fatalf("decode created key %s: %v", name, err)
+		}
+		key, _ := env.Data.(map[string]any)["key"].(string)
+		if !strings.HasPrefix(key, "key-") {
+			t.Fatalf("expected plaintext key prefix for %s, got %q", name, key)
+		}
+		return key
+	}
+
+	queryKey := createKey("ci-query", true)
+	headerOnly := createKey("ci-header-only", false)
+
+	call := func(req *http.Request) int {
+		rr := httptest.NewRecorder()
+		app.ServeHTTP(rr, req)
+		return rr.Code
+	}
+
+	// (a) ?apikey= 查询路径配 AllowQuery=true 必须通过
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/apikey/info?apikey="+queryKey, nil)
+	if got := call(r); got != http.StatusOK {
+		t.Fatalf("query+AllowQuery=true expected 200, got %d", got)
+	}
+
+	// (b) ?apikey= 查询路径配 AllowQuery=false 必须 401
+	r = httptest.NewRequest(http.MethodGet, "/api/v1/apikey/info?apikey="+headerOnly, nil)
+	if got := call(r); got != http.StatusUnauthorized {
+		t.Fatalf("query+AllowQuery=false expected 401, got %d", got)
+	}
+
+	// (c1) Authorization: Bearer 必须通过（与 X-API-Key 等价）
+	r = httptest.NewRequest(http.MethodGet, "/api/v1/apikey/info", nil)
+	r.Header.Set("Authorization", "Bearer "+headerOnly)
+	if got := call(r); got != http.StatusOK {
+		t.Fatalf("Authorization Bearer expected 200, got %d", got)
+	}
+
+	// (c2) Authorization: ApiKey 必须通过（同上，区分大小写不敏感）
+	r = httptest.NewRequest(http.MethodGet, "/api/v1/apikey/info", nil)
+	r.Header.Set("Authorization", "ApiKey "+headerOnly)
+	if got := call(r); got != http.StatusOK {
+		t.Fatalf("Authorization ApiKey expected 200, got %d", got)
+	}
+
+	// (d) header 与 query 同时存在时 header 优先：用 header-only key 走 header，
+	// 同时附一个不存在的 ?apikey=garbage —— 既不应当 401（不要被 query 干扰），
+	// 也不应当因为 query 路径而触发 AllowQuery 检查。
+	r = httptest.NewRequest(http.MethodGet, "/api/v1/apikey/info?apikey=key-garbage", nil)
+	r.Header.Set("X-API-Key", headerOnly)
+	if got := call(r); got != http.StatusOK {
+		t.Fatalf("header overrides query expected 200, got %d", got)
+	}
+
+	// (e) 错误 query key 必须 401（防御性：错 key 不能被当成无 key 兜底匿名通过）
+	r = httptest.NewRequest(http.MethodGet, "/api/v1/apikey/info?apikey=key-bogus", nil)
+	if got := call(r); got != http.StatusUnauthorized {
+		t.Fatalf("invalid query key expected 401, got %d", got)
+	}
+}
+
+// TestAPIKeyDisableAccountKillsSessions 锁定 disable-account 的两个不变量：
+// 1) cookie session 立即失效（不依赖 SessionTTL 自然过期）；2) 同账号下既
+// 存的 API key 被 authenticateAPIKey:!u.Active 立即拒绝。任何后续把 Active
+// 改成软删除标志或把 DeleteUser 拆成异步任务的重构都会触发这个测试。
+func TestAPIKeyDisableAccountKillsSessions(t *testing.T) {
+	app := newTestApp(t)
+	cookies := registerAndLogin(t, app, "bob", "Password123456")
+
+	created := doJSONWithHeaders(app, http.MethodPost, "/api/v1/users/me/apikeys", `{"name":"kill-me","rate_limit":50}`, cookies, map[string]string{"X-Twilight-Client": "webui"})
+	if created.Code != http.StatusOK {
+		t.Fatalf("create key status=%d body=%s", created.Code, created.Body.String())
+	}
+	var env envelope
+	if err := json.Unmarshal(created.Body.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	key, _ := env.Data.(map[string]any)["key"].(string)
+	if !strings.HasPrefix(key, "key-") {
+		t.Fatalf("expected plaintext key prefix, got %q", key)
+	}
+
+	// 主动 disable 自己（走 API key 路径，与 webui 调用一致）
+	disableReq := httptest.NewRequest(http.MethodPost, "/api/v1/apikey/disable", nil)
+	disableReq.Header.Set("X-API-Key", key)
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, disableReq)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("disable status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	// 1) cookie session 必须立刻被踢
+	meRec := doJSONWithHeaders(app, http.MethodGet, "/api/v1/users/me", "", cookies, nil)
+	if meRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected cookie 401 after disable, got %d body=%s", meRec.Code, meRec.Body.String())
+	}
+
+	// 2) 同账号下的 API key 也必须立刻 401（!u.Active 兜底）
+	apiReq := httptest.NewRequest(http.MethodGet, "/api/v1/apikey/info", nil)
+	apiReq.Header.Set("X-API-Key", key)
+	apiRec := httptest.NewRecorder()
+	app.ServeHTTP(apiRec, apiReq)
+	if apiRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected api key 401 after disable, got %d body=%s", apiRec.Code, apiRec.Body.String())
+	}
+
+	// 3) 状态层面校验 User.Active=false（防止"看起来 401 但其实是别的兜底"）
+	u, ok := app.store().FindUserByUsername("bob")
+	if !ok {
+		t.Fatalf("user bob disappeared from store after disable")
+	}
+	if u.Active {
+		t.Fatalf("expected User.Active=false after disable, got true")
+	}
+}
+
 func TestFrontendRouteCompatibilityDoesNot404(t *testing.T) {
 	app := newTestApp(t)
 	routes := []struct{ method, path string }{
