@@ -29,7 +29,7 @@ func (a *App) handleBatchToggleUsers(w http.ResponseWriter, r *http.Request, ena
 	for _, uid := range uniqueInt64s(uids) {
 		target, okUser := a.store().User(uid)
 		if !okUser {
-			addBatchOutcomeWithCode(result, uid, ErrUserNotFound, fmt.Errorf("user not found"))
+			addBatchOutcomeWithCode(result, uid, ErrUserNotFound, fmt.Errorf("%s", userNotFoundMessage))
 			continue
 		}
 		if a.userIsProtected(target) {
@@ -84,7 +84,7 @@ func (a *App) handleBatchDeleteUsers(w http.ResponseWriter, r *http.Request, _ P
 		}
 		target, okUser := a.store().User(uid)
 		if !okUser {
-			addBatchOutcomeWithCode(result, uid, ErrUserNotFound, fmt.Errorf("user not found"))
+			addBatchOutcomeWithCode(result, uid, ErrUserNotFound, fmt.Errorf("%s", userNotFoundMessage))
 			continue
 		}
 		if a.userIsProtected(target) {
@@ -141,7 +141,7 @@ func (a *App) handleBatchUserLibraries(w http.ResponseWriter, r *http.Request, _
 	for _, uid := range uniqueInt64s(uids) {
 		target, okUser := a.store().User(uid)
 		if !okUser {
-			addBatchOutcomeWithCode(result, uid, ErrUserNotFound, fmt.Errorf("user not found"))
+			addBatchOutcomeWithCode(result, uid, ErrUserNotFound, fmt.Errorf("%s", userNotFoundMessage))
 			continue
 		}
 		if target.EmbyID == "" {

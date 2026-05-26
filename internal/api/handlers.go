@@ -1192,10 +1192,8 @@ func (a *App) handleAdminUsers(w http.ResponseWriter, r *http.Request, _ Params)
 }
 
 func (a *App) handleAdminUser(w http.ResponseWriter, r *http.Request, params Params) {
-	uid, _ := int64Param(params, "uid")
-	u, okUser := a.store().User(uid)
+	u, okUser := a.userFromPath(w, params, "uid")
 	if !okUser {
-		failWithCode(w, http.StatusNotFound, ErrUserNotFound, "user not found")
 		return
 	}
 	ok(w, "OK", publicUser(u))
@@ -1577,10 +1575,8 @@ func (a *App) handleSyncBindings(w http.ResponseWriter, r *http.Request, _ Param
 }
 
 func (a *App) handleKickUser(w http.ResponseWriter, r *http.Request, params Params) {
-	uid, _ := int64Param(params, "uid")
-	u, okUser := a.store().User(uid)
+	u, okUser := a.userFromPath(w, params, "uid")
 	if !okUser {
-		failWithCode(w, http.StatusNotFound, ErrUserNotFound, "user not found")
 		return
 	}
 	kicked := 0
@@ -1638,7 +1634,7 @@ func (a *App) handleAdminResetPassword(w http.ResponseWriter, r *http.Request, p
 	}
 	targetUser, okUser := a.store().User(uid)
 	if !okUser {
-		failWithCode(w, http.StatusNotFound, ErrUserNotFound, "user not found")
+		failWithCode(w, http.StatusNotFound, ErrUserNotFound, userNotFoundMessage)
 		return
 	}
 	newPassword := stringValue(body, "password")
@@ -1757,7 +1753,7 @@ func (a *App) handleUserByTelegram(w http.ResponseWriter, r *http.Request, param
 			return
 		}
 	}
-	failWithCode(w, http.StatusNotFound, ErrUserNotFound, "user not found")
+	failWithCode(w, http.StatusNotFound, ErrUserNotFound, userNotFoundMessage)
 }
 
 func (a *App) handleEmbySync(w http.ResponseWriter, r *http.Request, _ Params) {

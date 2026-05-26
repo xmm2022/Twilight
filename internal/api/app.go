@@ -1316,6 +1316,39 @@ func int64Param(params Params, key string) (int64, error) {
 	return strconv.ParseInt(params[key], 10, 64)
 }
 
+// userNotFoundMessage 是所有 ErrUserNotFound 响应的统一文案。
+//
+// 历史上 handlers.go / upload_handlers.go 用英文 "user not found"，
+// admin_extra.go / library_handlers.go 用 "用户不存在"，invite_handlers.go
+// 用 "目标用户不存在"——同一个语义在 9 个 call site 里漂移成 3 种 copy，
+// 前端按 message 分支时永远落不了一致的 fallback 文案。统一成中文 "用户不存在"
+// 以与系统其他错误响应一致；前端 validators.ts 已经映射 USER_NOT_FOUND → "用户不存在"，
+// 这只是把后端 message 也对齐过来。
+const userNotFoundMessage = "用户不存在"
+
+// userFromPath 抽掉"按 :uid path-param 加载用户，不存在则 404"的
+// 重复模板。原先 handlers.go / upload_handlers.go / admin_extra.go /
+// library_handlers.go 各处共有 9 个完全一样的 4 行片段：
+//
+//	uid, _ := int64Param(params, "uid")
+//	u, ok := a.store().User(uid)
+//	if !ok { failWithCode(w, 404, ErrUserNotFound, "user not found"); return }
+//
+// 抽到这里之后调用方变成 `u, ok := a.userFromPath(w, params, "uid"); if !ok { return }`，
+// 同时把所有响应统一到 ErrUserNotFound + userNotFoundMessage，消除 R64-7 提到
+// 的"同一个 ErrUserNotFound 同义词散落在三种 copy"的问题。返回值用 ok 模式
+// 而不是 error，是因为 handler 在 not-found 时已经写好响应直接 return，
+// 调用方没有继续处理 error 的场景；强制返回 error 反倒诱使调用方再写一遍判空。
+func (a *App) userFromPath(w http.ResponseWriter, params Params, key string) (store.User, bool) {
+	uid, _ := int64Param(params, key)
+	u, okUser := a.store().User(uid)
+	if !okUser {
+		failWithCode(w, http.StatusNotFound, ErrUserNotFound, userNotFoundMessage)
+		return store.User{}, false
+	}
+	return u, true
+}
+
 func publicUser(u store.User) map[string]any {
 	return map[string]any{
 		"uid":                     u.UID,

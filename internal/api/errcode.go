@@ -124,6 +124,11 @@ const (
 	ErrInviteRenewRequiresEmby   ErrCode = "INVITE_RENEW_REQUIRES_EMBY"
 	ErrInviteRenewBadTarget      ErrCode = "INVITE_RENEW_BAD_TARGET"
 	ErrInviteRenewNotDirectChild ErrCode = "INVITE_RENEW_NOT_DIRECT_CHILD"
+	// Deprecated: ErrInviteRenewTargetMissing 在 R64-7 之前用于"目标用户不存在"，
+	// 与通用 ErrUserNotFound 是同义词分叉，让前端要为同一种 not-found 写两份
+	// 一模一样的"用户不存在"分支。后端已统一返回 ErrUserNotFound，本常量保留
+	// 仅是为了不破坏 webui/src/lib/errcode.ts 已发布的 union（升级一次后端 +
+	// 一次前端就能彻底拿掉）。新代码不要再使用。
 	ErrInviteRenewTargetMissing  ErrCode = "INVITE_RENEW_TARGET_MISSING"
 	ErrInviteRenewDaysOutOfRange ErrCode = "INVITE_RENEW_DAYS_OUT_OF_RANGE"
 	ErrInviteDetachNotDirect     ErrCode = "INVITE_DETACH_NOT_DIRECT_CHILD"

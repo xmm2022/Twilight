@@ -3881,3 +3881,49 @@ func TestBatchUserOutcomesCarryStableErrorCodes(t *testing.T) {
 		t.Fatalf("expected USER_NO_EMBY on uid=2, got %+v", errs)
 	}
 }
+
+// TestUserNotFoundResponsesAreUniform 锁住 R64-6 / R64-7 的不变量：所有结构上
+// "按 uid 加载用户失败"的端点必须返回同一个 (HTTP 404, code=USER_NOT_FOUND,
+// message="用户不存在") 三元组。原先后端在 9 个 call site 内分裂出 3 种 copy
+// （"user not found" / "用户不存在" / "目标用户不存在"），其中 invite renew
+// code 还把 not-found 错挂到了 INVITE_RENEW_TARGET_MISSING 上——前端要写两份
+// 一模一样的"用户不存在"分支才能覆盖同一种语义。这个回归测试覆盖三条不同
+// path（admin GET / admin reset password / kick session）保证未来谁要把消息
+// 从 helper 里抽出来 inline 都会立刻炸掉。
+func TestUserNotFoundResponsesAreUniform(t *testing.T) {
+	app := newTestApp(t)
+	adminCookies := registerAndLogin(t, app, "admin", "Admin123456")
+	csrfCookie := findCookie(adminCookies, "twilight_session_csrf")
+	if csrfCookie == nil {
+		t.Fatal("missing csrf cookie")
+	}
+	headers := map[string]string{"X-CSRF-Token": csrfCookie.Value, "X-Twilight-Client": "webui"}
+
+	type errResp struct {
+		Code    string `json:"error_code"`
+		Message string `json:"message"`
+	}
+	expect := func(t *testing.T, label string, resp *httptest.ResponseRecorder) {
+		t.Helper()
+		if resp.Code != http.StatusNotFound {
+			t.Fatalf("%s: status=%d body=%s", label, resp.Code, resp.Body.String())
+		}
+		var e errResp
+		if err := json.Unmarshal(resp.Body.Bytes(), &e); err != nil {
+			t.Fatalf("%s: decode: %v body=%s", label, err, resp.Body.String())
+		}
+		if e.Code != string(ErrUserNotFound) {
+			t.Fatalf("%s: code=%q want USER_NOT_FOUND", label, e.Code)
+		}
+		if e.Message != "用户不存在" {
+			t.Fatalf("%s: message=%q want %q", label, e.Message, "用户不存在")
+		}
+	}
+
+	// admin user GET 走 handleAdminUser → userFromPath helper
+	expect(t, "GET admin user", doJSONWithHeaders(app, http.MethodGet, "/api/v1/admin/users/9999", "", adminCookies, headers))
+	// admin password reset 走 handleAdminResetPassword → 直接 store.User 查询
+	expect(t, "POST admin password reset", doJSONWithHeaders(app, http.MethodPost, "/api/v1/admin/users/9999/reset-password", `{"scope":"system"}`, adminCookies, headers))
+	// kick session 走 handleKickUser → userFromPath helper
+	expect(t, "POST admin kick", doJSONWithHeaders(app, http.MethodPost, "/api/v1/admin/users/9999/kick", "", adminCookies, headers))
+}

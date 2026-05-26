@@ -616,11 +616,10 @@ func (a *App) handleInviteDetach(w http.ResponseWriter, r *http.Request, params 
 		failWithCode(w, http.StatusForbidden, ErrInviteDisabled, "邀请功能未开启")
 		return
 	}
-	uid, _ := int64Param(params, "uid")
-	if _, okUser := a.store().User(uid); !okUser {
-		failWithCode(w, http.StatusNotFound, ErrUserNotFound, "用户不存在")
+	if _, okUser := a.userFromPath(w, params, "uid"); !okUser {
 		return
 	}
+	uid, _ := int64Param(params, "uid")
 	_, hadParent := a.store().ParentOf(uid)
 	if err := a.store().DetachInvite(uid); statusFromError(w, err) {
 		return

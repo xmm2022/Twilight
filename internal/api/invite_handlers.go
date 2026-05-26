@@ -131,7 +131,13 @@ func (a *App) handleCreateInviteRenewCode(w http.ResponseWriter, r *http.Request
 	}
 	child, okChild := a.store().User(targetUID)
 	if !okChild {
-		failWithCode(w, http.StatusNotFound, ErrInviteRenewTargetMissing, "目标用户不存在")
+		// 历史上这里返回 ErrInviteRenewTargetMissing："目标用户不存在"——但这是
+		// 对 ErrUserNotFound 的本地分叉，前端要为 USER_NOT_FOUND 与
+		// INVITE_RENEW_TARGET_MISSING 写两份一模一样的"用户不存在"分支。
+		// R64-7 把所有结构上的"按 uid 找不到用户"统一回 ErrUserNotFound，
+		// 文案统一为 userNotFoundMessage；renew code 特有的真错误（剩余天数
+		// 不够、非直属下级等）继续走各自的专门 code。
+		failWithCode(w, http.StatusNotFound, ErrUserNotFound, userNotFoundMessage)
 		return
 	}
 	maxDays, reason := a.maxCodeDays(user)
@@ -201,7 +207,7 @@ func (a *App) handleDetachExpiredInviteChild(w http.ResponseWriter, r *http.Requ
 	}
 	child, okChild := a.store().User(uid)
 	if !okChild {
-		failWithCode(w, http.StatusNotFound, ErrUserNotFound, "目标用户不存在")
+		failWithCode(w, http.StatusNotFound, ErrUserNotFound, userNotFoundMessage)
 		return
 	}
 	if child.ExpiredAt <= 0 || child.ExpiredAt >= time.Now().Unix() {

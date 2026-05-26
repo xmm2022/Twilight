@@ -41,12 +41,11 @@ func (a *App) handleGetBackground(w http.ResponseWriter, r *http.Request, params
 	// 限制为本人或管理员，与 handleGetAvatar 同步收口。
 	p := current(r)
 	if uid != p.User.UID && p.User.Role != store.RoleAdmin {
-		failWithCode(w, http.StatusNotFound, ErrUserNotFound, "user not found")
+		failWithCode(w, http.StatusNotFound, ErrUserNotFound, userNotFoundMessage)
 		return
 	}
-	u, okUser := a.store().User(uid)
+	u, okUser := a.userFromPath(w, params, "uid")
 	if !okUser {
-		failWithCode(w, http.StatusNotFound, ErrUserNotFound, "user not found")
 		return
 	}
 	ok(w, "OK", map[string]any{"background": u.Background})
@@ -177,12 +176,11 @@ func (a *App) handleGetAvatar(w http.ResponseWriter, r *http.Request, params Par
 	// （settings/appearance、sidebar），所以收口为本人或管理员可读。
 	p := current(r)
 	if uid != p.User.UID && p.User.Role != store.RoleAdmin {
-		failWithCode(w, http.StatusNotFound, ErrUserNotFound, "user not found")
+		failWithCode(w, http.StatusNotFound, ErrUserNotFound, userNotFoundMessage)
 		return
 	}
-	u, okUser := a.store().User(uid)
+	u, okUser := a.userFromPath(w, params, "uid")
 	if !okUser {
-		failWithCode(w, http.StatusNotFound, ErrUserNotFound, "user not found")
 		return
 	}
 	ok(w, "OK", map[string]any{"avatar": u.Avatar, "uid": u.UID, "username": u.Username})

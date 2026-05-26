@@ -47,13 +47,11 @@ func (a *App) handleLibraries(w http.ResponseWriter, r *http.Request, params Par
 	// Resolve target user: admin routes pass :uid, user routes use session
 	targetUser := current(r).User
 	if params["uid"] != "" {
-		uid, _ := int64Param(params, "uid")
-		if u, okUser := a.store().User(uid); okUser {
-			targetUser = u
-		} else {
-			failWithCode(w, http.StatusNotFound, ErrUserNotFound, "用户不存在")
+		u, okUser := a.userFromPath(w, params, "uid")
+		if !okUser {
 			return
 		}
+		targetUser = u
 	}
 
 	// PUT: modify library visibility
