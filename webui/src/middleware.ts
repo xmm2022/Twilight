@@ -132,8 +132,15 @@ export function middleware(request: NextRequest) {
   if (apiOrigin) connectParts.add(apiOrigin);
   connectParts.add("https://cloudflareinsights.com");
   if (extraConnect) {
+    // 允许 NEXT_PUBLIC_CSP_CONNECT，但每条都要过 safeOrigin 校验：
+    //   - "*" / "https:" / "data:" 这种全通配会让 connect-src 沦为摆设；
+    //   - 误粘的路径 / 带查询串的 URL 会让浏览器整条 directive 静默失效；
+    //   - 静默失败比硬失败危险，操作员通常不会回头检查 CSP 头部。
+    // 这里强制每个 token 必须解析成 http(s) origin，剩下的全丢，让运维错配
+    // 的代价仅限于"那条额外白名单没生效"，而不是"整套 CSP 解封"。
     for (const piece of extraConnect.split(/\s+/)) {
-      if (piece) connectParts.add(piece);
+      const origin = safeOrigin(piece);
+      if (origin) connectParts.add(origin);
     }
   }
   const connectSrc = Array.from(connectParts).join(" ");
@@ -169,8 +176,11 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // 跳过 _next 静态资源、图片优化、favicon、其它静态资产；
+    // 跳过 _next 静态资源、图片优化、favicon 各格式、其它静态资产；
     // 这些请求永远不会触发脚本执行，跳过 middleware 节省每请求 CPU。
-    "/((?!_next/static|_next/image|favicon\\.ico|favicon\\.svg|images/|api/).*)",
+    // favicon.png 单独列出：iOS Safari / Android Chrome 都会无视 SVG 偏好直
+    // 接发 GET /favicon.png 探活；如果它没在 matcher 排除里，每次浏览器开标
+    // 签都要走一次 middleware（CSP 头注入 + cookie 解析），白白浪费 edge 算力。
+    "/((?!_next/static|_next/image|favicon\\.ico|favicon\\.svg|favicon\\.png|images/|api/).*)",
   ],
 };
