@@ -98,6 +98,14 @@ func (a *App) handleLoginByAPIKey(w http.ResponseWriter, r *http.Request, _ Para
 		failWithCode(w, http.StatusUnauthorized, ErrAPIKeyInvalid, "API Key 无效")
 		return
 	}
+	// 与 handleLogin 对齐：禁用账号不能凭 API Key 重新拿到 session。
+	// 旧路径只查 API Key 命中即建会话，导致管理员把账号 Active=false 后
+	// 该用户仍可继续访问；handleLogin 走的是 password 路径有 u.Active 守卫，
+	// 这里属于同一身份链路必须共享同一不变量。
+	if !u.Active {
+		failWithCode(w, http.StatusForbidden, ErrAccountDisabled, "账号已被禁用")
+		return
+	}
 	token, expires, err := a.sessions().Create(r.Context(), u.UID)
 	if err != nil {
 		failWithCode(w, http.StatusInternalServerError, ErrSessionCreateFailed, "创建会话失败")

@@ -3237,3 +3237,38 @@ func TestValidateEmbyURLRejectsUnsafeTargets(t *testing.T) {
 		})
 	}
 }
+
+// TestLoginByAPIKeyRejectsDisabledAccount 锁定与 handleLogin 同一不变量：
+// 禁用账号无法用 API Key 重新拿到 session。修复前 /auth/login/apikey 只查
+// API Key 命中即建会话，admin 把 Active=false 后这条路径仍可继续访问。
+func TestLoginByAPIKeyRejectsDisabledAccount(t *testing.T) {
+	app := newTestApp(t)
+	cookies := registerAndLogin(t, app, "carol", "Password123456")
+	rec := doJSONWithHeaders(app, http.MethodPost, "/api/v1/users/me/apikeys", `{"name":"k","rate_limit":50}`, cookies, map[string]string{"X-Twilight-Client": "webui"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create key status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var env envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("decode key: %v", err)
+	}
+	key, _ := env.Data.(map[string]any)["key"].(string)
+	if !strings.HasPrefix(key, "key-") {
+		t.Fatalf("expected plaintext key, got %q", key)
+	}
+	user, ok := app.store().FindUserByUsername("carol")
+	if !ok {
+		t.Fatalf("user disappeared")
+	}
+	if _, err := app.store().UpdateUser(user.UID, func(u *store.User) error { u.Active = false; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(map[string]any{"apikey": key})
+	resp := doJSON(app, http.MethodPost, "/api/v1/auth/login/apikey", string(body), nil)
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("login/apikey on disabled account: status=%d body=%s, want 403", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), string(ErrAccountDisabled)) {
+		t.Fatalf("expected ErrAccountDisabled in body, got %s", resp.Body.String())
+	}
+}
