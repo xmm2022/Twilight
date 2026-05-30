@@ -549,7 +549,7 @@ func (a *App) handleDevices(w http.ResponseWriter, r *http.Request, params Param
 }
 
 func (a *App) handleSessions(w http.ResponseWriter, r *http.Request, _ Params) {
-	if a.cfg().EmbyURL == "" {
+	if !a.embyConfigured() {
 		ok(w, "OK", []any{})
 		return
 	}
@@ -1157,7 +1157,7 @@ func (a *App) handleDeprecatedEmbyURLs(w http.ResponseWriter, r *http.Request, _
 }
 
 func (a *App) handleEmbyLatest(w http.ResponseWriter, r *http.Request, _ Params) {
-	if a.cfg().EmbyURL == "" {
+	if !a.embyConfigured() {
 		ok(w, "OK", map[string]any{"items": []any{}, "total": 0})
 		return
 	}
@@ -1181,7 +1181,7 @@ func (a *App) handleEmbyLatest(w http.ResponseWriter, r *http.Request, _ Params)
 }
 
 func (a *App) handleSessionCount(w http.ResponseWriter, r *http.Request, _ Params) {
-	if a.cfg().EmbyURL == "" {
+	if !a.embyConfigured() {
 		ok(w, "OK", map[string]any{"active": 0, "total": 0})
 		return
 	}

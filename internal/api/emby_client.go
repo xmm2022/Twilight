@@ -80,7 +80,16 @@ func (a *App) embyHeaders() map[string]string {
 	return headers
 }
 
+// embyConfigured 返回 Emby URL 和 Token 是否都已配置。
+// 仅 URL 配置而 Token 为空时视为未鉴权配置，不应发起请求。
+func (a *App) embyConfigured() bool {
+	return strings.TrimSpace(a.cfg().EmbyURL) != "" && strings.TrimSpace(a.cfg().EmbyToken) != ""
+}
+
 func (a *App) embyGet(ctx context.Context, apiPath string, dst any) error {
+	if strings.TrimSpace(a.cfg().EmbyToken) == "" {
+		return fmt.Errorf("Emby API Token 未配置，拒绝发送未鉴权请求")
+	}
 	endpoint, err := a.validatedEmbyEndpoint(apiPath)
 	if err != nil {
 		return err
@@ -89,6 +98,9 @@ func (a *App) embyGet(ctx context.Context, apiPath string, dst any) error {
 }
 
 func (a *App) embyPost(ctx context.Context, apiPath string, body any, dst any) error {
+	if strings.TrimSpace(a.cfg().EmbyToken) == "" {
+		return fmt.Errorf("Emby API Token 未配置，拒绝发送未鉴权请求")
+	}
 	endpoint, err := a.validatedEmbyEndpoint(apiPath)
 	if err != nil {
 		return err
@@ -98,6 +110,9 @@ func (a *App) embyPost(ctx context.Context, apiPath string, body any, dst any) e
 }
 
 func (a *App) embyDelete(ctx context.Context, apiPath string) error {
+	if strings.TrimSpace(a.cfg().EmbyToken) == "" {
+		return fmt.Errorf("Emby API Token 未配置，拒绝发送未鉴权请求")
+	}
 	endpoint, err := a.validatedEmbyEndpoint(apiPath)
 	if err != nil {
 		return err

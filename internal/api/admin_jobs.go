@@ -11,13 +11,13 @@ import (
 	"github.com/prejudice-studio/twilight/internal/store"
 )
 
-func (a *App) enforceTelegramMembership(ctx context.Context) (map[string]any, []string, error) {
+func (a *App) enforceTelegramMembership(ctx context.Context, autoEnableRejoined bool) (map[string]any, []string, error) {
 	chats := telegramChatIDs(a.cfg().TelegramGroupIDs)
 	result := map[string]any{
 		"enabled": false, "telegram_available": a.telegramAvailable(), "groups": chats,
 		"scanned": 0, "disabled": 0, "emby_disabled": 0, "banned": 0, "rejoined_enabled": 0,
 		"rejoined_pending_review": 0, "rejoin_candidates": 0, "skipped": 0, "failed": 0,
-		"auto_enable_rejoined": a.cfg().TelegramAutoEnableRejoined,
+		"auto_enable_rejoined": autoEnableRejoined,
 	}
 	rejoinCandidates := []map[string]any{}
 	logs := []string{}
@@ -71,7 +71,7 @@ func (a *App) enforceTelegramMembership(ctx context.Context) (map[string]any, []
 			continue
 		}
 		if !u.Active && len(missing) == 0 && (u.ExpiredAt <= 0 || u.ExpiredAt > now) {
-			if a.cfg().TelegramAutoEnableRejoined && !a.cfg().TelegramBanOnLeave {
+			if autoEnableRejoined && !a.cfg().TelegramBanOnLeave {
 				updated, err := a.store().UpdateUser(u.UID, func(u *store.User) error { u.Active = true; return nil })
 				if err != nil {
 					result["failed"] = int(numeric(result["failed"])) + 1

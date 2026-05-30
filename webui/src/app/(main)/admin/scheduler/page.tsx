@@ -197,6 +197,14 @@ function cleanupSchedulerRuntimeConfig(jobID: string) {
       description: "每次执行会收回所有尚未创建 Emby 的开通资格，不删除 Web 账号。",
     };
   }
+  if (jobID === "enforce_group_membership") {
+    return {
+      hasDays: false,
+      hasAutoEnableRejoined: true,
+      title: "群成员校验参数",
+      description: "检测到用户回到群里且账号未过期时，是否自动解禁并启用其 Emby 和系统账号。关闭时仅标记为待审核。注意：ban_on_leave 开启时自动解禁不会生效。",
+    };
+  }
   return null;
 }
 
@@ -216,19 +224,20 @@ function ScheduleEditor({ job, open, onOpenChange, onSaved }: ScheduleEditorProp
   useEffect(() => {
     if (!open || !job) return;
     const spec = job.trigger_spec;
+    const rp = job.runtime_params || {};
     if (spec.type === "manual") {
       setType("manual");
       setHour(0);
       setMinute(0);
       setIntervalValue(1);
       setIntervalUnit("hours");
-      setCleanupDays(String(Number((job.runtime_params || {}).days ?? 7) || 7));
-      setCleanupEnabled(Boolean((job.runtime_params || {}).enabled ?? (job.runtime_params || {}).auto_enabled));
+      setCleanupDays(String(Number(rp.days ?? 7) || 7));
+      setCleanupEnabled(job.id === "enforce_group_membership" ? Boolean(rp.auto_enable_rejoined) : Boolean(rp.enabled ?? rp.auto_enabled));
       return;
     }
     setType(spec.type);
-    setCleanupDays(String(Number((job.runtime_params || {}).days ?? 7) || 7));
-    setCleanupEnabled(Boolean((job.runtime_params || {}).enabled ?? (job.runtime_params || {}).auto_enabled));
+    setCleanupDays(String(Number(rp.days ?? 7) || 7));
+    setCleanupEnabled(job.id === "enforce_group_membership" ? Boolean(rp.auto_enable_rejoined) : Boolean(rp.enabled ?? rp.auto_enabled));
     if (spec.type === "cron_daily") {
       setHour(spec.hour);
       setMinute(spec.minute);
@@ -273,7 +282,12 @@ function ScheduleEditor({ job, open, onOpenChange, onSaved }: ScheduleEditorProp
         payload = { type: "interval", seconds };
       }
       if (cleanupConfig) {
-        const runtimeParams: Record<string, unknown> = { enabled: cleanupEnabled };
+        const runtimeParams: Record<string, unknown> = {};
+        if ("hasAutoEnableRejoined" in cleanupConfig && cleanupConfig.hasAutoEnableRejoined) {
+          runtimeParams.auto_enable_rejoined = cleanupEnabled;
+        } else {
+          runtimeParams.enabled = cleanupEnabled;
+        }
         if (cleanupConfig.hasDays) {
           const days = Number(cleanupDays);
           if (!Number.isFinite(days) || days < 1 || days > 3650) {
@@ -428,11 +442,18 @@ function ScheduleEditor({ job, open, onOpenChange, onSaved }: ScheduleEditorProp
                   className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
                 />
                 <span>
-                  启用自动清理
+                  {"hasAutoEnableRejoined" in cleanupConfig && cleanupConfig.hasAutoEnableRejoined
+                    ? "检测到用户回群时自动解禁"
+                    : "启用自动清理"}
                   <span className="block text-xs text-muted-foreground">
-                    该开关保存到调度器数据库参数；关闭后定时自动执行会跳过，手动运行仍可临时强制执行。
+                    {"hasAutoEnableRejoined" in cleanupConfig && cleanupConfig.hasAutoEnableRejoined
+                      ? "开启后，巡检发现用户已回到群里且账号未过期时，自动恢复其系统账号和 Emby 访问权限。关闭时仅标记为待审核，需管理员手动启用。"
+                      : "该开关保存到调度器数据库参数；关闭后定时自动执行会跳过，手动运行仍可临时强制执行。"}
                   </span>
                 </span>
+              </label>
+            </div>
+          )}
               </label>
             </div>
           )}

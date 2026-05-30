@@ -196,7 +196,7 @@ func (a *App) runSchedulerJob(r *http.Request, jobID string) (map[string]any, []
 		}
 		return map[string]any{"success": true, "deleted": deleted, "expired_sessions": expiredSessions}, logs, nil
 	case "cleanup_sessions":
-		if a.cfg().EmbyURL == "" {
+		if !a.embyConfigured() {
 			return map[string]any{"success": true, "configured": false, "active": 0, "total": 0}, []string{"Emby not configured"}, nil
 		}
 		var sessions []map[string]any
@@ -211,7 +211,7 @@ func (a *App) runSchedulerJob(r *http.Request, jobID string) (map[string]any, []
 		}
 		return map[string]any{"success": true, "active": active, "total": len(sessions)}, []string{fmt.Sprintf("read %d Emby sessions", len(sessions))}, nil
 	case "emby_sync":
-		if a.cfg().EmbyURL == "" {
+		if !a.embyConfigured() {
 			return map[string]any{"success": true, "configured": false}, []string{"Emby not configured"}, nil
 		}
 		// 给 emby_sync 加 30 分钟硬上限，避免 emby 反代僵死时整个调度槽被占住——
@@ -405,7 +405,8 @@ func (a *App) runSchedulerJob(r *http.Request, jobID string) (map[string]any, []
 		}
 		return map[string]any{"success": true, "enabled": true, "candidates": candidates, "cleared": cleared, "failed": failed, "dry_run": dryRun, "scope": "all"}, []string{fmt.Sprintf("cleared %d pending Emby entitlements", cleared)}, nil
 	case "enforce_group_membership":
-		result, logs, err := a.enforceTelegramMembership(r.Context())
+		autoEnableRejoined := jobParamBool(params, "auto_enable_rejoined", a.cfg().TelegramAutoEnableRejoined)
+		result, logs, err := a.enforceTelegramMembership(r.Context(), autoEnableRejoined)
 		result["success"] = err == nil
 		return result, logs, err
 	case "check_telegram_bindings":

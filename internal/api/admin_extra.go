@@ -13,8 +13,7 @@ import (
 func (a *App) handleEmbySyncV2(w http.ResponseWriter, r *http.Request, _ Params) {
 	updated := 0
 	missing := []map[string]any{}
-	if a.cfg().EmbyURL == "" {
-		ok(w, "Emby not configured", map[string]any{"success": 0, "failed": 0, "errors": []any{}, "configured": false})
+	if a.requireEmbyConfigured(w) {
 		return
 	}
 	var remote []map[string]any
@@ -49,8 +48,7 @@ func (a *App) handleEmbySyncV2(w http.ResponseWriter, r *http.Request, _ Params)
 
 func (a *App) handleEmbyActivity(w http.ResponseWriter, r *http.Request, _ Params) {
 	limit := clamp(queryInt(r, "limit", 50), 1, 200)
-	if a.cfg().EmbyURL == "" {
-		ok(w, "OK", []any{})
+	if a.requireEmbyConfigured(w) {
 		return
 	}
 	var payload map[string]any
@@ -66,8 +64,7 @@ func (a *App) handleEmbyActivity(w http.ResponseWriter, r *http.Request, _ Param
 }
 
 func (a *App) handleAdminEmbyUsersV2(w http.ResponseWriter, r *http.Request, _ Params) {
-	if a.cfg().EmbyURL == "" {
-		ok(w, "OK", map[string]any{"emby_users": []any{}, "users": []any{}, "orphans": []any{}, "total": 0, "total_emby": 0, "total_linked": 0, "total_orphans": 0})
+	if a.requireEmbyConfigured(w) {
 		return
 	}
 	var remote []map[string]any

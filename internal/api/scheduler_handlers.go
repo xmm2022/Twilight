@@ -140,6 +140,8 @@ func (a *App) schedulerDefaultRuntimeParams(jobID string) map[string]any {
 		return map[string]any{"enabled": a.cfg().AutoCleanupPendingEmby, "auto_enabled": a.cfg().AutoCleanupPendingEmby, "scope": "all"}
 	case "kick_unknown_group_members":
 		return map[string]any{"dry_run": true, "max_per_run": 200}
+	case "enforce_group_membership":
+		return map[string]any{"auto_enable_rejoined": a.cfg().TelegramAutoEnableRejoined}
 	default:
 		return nil
 	}
@@ -184,6 +186,8 @@ func (a *App) normalizeSchedulerRuntimeParams(jobID string, params map[string]an
 		return map[string]any{"enabled": enabled, "auto_enabled": enabled, "scope": "all"}
 	case "kick_unknown_group_members":
 		return map[string]any{"dry_run": boolValue(params, "dry_run", true), "max_per_run": clamp(intValue(params, "max_per_run", 200), 1, 500)}
+	case "enforce_group_membership":
+		return map[string]any{"auto_enable_rejoined": boolValue(params, "auto_enable_rejoined", a.cfg().TelegramAutoEnableRejoined)}
 	default:
 		return nil
 	}

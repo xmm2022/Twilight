@@ -1645,7 +1645,7 @@ func TestTelegramMembershipRejoinManualReviewAndAutoEnable(t *testing.T) {
 	app.cfg().TelegramAPIURL = tg.URL
 
 	app.cfg().TelegramAutoEnableRejoined = false
-	summary, _, err := app.enforceTelegramMembership(context.Background())
+	summary, _, err := app.enforceTelegramMembership(context.Background(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1657,7 +1657,7 @@ func TestTelegramMembershipRejoinManualReviewAndAutoEnable(t *testing.T) {
 	}
 
 	app.cfg().TelegramAutoEnableRejoined = true
-	summary, _, err = app.enforceTelegramMembership(context.Background())
+	summary, _, err = app.enforceTelegramMembership(context.Background(), true)
 	if err != nil {
 		t.Fatal(err)
 	}
