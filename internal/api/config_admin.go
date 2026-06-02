@@ -741,15 +741,13 @@ func configSectionDefs() []configSectionDef {
 			{Key: "postgres_max_open_conns", Label: "PG 最大连接", Type: "int", Description: "PostgreSQL 最大打开连接数"},
 			{Key: "postgres_max_idle_conns", Label: "PG 空闲连接", Type: "int", Description: "PostgreSQL 最大空闲连接数"},
 		}},
-		{Key: "Emby", Title: "Emby", Description: "Emby 连接、线路和媒体库", Category: "integration", Fields: []configFieldDef{
+		{Key: "Emby", Title: "Emby", Description: "Emby 连接和线路", Category: "integration", Fields: []configFieldDef{
 			{Key: "emby_url", Label: "Emby URL", Type: "string", Description: "后端访问的 Emby/Jellyfin 地址"},
 			{Key: "emby_token", Label: "Emby Token", Type: "secret", Description: "Emby API Key"},
 			{Key: "emby_username", Label: "管理员用户名", Type: "string", Description: "备用鉴权用户名"},
 			{Key: "emby_password", Label: "管理员密码", Type: "secret", Description: "备用鉴权密码"},
 			{Key: "emby_url_list", Label: "普通线路", Type: "list", Description: "格式：名称 : URL"},
 			{Key: "emby_url_list_for_whitelist", Label: "白名单线路", Type: "list", Description: "管理员和白名单用户可见线路"},
-			{Key: "emby_default_hidden_libraries", Label: "默认隐藏媒体库", Type: "list", Description: "新建 Emby 用户默认隐藏的媒体库名"},
-			{Key: "emby_self_service_libraries", Label: "自助媒体库", Type: "list", Description: "允许用户自行显隐的媒体库名"},
 		}},
 		{Key: "Telegram", Title: "Telegram", Description: "Bot、订阅校验和群组管理", Category: "integration", Fields: []configFieldDef{
 			{Key: "telegram_api_url", Label: "Bot API URL", Type: "string", Description: "Telegram Bot API 基础地址"},
@@ -880,7 +878,6 @@ func configValues(cfg config.Config) map[string]map[string]any {
 		"Emby": {
 			"emby_url": cfg.EmbyURL, "emby_token": cfg.EmbyToken, "emby_username": cfg.EmbyUsername, "emby_password": cfg.EmbyPassword,
 			"emby_url_list": linesToStrings(cfg.EmbyURLList), "emby_url_list_for_whitelist": linesToStrings(cfg.EmbyWhitelistURLList),
-			"emby_default_hidden_libraries": cfg.EmbyDefaultHiddenLibraries, "emby_self_service_libraries": cfg.EmbySelfServiceLibraries,
 		},
 		"Telegram": {
 			"telegram_api_url": cfg.TelegramAPIURL, "bot_token": cfg.TelegramBotToken, "admin_id": int64sToAny(cfg.TelegramAdminIDs), "group_id": cfg.TelegramGroupIDs,

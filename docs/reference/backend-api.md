@@ -73,7 +73,7 @@ GET /api/v1/apikey/status?apikey=<api_key>
 
 Cookie 鉴权的变更类请求（`POST` / `PUT` / `DELETE`）不再要求额外令牌。后端只校验有效登录会话、Bearer Token 或 API Key；`X-Twilight-Client: webui` 仅作为允许的 CORS 请求头保留，不参与鉴权。
 
-双子域部署时，如需两个子域都能携带同一登录会话，应设置 `session_cookie_domain` 让前端站点与 API 站点共享 `HttpOnly` session cookie。生产环境的凭据型 CORS 仍必须显式列出可信 HTTPS Origin，不能使用 `*`。WebUI 服务端路由守卫默认只在同源 / 反代部署下启用；跨 origin API 场景由浏览器请求 `/users/me` 完成后端权威校验。
+双子域部署时，如需两个子域都能携带同一登录会话，应设置 `session_cookie_domain` 让前端站点与 API 站点共享 `HttpOnly` session cookie。生产环境的凭据型 CORS 仍必须显式列出可信 HTTPS Origin，不能使用 `*`。WebUI 登录态以浏览器请求 `/users/me` 的后端响应为准。
 
 更多机制说明见 [安全加固](../guides/security.md)。
 
@@ -633,13 +633,7 @@ curl -X POST "http://localhost:5000/api/v1/users/me/renew" \
 - 说明：轮询使用卡码后触发的 Emby 队列结果（与注册队列状态同 handler）。
 - 认证：登录用户（`AuthUser`）
 
-### 6.5 媒体库自助可见性
-
-`GET /users/me/libraries` — 获取当前用户的媒体库列表与可见状态（登录用户）。
-
-`PUT /users/me/libraries/visibility` — 在管理员开启自助开关后，用户自行调整可见媒体库（登录用户）。
-
-### 6.6 设备与登录历史
+### 6.5 设备与登录历史
 
 #### 查看当前设备列表
 
@@ -670,7 +664,7 @@ curl -X DELETE "http://localhost:5000/api/v1/users/me/devices/abc123" \
 
 - 认证：登录用户（`AuthUser`）
 
-### 6.7 Telegram 绑定
+### 6.6 Telegram 绑定
 
 #### 查询绑定状态
 
@@ -702,13 +696,13 @@ curl -X DELETE "http://localhost:5000/api/v1/users/me/devices/abc123" \
 
 > 注册流程中的绑定确认接口是 `POST /users/me/telegram/bind-confirm`（公开，见 [6.1](#61-注册与校验)），由绑定码本身承载身份。
 
-### 6.8 个人设置
+### 6.7 个人设置
 
 `GET /users/me/settings`
 
 - 认证：登录用户（`AuthUser`）
 
-### 6.9 头像与背景
+### 6.8 头像与背景
 
 | 方法/路径 | 认证 | 说明 |
 | --------- | ---- | ---- |
@@ -723,7 +717,7 @@ curl -X DELETE "http://localhost:5000/api/v1/users/me/devices/abc123" \
 
 背景与头像的存储、URL 校验（反 SSRF）见 [背景与头像](../features/background.md)。
 
-### 6.10 个人 API Key
+### 6.9 个人 API Key
 
 | 方法/路径 | 认证 | 说明 |
 | --------- | ---- | ---- |
@@ -920,31 +914,25 @@ curl -X GET "http://localhost:5000/api/v1/emby/status" \
 - 状态：**已弃用，固定返回 `410 Gone`**。该端点早期为未鉴权返回全量线路，存在泄露风险（路由级别为 `AuthPublic`，仅用于回 410）。
 - 替代：改用 `GET /system/emby-urls`，按用户角色和 Emby 绑定状态下发线路（未绑定 Emby 的普通用户返回空列表）。
 
-### 8.3 获取 Emby 媒体库列表
-
-`GET /emby/libraries`
-
-- 认证：登录用户（`AuthUser`）
-
-### 8.4 Emby 内容搜索
+### 8.3 Emby 内容搜索
 
 `GET /emby/search?query=<keyword>&page=1&per_page=20`
 
 - 认证：登录用户（`AuthUser`）
 
-### 8.5 获取最新媒体
+### 8.4 获取最新媒体
 
 `GET /emby/latest`
 
 - 认证：登录用户（`AuthUser`）
 
-### 8.6 查询 Emby 活跃会话数量
+### 8.5 查询 Emby 活跃会话数量
 
 `GET /emby/sessions/count`
 
 - 认证：登录用户（`AuthUser`）
 
-### 8.7 Bangumi 观看进度 Webhook
+### 8.6 Bangumi 观看进度 Webhook
 
 `POST /emby/bangumi/webhook`
 
@@ -1015,48 +1003,6 @@ curl -X POST "http://localhost:5000/api/v1/admin/users/123/disable" \
 #### 踢出用户 Emby 会话
 
 `POST /admin/users/{uid}/kick`
-
-#### 获取 / 更新用户媒体库权限
-
-`GET /admin/users/{uid}/libraries`
-
-- 响应：
-
-```json
-{
-  "all_libraries": [{"id": "xxx", "name": "电影", "type": "movies"}],
-  "enabled_ids": ["xxx", "yyy"],
-  "enable_all": false,
-  "has_emby": true
-}
-```
-
-`PUT /admin/users/{uid}/libraries`
-
-- 说明：设置用户可访问的媒体库。`enable_all=true` 时用户可见所有库；否则仅 `library_names` / `library_ids` 列出的库可见。写入由单次 `POST /Users/{Id}/Policy` 完成（仅用 `EnableAllFolders` + `EnabledFolders` 的 GUID）。
-- 请求体（推荐使用 `library_names`）：
-
-```json
-{
-  "library_names": ["电影", "电视剧"],
-  "enable_all": false
-}
-```
-
-或按 GUID 传入：
-
-```json
-{
-  "library_ids": ["f137a2dd-21bb-c1b9-9aa5-c0f6bf02a805"],
-  "enable_all": false
-}
-```
-
-#### 媒体库自助开关
-
-`PUT /admin/users/{uid}/library-self-service` — 单用户开关自助调库权限。
-
-`POST /admin/users/library-self-service/bulk-enable` — 批量开启自助调库。
 
 #### 切换管理员身份
 
@@ -1726,13 +1672,6 @@ curl -N "http://localhost:5000/api/v1/system/admin/runtime/logs/stream?limit=100
 - 说明：获取后端注册的全部路由列表。
 - 认证：管理员（`AuthAdmin`）
 
-### 10.15 获取 Emby 媒体库列表（System 视图）
-
-`GET /system/admin/emby/libraries`
-
-- 说明：获取 Emby 媒体库列表（与 `/emby/libraries`、`/admin/emby/libraries` 同 handler，按鉴权级别区分）。
-- 认证：管理员（`AuthAdmin`）
-
 ## 11. 其它模块
 
 ### 11.1 Security 模块
@@ -1759,8 +1698,6 @@ curl -N "http://localhost:5000/api/v1/system/admin/runtime/logs/stream?limit=100
 | `POST /batch/users/enable` | `AuthAdmin` | 批量启用 |
 | `POST /batch/users/renew` | `AuthAdmin` | 批量续期 |
 | `POST /batch/users/delete` | `AuthAdmin` | 批量删除 |
-| `POST /batch/users/library-self-service` | `AuthAdmin` | 批量设置自助调库 |
-| `POST /batch/users/libraries` | `AuthAdmin` | 批量设置媒体库权限 |
 | `GET /batch/export/users` | `AuthAdmin` | 导出用户 |
 | `GET /batch/export/playback` | `AuthAdmin` | 导出播放记录 |
 | `GET /batch/watch-stats` | `AuthUser` | 当前用户观看统计 |

@@ -127,14 +127,10 @@ export const useAuthStore = create<AuthState>()(
           return inFlight.initialize;
         }
         const run = (async () => {
-          // 仅在本地有登录态快照时探测会话，避免未登录场景请求 /users/me。
-          // user 已不再持久化（避免 PII 落 localStorage），仅靠 isAuthenticated 判定。
-          const { isAuthenticated } = get();
-          if (isAuthenticated) {
-            await get().fetchUser();
-            return;
-          }
-          set({ user: null, isAuthenticated: false, isLoading: false });
+          // 进入受保护 layout 时总是向后端确认一次会话。不要依赖 localStorage
+          // 里的 isAuthenticated 快照：它可能尚未写入、被浏览器禁用或被清理，
+          // 但 HttpOnly session cookie 仍然有效。
+          await get().fetchUser();
         })();
         inFlight.initialize = run.finally(() => {
           inFlight.initialize = null;

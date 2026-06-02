@@ -6,8 +6,6 @@ import {
   Ban,
   CalendarClock,
   Edit,
-  Eye,
-  EyeOff,
   Key,
   Link2,
   MoreHorizontal,
@@ -78,8 +76,6 @@ export function renderExpireCell(user: UserInfo) {
  * 单行操作下拉菜单。所有交互通过 handlers 注入，组件本身无状态，便于
  * page.tsx 主组件甩开 90+ 行 JSX。子项的可见性 / 禁用规则与原行为一致：
  *   - "取消永久到期" 仅在永久到期 + 非管理员 + 已绑定 Emby 时出现
- *   - "媒体库权限" 必须已绑定 Emby
- *   - "自助显隐" 切换在 isActionLoading 时禁用
  *   - "授权 / 授权并移出队列" 在 emby_id 已存在或账号被禁用时禁用
  */
 export interface UserActionsMenuHandlers {
@@ -88,8 +84,6 @@ export interface UserActionsMenuHandlers {
   onCancelPermanent: (user: UserInfo) => void;
   onResetPassword: (user: UserInfo) => void;
   onBindEmby: (user: UserInfo) => void;
-  onOpenLibraries: (user: UserInfo) => void;
-  onToggleLibrarySelfService: (user: UserInfo) => void;
   onSyncBindings: (user: UserInfo) => void;
   onForceUnbind: (user: UserInfo) => void;
   onClearRegistrationQueue: (user: UserInfo) => void;
@@ -101,11 +95,9 @@ export interface UserActionsMenuHandlers {
 
 export function UserActionsMenu({
   user,
-  isActionLoading,
   handlers,
 }: {
   user: UserInfo;
-  isActionLoading: boolean;
   handlers: UserActionsMenuHandlers;
 }) {
   const showCancelPermanent =
@@ -141,20 +133,6 @@ export function UserActionsMenu({
         <DropdownMenuItem onClick={() => handlers.onBindEmby(user)}>
           <Link2 className="mr-2 h-4 w-4" />
           绑定 Emby
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={() => handlers.onOpenLibraries(user)}
-          disabled={!Boolean(user.emby_id)}
-        >
-          <Eye className="mr-2 h-4 w-4" />
-          媒体库权限
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={() => handlers.onToggleLibrarySelfService(user)}
-          disabled={isActionLoading}
-        >
-          {user.library_self_service ? <EyeOff className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
-          {user.library_self_service ? "关闭自助显隐权" : "开启自助显隐权"}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => handlers.onSyncBindings(user)}>
           <RefreshCw className="mr-2 h-4 w-4" />

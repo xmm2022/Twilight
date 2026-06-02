@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Eye, EyeOff, ArrowRight, Loader2, ShieldCheck, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,7 @@ function loginRedirectTarget(): string {
 }
 
 export default function LoginPage() {
+  const router = useRouter();
   const { toast } = useToast();
   const { login } = useAuthStore();
   const { info: systemInfo, fetchInfo: fetchSystemInfo } = useSystemStore();
@@ -68,9 +70,7 @@ export default function LoginPage() {
           description: "欢迎回来！",
           variant: "success",
         });
-        // 登录会写 HttpOnly session cookie，受保护页面又由 middleware 读 cookie。
-        // 用完整导航避开登录前的 RSC/prefetch 缓存，确保下一次请求携带最新 cookie。
-        window.location.replace(loginRedirectTarget());
+        router.replace(loginRedirectTarget());
       } else {
         // 用稳定的 error_code 决定 UI 分支，避免 /禁用/.test(message) 这种
         // 文案级匹配在后端切英文 / 改文案时炸掉。

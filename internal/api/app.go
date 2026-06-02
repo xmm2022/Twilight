@@ -1296,7 +1296,6 @@ func publicUser(u store.User) map[string]any {
 		"pending_emby":            u.PendingEmby,
 		"pending_emby_days":       u.PendingEmbyDays,
 		"emby_disabled_by_expiry": false,
-		"library_self_service":    u.LibrarySelfService,
 	}
 }
 

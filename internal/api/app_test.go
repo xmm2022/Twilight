@@ -2249,9 +2249,9 @@ func TestTelegramGroupUserPanelShowsEmbyInfoAndActions(t *testing.T) {
 	defer emby.Close()
 	app.cfg().EmbyURL = emby.URL
 
-	user := store.User{UID: 42, Username: "alpha", Role: store.RoleNormal, Active: true, TelegramID: 1001, TelegramUsername: "alpha_tg", EmbyID: "emby-user", EmbyUsername: "alpha-emby", RegisterTime: time.Now().Unix(), LibrarySelfService: true}
+	user := store.User{UID: 42, Username: "alpha", Role: store.RoleNormal, Active: true, TelegramID: 1001, TelegramUsername: "alpha_tg", EmbyID: "emby-user", EmbyUsername: "alpha-emby", RegisterTime: time.Now().Unix()}
 	text := app.telegramGroupUserPanelText(context.Background(), user)
-	for _, want := range []string{"== Web 账号 ==", "== Emby 远端 ==", "远端用户名: remote-alpha", "远端状态: 禁用", "媒体库自助: 开启", "最近活动: 2026-01-02 03:04"} {
+	for _, want := range []string{"== Web 账号 ==", "== Emby 远端 ==", "远端用户名: remote-alpha", "远端状态: 禁用", "最近活动: 2026-01-02 03:04"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("panel text missing %q:\n%s", want, text)
 		}
@@ -4034,8 +4034,6 @@ func TestBatchUserDangerousActionsRequireConfirm(t *testing.T) {
 		{"disable", "/api/v1/batch/users/disable", `{"uids":[1]}`, confirmBatchDisableUsers},
 		{"delete", "/api/v1/batch/users/delete", `{"uids":[1]}`, confirmBatchDeleteUsers},
 		{"renew", "/api/v1/batch/users/renew", `{"uids":[1],"days":30}`, confirmBatchRenewUsers},
-		{"library self service", "/api/v1/batch/users/library-self-service", `{"uids":[1],"enabled":true}`, confirmBatchLibrarySelfService},
-		{"libraries", "/api/v1/batch/users/libraries", `{"uids":[1],"action":"set","library_ids":[]}`, confirmBatchUserLibraries},
 	}
 
 	for _, tt := range tests {
@@ -4787,16 +4785,6 @@ func TestBatchUserOutcomesCarryStableErrorCodes(t *testing.T) {
 		t.Fatalf("expected USER_NOT_FOUND on uid=9999, got %+v", errs)
 	}
 
-	// 3) libraries 命中 ghost（UID 2，无 emby）→ USER_NO_EMBY
-	libBody := fmt.Sprintf(`{"confirm":%q,"uids":[2],"action":"set","library_ids":[]}`, confirmBatchUserLibraries)
-	resp = doJSONWithHeaders(app, http.MethodPost, "/api/v1/batch/users/libraries", libBody, adminCookies, headers)
-	if resp.Code != http.StatusOK {
-		t.Fatalf("libraries no-emby batch status=%d body=%s", resp.Code, resp.Body.String())
-	}
-	errs = parse(t, resp.Body.String())
-	if len(errs) != 1 || errs[0].UID != 2 || errs[0].Code != string(ErrUserHasNoEmby) {
-		t.Fatalf("expected USER_NO_EMBY on uid=2, got %+v", errs)
-	}
 }
 
 // TestUserNotFoundResponsesAreUniform 锁住 R64-6 / R64-7 的不变量：所有结构上

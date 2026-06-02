@@ -19,8 +19,6 @@ import {
   UserCheck,
   CalendarClock,
   Send,
-  Eye,
-  EyeOff,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -47,13 +45,12 @@ import { useToast } from "@/hooks/use-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useAsyncResource } from "@/hooks/use-async-resource";
 import { PageError } from "@/components/layout/page-state";
-import { api, type UserInfo, type EmbyLibraryAccess, type EmbyLibraryItem } from "@/lib/api";
+import { api, type UserInfo } from "@/lib/api";
 import { ApiError } from "@/lib/api-request";
 import { ErrCodes } from "@/lib/errcode";
 import { formatDate } from "@/lib/utils";
 import {
   batchDeleteConfirmConfig,
-  batchLibrarySelfServiceConfirmConfig,
   batchToggleConfirmConfig,
   buildUsersCacheKey,
   hasStrongAdminPassword,
@@ -63,7 +60,6 @@ import {
 } from "./admin-users-helpers";
 import { renderExpireCell, renderRoleBadge, UserActionsMenu } from "./admin-users-cells";
 import {
-  BatchLibraryDialog,
   BindEmbyDialog,
   BulkEnableDialog,
   BulkExpireDialog,
@@ -72,7 +68,6 @@ import {
   EditUserDialog,
   ForceEmbyPasswordDialog,
   KickUnboundDialog,
-  LibraryAccessDialog,
   NoEmbyKickDialog,
   RenewUserDialog,
   ResetPasswordDialog,
@@ -121,20 +116,8 @@ export default function AdminUsersPage() {
     active: true,
   });
 
-  // 媒体库权限对话框
-  const [libraryOpen, setLibraryOpen] = useState(false);
-  const [libraryTarget, setLibraryTarget] = useState<UserInfo | null>(null);
-  const [libraryAccess, setLibraryAccess] = useState<EmbyLibraryAccess | null>(null);
-  const [selectedLibraryIds, setSelectedLibraryIds] = useState<Set<string>>(new Set());
-  const [libraryLoading, setLibraryLoading] = useState(false);
-  const [librarySelfServiceBulkLoading, setLibrarySelfServiceBulkLoading] = useState(false);
   const [selectedUserIds, setSelectedUserIds] = useState<Set<number>>(new Set());
   const [batchUserLoading, setBatchUserLoading] = useState(false);
-  const [batchLibraryOpen, setBatchLibraryOpen] = useState(false);
-  const [batchLibraries, setBatchLibraries] = useState<EmbyLibraryItem[]>([]);
-  const [batchLibraryAction, setBatchLibraryAction] = useState<"show" | "hide" | "enable_all" | "disable_all" | "set">("show");
-  const [batchLibrarySelectedIds, setBatchLibrarySelectedIds] = useState<Set<string>>(new Set());
-  const [batchLibraryLoading, setBatchLibraryLoading] = useState(false);
 
   // 删除（含邀请树级联）对话框
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -797,113 +780,6 @@ export default function AdminUsersPage() {
     }
   };
 
-  const applyLibraryAccessState = (data: EmbyLibraryAccess) => {
-    setLibraryAccess(data);
-    setSelectedLibraryIds(new Set((data.libraries || []).map((lib) => lib.id)));
-  };
-
-  const handleOpenLibraries = async (user: UserInfo) => {
-    setLibraryTarget(user);
-    setLibraryAccess(null);
-    setSelectedLibraryIds(new Set());
-    setLibraryOpen(true);
-    setLibraryLoading(true);
-    try {
-      const res = await api.getUserLibraries(user.uid);
-      if (res.success && res.data) {
-        applyLibraryAccessState(res.data);
-      } else {
-        toast({ title: "加载媒体库权限失败", description: res.message, variant: "destructive" });
-      }
-    } catch (error: any) {
-      toast({ title: "加载媒体库权限失败", description: error.message, variant: "destructive" });
-    } finally {
-      setLibraryLoading(false);
-    }
-  };
-
-  const toggleSelectedLibrary = (libraryId: string) => {
-    setSelectedLibraryIds((prev) => toggleSetMember(prev, libraryId));
-  };
-
-  const updateTargetLibraries = async (payload: Parameters<typeof api.updateUserLibraries>[1]) => {
-    if (!libraryTarget) return;
-    setLibraryLoading(true);
-    try {
-      const res = await api.updateUserLibraries(libraryTarget.uid, payload);
-      if (res.success && res.data) {
-        applyLibraryAccessState(res.data);
-        toast({ title: "媒体库权限已更新", variant: "success" });
-      } else {
-        toast({ title: "更新失败", description: res.message, variant: "destructive" });
-      }
-    } catch (error: any) {
-      toast({ title: "更新失败", description: error.message, variant: "destructive" });
-    } finally {
-      setLibraryLoading(false);
-    }
-  };
-
-  const saveSelectedLibraries = async () => {
-    await updateTargetLibraries({
-      action: "set",
-      library_ids: Array.from(selectedLibraryIds),
-      enable_all: false,
-    });
-  };
-
-  const applyLibrarySelfServiceState = (uid: number, enabled: boolean) => {
-    setUsers((prev) => prev.map((item) => item.uid === uid ? { ...item, library_self_service: enabled } : item));
-    setLibraryTarget((prev) => prev && prev.uid === uid ? { ...prev, library_self_service: enabled } : prev);
-    if (libraryTarget?.uid === uid) {
-      setLibraryAccess((prev) => prev ? { ...prev, self_service_enabled: enabled } : prev);
-    }
-  };
-
-  const handleSetLibrarySelfService = async (user: UserInfo, enabled: boolean) => {
-    setIsActionLoading(true);
-    try {
-      const res = await api.setUserLibrarySelfService(user.uid, enabled);
-      if (res.success && res.data) {
-        applyLibrarySelfServiceState(user.uid, res.data.library_self_service);
-        invalidateUsersCache();
-        toast({ title: enabled ? "已开启自助显隐权限" : "已关闭自助显隐权限", variant: "success" });
-      } else {
-        toast({ title: "更新失败", description: res.message, variant: "destructive" });
-      }
-    } catch (error: any) {
-      toast({ title: "更新失败", description: error.message, variant: "destructive" });
-    } finally {
-      setIsActionLoading(false);
-    }
-  };
-
-  const handleBulkEnableLibrarySelfService = async () => {
-    const action = await confirmAction({
-      title: "为所有用户开启媒体库自助显隐？",
-      description: "只开启入口授权，不会改变任何用户当前可见的媒体库。用户仍只能操作管理员在 Emby 配置中开放的媒体库。",
-      tone: "warning",
-      confirmLabel: "批量开启",
-    });
-    if (!action) return;
-
-    setLibrarySelfServiceBulkLoading(true);
-    try {
-      const res = await api.bulkEnableLibrarySelfService();
-      if (res.success && res.data) {
-        toast({ title: `已为 ${res.data.updated} 个用户开启自助显隐权限`, variant: "success" });
-        invalidateUsersCache();
-        await loadUsers();
-      } else {
-        toast({ title: "批量开启失败", description: res.message, variant: "destructive" });
-      }
-    } catch (error: any) {
-      toast({ title: "批量开启失败", description: error.message, variant: "destructive" });
-    } finally {
-      setLibrarySelfServiceBulkLoading(false);
-    }
-  };
-
   const refreshAfterBatch = async () => {
     invalidateUsersCache();
     setSelectedUserIds(new Set());
@@ -920,30 +796,6 @@ export default function AdminUsersPage() {
       if (res.success && res.data) {
         toast({
           title: enable ? "批量启用完成" : "批量禁用完成",
-          description: `成功 ${res.data.success} 个，失败 ${res.data.failed} 个`,
-          variant: res.data.failed ? "default" : "success",
-        });
-        await refreshAfterBatch();
-      } else {
-        toast({ title: "批量操作失败", description: res.message, variant: "destructive" });
-      }
-    } catch (error: any) {
-      toast({ title: "批量操作失败", description: error.message, variant: "destructive" });
-    } finally {
-      setBatchUserLoading(false);
-    }
-  };
-
-  const handleSelectedLibrarySelfService = async (enabled: boolean) => {
-    if (selectedUids.length === 0) return;
-    const ok = await confirmAction(batchLibrarySelfServiceConfirmConfig(enabled, selectedUids.length));
-    if (!ok) return;
-    setBatchUserLoading(true);
-    try {
-      const res = await api.batchSetLibrarySelfService(selectedUids, enabled);
-      if (res.success && res.data) {
-        toast({
-          title: enabled ? "已开启自助显隐" : "已关闭自助显隐",
           description: `成功 ${res.data.success} 个，失败 ${res.data.failed} 个`,
           variant: res.data.failed ? "default" : "success",
         });
@@ -980,61 +832,6 @@ export default function AdminUsersPage() {
       toast({ title: "批量删除失败", description: error.message, variant: "destructive" });
     } finally {
       setBatchUserLoading(false);
-    }
-  };
-
-  const openBatchLibraryDialog = async () => {
-    if (selectedUids.length === 0) return;
-    setBatchLibraryOpen(true);
-    setBatchLibraryLoading(true);
-    setBatchLibraryAction("show");
-    setBatchLibrarySelectedIds(new Set());
-    try {
-      const res = await api.getAdminEmbyLibraries();
-      if (res.success && res.data) {
-        setBatchLibraries(res.data);
-      } else {
-        toast({ title: "媒体库加载失败", description: res.message, variant: "destructive" });
-      }
-    } catch (error: any) {
-      toast({ title: "媒体库加载失败", description: error.message, variant: "destructive" });
-    } finally {
-      setBatchLibraryLoading(false);
-    }
-  };
-
-  const toggleBatchLibrary = (id: string) => {
-    setBatchLibrarySelectedIds((prev) => toggleSetMember(prev, id));
-  };
-
-  const applyBatchLibraryAction = async () => {
-    if (selectedUids.length === 0) return;
-    if ((batchLibraryAction === "show" || batchLibraryAction === "hide" || batchLibraryAction === "set") && batchLibrarySelectedIds.size === 0) {
-      toast({ title: "请至少选择一个媒体库", variant: "destructive" });
-      return;
-    }
-    setBatchLibraryLoading(true);
-    try {
-      const res = await api.batchUpdateUserLibraries(selectedUids, {
-        action: batchLibraryAction,
-        library_ids: Array.from(batchLibrarySelectedIds),
-        enable_all: batchLibraryAction === "enable_all",
-      });
-      if (res.success && res.data) {
-        toast({
-          title: "媒体库批量设置完成",
-          description: `成功 ${res.data.success} 个，失败 ${res.data.failed} 个`,
-          variant: res.data.failed ? "default" : "success",
-        });
-        setBatchLibraryOpen(false);
-        await refreshAfterBatch();
-      } else {
-        toast({ title: "媒体库批量设置失败", description: res.message, variant: "destructive" });
-      }
-    } catch (error: any) {
-      toast({ title: "媒体库批量设置失败", description: error.message, variant: "destructive" });
-    } finally {
-      setBatchLibraryLoading(false);
     }
   };
 
@@ -1434,7 +1231,6 @@ export default function AdminUsersPage() {
   const renderUserActions = (user: UserInfo) => (
     <UserActionsMenu
       user={user}
-      isActionLoading={isActionLoading}
       handlers={{
         onEdit: handleOpenEdit,
         onRenew: (u) => {
@@ -1453,9 +1249,6 @@ export default function AdminUsersPage() {
         },
         onResetPassword: handleResetPassword,
         onBindEmby: handleOpenBindEmby,
-        onOpenLibraries: (u) => void handleOpenLibraries(u),
-        onToggleLibrarySelfService: (u) =>
-          void handleSetLibrarySelfService(u, !Boolean(u.library_self_service)),
         onSyncBindings: (u) => handleSyncBindings({ uid: u.uid }),
         onForceUnbind: handleForceUnbind,
         onClearRegistrationQueue: handleClearRegistrationQueue,
@@ -1521,18 +1314,6 @@ export default function AdminUsersPage() {
                   <DropdownMenuItem onClick={() => void handleSyncBindings()}>
                     <RefreshCw className="mr-2 h-4 w-4" />
                     同步全部绑定
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    disabled={librarySelfServiceBulkLoading}
-                    onClick={() => void handleBulkEnableLibrarySelfService()}
-                  >
-                    {librarySelfServiceBulkLoading ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Eye className="mr-2 h-4 w-4" />
-                    )}
-                    批量开启自助显隐
                   </DropdownMenuItem>
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
@@ -1779,7 +1560,7 @@ export default function AdminUsersPage() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => setSelectedUserIds(new Set())} disabled={batchUserLoading || batchLibraryLoading}>
+              <Button variant="outline" size="sm" onClick={() => setSelectedUserIds(new Set())} disabled={batchUserLoading}>
                 清空选择
               </Button>
               <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/20 p-1">
@@ -1792,31 +1573,6 @@ export default function AdminUsersPage() {
                   <Ban className="mr-2 h-4 w-4" />
                   禁用
                 </Button>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/20 p-1">
-                <span className="px-2 text-xs text-muted-foreground">媒体权限</span>
-                <Button variant="outline" size="sm" onClick={() => void openBatchLibraryDialog()} disabled={batchUserLoading || batchLibraryLoading}>
-                  <Eye className="mr-2 h-4 w-4" />
-                  媒体库显隐
-                </Button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" disabled={batchUserLoading || batchLibraryLoading}>
-                      <MoreHorizontal className="mr-2 h-4 w-4" />
-                      自助显隐
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => void handleSelectedLibrarySelfService(true)}>
-                      <Eye className="mr-2 h-4 w-4" />
-                      开启自助显隐入口
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => void handleSelectedLibrarySelfService(false)}>
-                      <EyeOff className="mr-2 h-4 w-4" />
-                      关闭自助显隐入口
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
               </div>
               <Button variant="destructive" size="sm" onClick={() => void handleSelectedDelete()} disabled={batchUserLoading}>
                 {batchUserLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
@@ -1891,7 +1647,7 @@ export default function AdminUsersPage() {
                     </div>
                   </div>
 
-                  {(user.telegram_id || user.emby_id || user.library_self_service) && (
+                  {(user.telegram_id || user.emby_id) && (
                     <div className="mt-3 space-y-1 border-t pt-3 text-xs text-muted-foreground">
                       {user.telegram_id && (
                         <p>
@@ -1899,7 +1655,6 @@ export default function AdminUsersPage() {
                         </p>
                       )}
                       {user.emby_id && <p className="break-all">Emby ID: {user.emby_id}</p>}
-                      {user.library_self_service && <p>媒体库自助显隐：已开启</p>}
                     </div>
                   )}
                 </div>
@@ -1980,9 +1735,6 @@ export default function AdminUsersPage() {
                         {user.emby_id ? (
                           <div className="flex flex-col gap-0.5 min-w-0">
                             <Badge variant="success" className="w-fit text-[10px]">已绑定</Badge>
-                            {user.library_self_service && (
-                              <Badge variant="outline" className="w-fit text-[10px]">自助显隐</Badge>
-                            )}
                             <span
                               className="text-xs text-muted-foreground truncate max-w-[160px]"
                               title={user.emby_username || user.username}
@@ -2009,7 +1761,6 @@ export default function AdminUsersPage() {
                               <p className="font-medium">更多信息</p>
                               <p>注册时间: {user.register_time ? formatDate(user.register_time) : "未知"}</p>
                               <p>创建时间: {user.created_at ? formatDate(user.created_at) : "未记录"}</p>
-                              <p>媒体库自助显隐: {user.library_self_service ? "已开启" : "未开启"}</p>
                             </div>
                             <div>
                               <p className="font-medium">账号详情</p>
@@ -2057,19 +1808,6 @@ export default function AdminUsersPage() {
         </div>
       )}
 
-      <BatchLibraryDialog
-        open={batchLibraryOpen}
-        onOpenChange={setBatchLibraryOpen}
-        selectedUserCount={selectedUserIds.size}
-        action={batchLibraryAction}
-        onActionChange={setBatchLibraryAction}
-        libraries={batchLibraries}
-        selectedIds={batchLibrarySelectedIds}
-        onToggleLibrary={toggleBatchLibrary}
-        isLoading={batchLibraryLoading}
-        onApply={() => void applyBatchLibraryAction()}
-      />
-
       {/* Edit Dialog */}
       <EditUserDialog
         open={editOpen}
@@ -2079,21 +1817,6 @@ export default function AdminUsersPage() {
         onFormChange={setEditForm}
         onSubmit={handleEdit}
         isLoading={isActionLoading}
-      />
-
-      {/* Library Access Dialog */}
-      <LibraryAccessDialog
-        open={libraryOpen}
-        onOpenChange={setLibraryOpen}
-        target={libraryTarget}
-        access={libraryAccess}
-        selectedIds={selectedLibraryIds}
-        isLoading={libraryLoading}
-        isActionLoading={isActionLoading}
-        onToggleSelected={toggleSelectedLibrary}
-        onUpdateLibraries={(payload) => void updateTargetLibraries(payload)}
-        onSetSelfService={(user, enabled) => void handleSetLibrarySelfService(user, enabled)}
-        onSave={() => void saveSelectedLibraries()}
       />
 
       {/* Cleanup Invalid Users Dialog */}

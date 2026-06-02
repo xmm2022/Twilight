@@ -86,8 +86,6 @@
 | GET | `/api/v1/users/me/use-code/status` | User | 查询 use-code 异步队列状态 |
 | GET | `/api/v1/users/me/devices` | User | 当前用户设备列表 |
 | DELETE | `/api/v1/users/me/devices/{device_id}` | User | 删除指定设备 |
-| GET | `/api/v1/users/me/libraries` | User | 当前用户媒体库权限 |
-| PUT | `/api/v1/users/me/libraries/visibility` | User | 自助调整媒体库可见性 |
 | GET | `/api/v1/users/me/sessions` | User | 当前用户播放会话 |
 | GET | `/api/v1/users/me/login-history` | User | 当前用户登录历史 |
 | GET | `/api/v1/users/me/telegram` | User | Telegram 绑定状态 |
@@ -144,7 +142,6 @@
 | POST | `/api/v1/system/admin/config/restore` | Admin | 从备份恢复配置 |
 | POST | `/api/v1/system/admin/config/sweep` | Admin | 手动整理配置文件（迁移历史段、删孤立键、补默认值） |
 | GET | `/api/v1/system/admin/apis` | Admin | 当前路由列表 |
-| GET | `/api/v1/system/admin/emby/libraries` | Admin | Emby 媒体库列表 |
 | POST | `/api/v1/system/admin/bot/test` | Admin | Telegram Bot 连通性测试 |
 
 ## Emby
@@ -153,7 +150,6 @@
 | ---- | ---- | ---- | ---- |
 | GET | `/api/v1/emby/status` | User | Emby 服务器状态 |
 | GET | `/api/v1/emby/urls` | Public（Deprecated） | 已弃用，改用 `/system/emby-urls` |
-| GET | `/api/v1/emby/libraries` | User | 媒体库列表 |
 | GET | `/api/v1/emby/search` | User | Emby 媒体搜索 |
 | GET | `/api/v1/emby/latest` | User | 最新媒体 |
 | GET | `/api/v1/emby/sessions/count` | User | 当前会话数量 |
@@ -207,10 +203,6 @@
 | POST | `/api/v1/admin/users/{uid}/cancel-permanent` | Admin | 取消永久有效（与续期同 handler） |
 | POST | `/api/v1/admin/users/{uid}/reset-password` | Admin | 重置用户密码 |
 | POST | `/api/v1/admin/users/{uid}/kick` | Admin | 将用户踢下线 |
-| GET | `/api/v1/admin/users/{uid}/libraries` | Admin | 查看用户媒体库权限 |
-| PUT | `/api/v1/admin/users/{uid}/libraries` | Admin | 更新用户媒体库权限 |
-| PUT | `/api/v1/admin/users/{uid}/library-self-service` | Admin | 设置用户媒体库自助权限 |
-| POST | `/api/v1/admin/users/library-self-service/bulk-enable` | Admin | 批量开启媒体库自助 |
 | PUT | `/api/v1/admin/users/{uid}/admin` | Admin | 设置/取消管理员角色 |
 | POST | `/api/v1/admin/users/{uid}/unbind-telegram` | Admin | 解绑用户 Telegram |
 | POST | `/api/v1/admin/users/{uid}/bind-telegram` | Admin | 强制为用户绑定 Telegram |
@@ -303,8 +295,6 @@
 | POST | `/api/v1/batch/users/enable` | Admin | 批量启用用户 |
 | POST | `/api/v1/batch/users/renew` | Admin | 批量续期用户 |
 | POST | `/api/v1/batch/users/delete` | Admin | 批量删除用户 |
-| POST | `/api/v1/batch/users/library-self-service` | Admin | 批量设置媒体库自助权限 |
-| POST | `/api/v1/batch/users/libraries` | Admin | 批量设置用户媒体库权限 |
 | GET | `/api/v1/batch/export/users` | Admin | 导出用户 |
 | GET | `/api/v1/batch/export/playback` | Admin | 导出播放数据 |
 | GET | `/api/v1/batch/watch-stats` | User | 当前用户播放统计 |

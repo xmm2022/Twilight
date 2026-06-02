@@ -111,10 +111,6 @@ emby_url_list = [
 emby_url_list_for_whitelist = [
   "直连 : http://your-server:8096/",
 ]
-# 普通用户新建/补建 Emby 账号后默认隐藏的媒体库名称；按 Emby 媒体库名称填写，留空不处理
-emby_default_hidden_libraries = []
-# 允许用户在个人设置中自行显示/隐藏的媒体库名称；留空关闭自助显隐入口
-emby_self_service_libraries = []
 
 # ───────── Telegram Bot ─────────
 [Telegram]

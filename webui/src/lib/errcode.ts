@@ -187,9 +187,6 @@ export type ErrCode =
   | "TG_NOT_BOUND"
   | "TG_ID_INVALID"
   | "TG_ID_TAKEN"
-  | "LIBRARY_SELF_SERVICE_DISABLED"
-  | "LIBRARY_SELF_SERVICE_ACTION_INVALID"
-  | "LIBRARY_NOT_SELF_SERVICE"
   | "DEVICE_ID_REQUIRED"
   | "IP_REQUIRED"
   | "IP_BLACKLIST_DURATION_INVALID"
@@ -459,9 +456,6 @@ export const ErrCodes = {
   TGNotBound: "TG_NOT_BOUND",
   TGIDInvalid: "TG_ID_INVALID",
   TGIDTaken: "TG_ID_TAKEN",
-  LibrarySelfServiceDisabled: "LIBRARY_SELF_SERVICE_DISABLED",
-  LibrarySelfServiceAction: "LIBRARY_SELF_SERVICE_ACTION_INVALID",
-  LibraryNotSelfService: "LIBRARY_NOT_SELF_SERVICE",
   DeviceIDRequired: "DEVICE_ID_REQUIRED",
   IPRequired: "IP_REQUIRED",
   IPBlacklistDurationInvalid: "IP_BLACKLIST_DURATION_INVALID",

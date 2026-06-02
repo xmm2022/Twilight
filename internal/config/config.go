@@ -86,8 +86,6 @@ type Config struct {
 	EmbyPassword                   string
 	EmbyURLList                    []Line
 	EmbyWhitelistURLList           []Line
-	EmbyDefaultHiddenLibraries     []string
-	EmbySelfServiceLibraries       []string
 	EmbyPublicURL                  string
 	EmbyWhitelistURL               string
 	TelegramMode                   bool
@@ -263,8 +261,6 @@ func Load(path string) (Config, error) {
 	cfg.EmbyWhitelistURL = reader.stringValue(cfg.EmbyWhitelistURL, "Emby.emby_whitelist_url", "emby_whitelist_url")
 	cfg.EmbyURLList = parseLinesList(reader.stringListValue(nil, "Emby.emby_url_list", "emby_url_list"))
 	cfg.EmbyWhitelistURLList = parseLinesList(reader.stringListValue(nil, "Emby.emby_url_list_for_whitelist", "emby_url_list_for_whitelist"))
-	cfg.EmbyDefaultHiddenLibraries = reader.stringListValue(nil, "Emby.emby_default_hidden_libraries", "emby_default_hidden_libraries")
-	cfg.EmbySelfServiceLibraries = reader.stringListValue(nil, "Emby.emby_self_service_libraries", "emby_self_service_libraries")
 	cfg.TelegramMode = reader.boolValue(cfg.TelegramMode, "Global.telegram_mode", "telegram_mode")
 	cfg.ForceBindTelegram = reader.boolValue(cfg.ForceBindTelegram, "Global.force_bind_telegram", "force_bind_telegram")
 	cfg.TelegramBotToken = reader.stringValue(cfg.TelegramBotToken, "Telegram.bot_token", "bot_token")

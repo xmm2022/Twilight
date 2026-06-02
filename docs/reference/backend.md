@@ -13,7 +13,7 @@
 | `internal/redis` | 无第三方依赖的 Redis RESP 客户端，用于会话和限流跨进程共享。 |
 | `internal/security` | Token 生成、PBKDF2-SHA256 密码哈希与旧 SHA256 密码兼容校验。 |
 
-`internal/api` 已按维护边界拆分。常见文件包括：`emby_client.go`、`emby_library.go`、`emby_inventory.go`、`emby_url_probe.go` 负责 Emby；`tmdb_client.go`、`bangumi_client.go`、`bangumi_webhook.go` 负责外部媒体源；`media_service.go` 负责搜索/详情聚合；`media_request_handlers.go` 负责求片 HTTP；`code_use_handlers.go`、`regcode_handlers.go`、`invite_handlers.go` 负责卡码和邀请；`scheduler_handlers.go`、`scheduler_runner.go` 负责调度；`database_admin.go`、`system_update.go`、`runtime_logs.go` 负责数据库运维、Git 更新、运行状态与实时日志。
+`internal/api` 已按维护边界拆分。常见文件包括：`emby_client.go`、`emby_inventory.go`、`emby_url_probe.go` 负责 Emby；`tmdb_client.go`、`bangumi_client.go`、`bangumi_webhook.go` 负责外部媒体源；`media_service.go` 负责搜索/详情聚合；`media_request_handlers.go` 负责求片 HTTP；`code_use_handlers.go`、`regcode_handlers.go`、`invite_handlers.go` 负责卡码和邀请；`scheduler_handlers.go`、`scheduler_runner.go` 负责调度；`database_admin.go`、`system_update.go`、`runtime_logs.go` 负责数据库运维、Git 更新、运行状态与实时日志。
 
 相关文档：路由清单见 [API 路由索引](./api-index.md)，接口字段见 [后端 API 详参](./backend-api.md)，安全加固见 [安全加固](../guides/security.md)，部署步骤见 [安装部署](../guides/install.md)。
 
@@ -141,12 +141,11 @@ systemd 部署对应三个服务单元：`twilight`、`twilight-bot`、`twilight
 
 | 变量 | 说明 |
 | ---- | ---- |
-| `TWILIGHT_SESSION_COOKIE_NAME` | 会话 Cookie 名称；修改后前端 Next 服务也要配置同名变量。 |
+| `TWILIGHT_SESSION_COOKIE_NAME` | 会话 Cookie 名称。 |
 | `TWILIGHT_SESSION_COOKIE_SECURE` | HTTPS 部署设为 `true`（默认即 `true`）。 |
 | `TWILIGHT_SESSION_COOKIE_SAMESITE` | `lax` / `strict` / `none`。 |
 | `TWILIGHT_SESSION_COOKIE_DOMAIN` | 跨子域共享会话时填父域，例如 `.example.com`。 |
 | `TWILIGHT_SESSION_TTL_SECONDS` | 会话有效期（秒）。 |
-| `TWILIGHT_WEBUI_SESSION_COOKIE_GUARD` | WebUI 服务端路由守卫开关；留空时同源启用、跨 origin API 关闭，可显式设 `true` / `false`。 |
 | `TWILIGHT_BOT_INTERNAL_SECRET` | Bot 内部回调密钥。 |
 | `TWILIGHT_ADMIN_UIDS` / `TWILIGHT_ADMIN_USERNAMES` | 启动时强制提权的管理员 UID / 用户名列表。 |
 

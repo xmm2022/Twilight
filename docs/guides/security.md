@@ -55,7 +55,7 @@ allow_credential = true
   - `session_cookie_secure = true`（默认即 `true`；纯 HTTP 调试才显式关闭，否则会话明文走线）；
   - 合理的 `session_cookie_samesite`（默认 `lax`，可选 `strict` / `none`）。
 - session cookie（默认名 `twilight_session`）为 `HttpOnly`。`session_cookie_domain` 单 origin 部署留空；双子域部署（webui 与 API 不同子域）需设为 `.example.com` 让两子域共享 cookie。
-- WebUI 服务端 cookie 守卫只用于减少 SSR 闪烁，不替代后端鉴权；跨 origin API 默认关闭该守卫，由客户端请求 `/users/me` 获取后端权威登录态。确认跨子域 cookie 已共享时，可用 `TWILIGHT_WEBUI_SESSION_COOKIE_GUARD=true` 强制启用。
+- WebUI 登录态以后端 `/users/me` 响应为准；跨 origin API 场景需确保浏览器请求能携带有效 cookie 或使用其它受支持鉴权方式。
 - 会话 TTL 由 `session_cookie_ttl`（默认 7 天）控制；登出会清除 session cookie。
 
 ### 3.3 Cookie 写请求
@@ -167,7 +167,7 @@ allow_credential = true
 
 - **核心规则**：若某用户绑定的 Emby 账号在 Emby 端具有管理员权限（`IsAdministrator`），但该用户在 Twilight 中不是管理员（`Role != RoleAdmin`），则其请求被**默认拒绝**，仅放行一小撮只读 / 登出端点：`GET /api/v1/auth/me`、`GET /api/v1/users/me`、`POST /api/v1/auth/logout`、`POST /api/v1/auth/logout/all`。
 - 被拒的操作返回 `HTTP 403` + `EMBY_ADMIN_RESTRICTED`，并记一条 `Warn` 日志。
-- 其余被禁止的能力包括但不限于：修改系统 / Emby 密码、改个人资料、解绑 Emby、媒体库自助切换等。
+- 其余被禁止的能力包括但不限于：修改系统 / Emby 密码、改个人资料、解绑 Emby 等。
 - 绑定时非系统管理员不允许绑定 Emby 管理员账号；已存在此类绑定的用户需联系系统管理员处理。
 - 系统管理员（`Role == RoleAdmin`）不受此限制。
 - 该机制防止用户通过绑定 Emby 管理员账号、借密码修改等功能间接控制 Emby 服务器。

@@ -501,7 +501,6 @@ func (a *App) telegramGroupUserPanelText(ctx context.Context, u store.User) stri
 		"状态: " + telegramActiveLabel(u.Active),
 		"到期: " + expireStatus(u.ExpiredAt),
 		"注册时间: " + telegramUnixTimeLabel(firstNonZeroInt64(u.RegisterTime, u.CreatedAt)),
-		"媒体库自助: " + telegramEnabledLabel(u.LibrarySelfService),
 		"",
 		"== 绑定 ==",
 		"Telegram: " + telegramTelegramBindingLabel(u),

@@ -121,7 +121,6 @@ type User struct {
 	RegisterTime       int64    `json:"register_time"`
 	PendingEmby        bool     `json:"pending_emby"`
 	PendingEmbyDays    *int     `json:"pending_emby_days,omitempty"`
-	LibrarySelfService bool     `json:"library_self_service"`
 	LegacyAPIKeyHash   string   `json:"legacy_api_key_hash,omitempty"`
 	LegacyAPIKeyPrefix string   `json:"legacy_api_key_prefix,omitempty"`
 	LegacyAPIKeySuffix string   `json:"legacy_api_key_suffix,omitempty"`

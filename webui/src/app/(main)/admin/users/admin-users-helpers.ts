@@ -63,15 +63,6 @@ export function batchToggleConfirmConfig(enable: boolean, count: number): Confir
   };
 }
 
-export function batchLibrarySelfServiceConfirmConfig(enabled: boolean, count: number): ConfirmOptions {
-  return {
-    title: enabled ? "开启媒体库自助显隐？" : "关闭媒体库自助显隐？",
-    description: `将为 ${count} 个已选用户${enabled ? "开启" : "关闭"}媒体库自助显隐入口。不会直接改变用户当前可见的媒体库。`,
-    tone: "warning",
-    confirmLabel: enabled ? "开启" : "关闭",
-  };
-}
-
 export function batchDeleteConfirmConfig(count: number, embyCount: number): ConfirmOptions {
   return {
     title: "删除所选用户？",

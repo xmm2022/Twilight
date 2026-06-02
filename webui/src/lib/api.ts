@@ -25,8 +25,6 @@ import type {
   DatabaseStatus,
   EmbyDevice,
   EmbyInfo,
-  EmbyLibraryAccess,
-  EmbyLibraryItem,
   EmbyRegisterStatus,
   EmbySession,
   EmbyStatus,
@@ -356,17 +354,6 @@ class ApiClient {
     }>(`/system/emby-urls/probe`, {
       method: "POST",
       body: JSON.stringify({ url }),
-    });
-  }
-
-  async getMyLibraries() {
-    return this.request<EmbyLibraryAccess>("/users/me/libraries");
-  }
-
-  async updateMyLibraryVisibility(action: "show" | "hide", libraryNames?: string[]) {
-    return this.request<EmbyLibraryAccess>("/users/me/libraries/visibility", {
-      method: "PUT",
-      body: JSON.stringify({ action, library_names: libraryNames }),
     });
   }
 
@@ -712,40 +699,6 @@ class ApiClient {
     });
   }
 
-  async getUserLibraries(uid: number) {
-    return this.request<EmbyLibraryAccess>(`/admin/users/${uid}/libraries`);
-  }
-
-  async getAdminEmbyLibraries() {
-    return this.request<EmbyLibraryItem[]>("/system/admin/emby/libraries");
-  }
-
-  async updateUserLibraries(uid: number, payload: {
-    action?: "set" | "show" | "hide" | "enable_all" | "disable_all";
-    library_ids?: string[];
-    library_names?: string[];
-    enable_all?: boolean;
-  }) {
-    return this.request<EmbyLibraryAccess>(`/admin/users/${uid}/libraries`, {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    });
-  }
-
-  async setUserLibrarySelfService(uid: number, enabled: boolean) {
-    return this.request<{ uid: number; library_self_service: boolean }>(`/admin/users/${uid}/library-self-service`, {
-      method: "PUT",
-      body: JSON.stringify({ enabled }),
-    });
-  }
-
-  async bulkEnableLibrarySelfService() {
-    return this.request<{ updated: number }>("/admin/users/library-self-service/bulk-enable", {
-      method: "POST",
-      body: JSON.stringify({ confirm: "ENABLE_LIBRARY_SELF_SERVICE" }),
-    });
-  }
-
   async batchToggleUsers(uids: number[], enable: boolean) {
     return this.request<BatchUserResult>(`/batch/users/${enable ? "enable" : "disable"}`, {
       method: "POST",
@@ -757,25 +710,6 @@ class ApiClient {
     return this.request<BatchUserResult>("/batch/users/delete", {
       method: "POST",
       body: JSON.stringify({ uids, delete_emby: deleteEmby, confirm: confirmPhrases.batchDeleteUsers }),
-    });
-  }
-
-  async batchSetLibrarySelfService(uids: number[], enabled: boolean) {
-    return this.request<BatchUserResult & { enabled: boolean }>("/batch/users/library-self-service", {
-      method: "POST",
-      body: JSON.stringify({ uids, enabled, confirm: confirmPhrases.batchLibrarySelfService }),
-    });
-  }
-
-  async batchUpdateUserLibraries(uids: number[], payload: {
-    action: "set" | "show" | "hide" | "enable_all" | "disable_all";
-    library_ids?: string[];
-    library_names?: string[];
-    enable_all?: boolean;
-  }) {
-    return this.request<BatchUserResult & { action: string }>("/batch/users/libraries", {
-      method: "POST",
-      body: JSON.stringify({ uids, ...payload, confirm: confirmPhrases.batchUserLibraries }),
     });
   }
 

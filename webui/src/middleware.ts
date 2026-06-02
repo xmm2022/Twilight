@@ -1,18 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  AUTH_ROUTE_PREFIXES,
-  PROTECTED_ROUTE_PREFIXES,
-  pathMatches,
-} from "@/lib/auth-routes";
-import { getSessionCookieName, shouldUseSessionCookieGuard } from "@/lib/session-cookie";
 
 /**
- * Middleware：CSP 头 + 服务端 session cookie 守卫。
- *
- * 两件事合在一起做的原因是 Next 的 middleware 是请求最早的 server-side hook，
- * 想避开"未登录用户先看到管理面板再被 client-side router.push('/login') 踢
- * 走"的肉眼闪烁，必须在 RSC payload 写出之前就完成 redirect——而 RSC payload
- * 是由这个 middleware 之后的 React 服务器渲染产出的。
+ * Middleware：只注入 CSP，不再根据 session cookie 做服务端跳转。
  *
  * ## CSP（脚本部分）
  *
@@ -36,25 +25,10 @@ import { getSessionCookieName, shouldUseSessionCookieGuard } from "@/lib/session
  * `<iframe src=>` 嵌入与 Flash/PDF object 注入；XSS 表面 = "攻击者能写
  * 进同源 DOM"，与项目其他地方（HttpOnly cookie、后端输入校验）的纵深防御边界一致。
  *
- * ## Session cookie 守卫
- *
- * 后端在登录成功时写会话 cookie（默认 `twilight_session`，可通过
- * `TWILIGHT_SESSION_COOKIE_NAME` 与后端 `session_cookie_name` 对齐）。
- * 客户端 JS 拿不到，但同源 / 共享 cookie 域部署时 middleware 在 server 端可以读：
- *
- *   - protectedPrefixes 里的路径若没有 cookie ⇒ 302 -> /login?next=<path>
- *   - authPrefixes 里的路径若已有 cookie ⇒ 302 -> /dashboard
- *
- * 注意：cookie 仅证明"曾经登录过"，session 是否真的有效仍由后端在每个 API
- * 请求里校验；这里的目的只是消除 SSR 阶段的"先渲染管理面板，再被 client
- * effect 踢走"闪烁，不替代后端鉴权。若 `NEXT_PUBLIC_API_URL` 指向不同 origin，
- * 默认关闭这层 cookie 守卫，避免 API 域 cookie 无法被 Web 域读取时形成
- * `/dashboard -> /login -> /dashboard` 循环；此时由客户端 layout 调 `/users/me`
- * 完成权威校验。需要在跨 origin 共享 cookie 域并保留守卫时，可设置
- * `TWILIGHT_WEBUI_SESSION_COOKIE_GUARD=true`。
+ * 登录态只由客户端 layout 调 `/users/me` 让后端权威判定。过去在 middleware / root
+ * / auth layout 多处用 Web 域 cookie 猜测登录态，遇到跨域 API、Cookie Domain、
+ * SameSite 或浏览器持久化差异时容易把已登录用户反复送回 `/login`。
  */
-
-const SESSION_COOKIE = getSessionCookieName();
 
 // safeOrigin 把 NEXT_PUBLIC_API_URL（可能是完整 URL，也可能配了路径）规约为
 // scheme + host + port 的纯 origin，用于 connect-src 白名单。
@@ -74,27 +48,7 @@ function safeOrigin(raw: string | undefined): string {
 }
 
 export function middleware(request: NextRequest) {
-  const { pathname, search } = request.nextUrl;
-  const useCookieGuard = shouldUseSessionCookieGuard(request.nextUrl.origin);
-  const hasSession = useCookieGuard && Boolean(request.cookies.get(SESSION_COOKIE)?.value);
-
-  // 1) 未登录访问受保护页面 → 直接 302 到 /login？next=...
-  //    用 redirect 而不是 rewrite：浏览器地址栏要变成 /login，避免用户在
-  //    一个看起来仍在 /admin 的 URL 上看到登录页（既会让书签错乱，也容易
-  //    被钓鱼站借用）。`next` 仅在白名单内才回填，避免 open redirect。
-  if (useCookieGuard && !hasSession && pathMatches(pathname, PROTECTED_ROUTE_PREFIXES)) {
-    const loginURL = new URL("/login", request.url);
-    loginURL.searchParams.set("next", pathname + (search || ""));
-    return NextResponse.redirect(loginURL);
-  }
-
-  // 2) 已登录访问登录/注册/找回密码 → 直接送回 /dashboard，避免回退按钮
-  //    把已登录用户卡在登录页上反复 submit。
-  if (useCookieGuard && hasSession && pathMatches(pathname, AUTH_ROUTE_PREFIXES)) {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
-  }
-
-  // 3) 走到这里说明鉴权 OK，继续注入 CSP。
+  void request;
   const isDev = process.env.NODE_ENV !== "production";
   // dev 下 Next 用 eval 做 HMR / RSC payload 解析；生产构建后丢掉 unsafe-eval。
   const scriptExtras = isDev ? " 'unsafe-eval'" : "";

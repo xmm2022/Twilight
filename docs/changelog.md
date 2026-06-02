@@ -108,7 +108,7 @@ Twilight 0.0.4 Go 后端重构版已更新。
 
 ### 安全加固（关键）
 
-- **Emby 管理员账号隔离**：非系统管理员用户绑定了 Emby 管理员账号时，禁止所有敏感操作（修改密码、修改 Emby 密码、修改个人资料、解绑 Emby、媒体库自助切换等），防止越权控制 Emby 服务器。
+- **Emby 管理员账号隔离**：非系统管理员用户绑定了 Emby 管理员账号时，禁止所有敏感操作（修改密码、修改 Emby 密码、修改个人资料、解绑 Emby 等），防止越权控制 Emby 服务器。
 - **绑定时拦截**：非系统管理员用户不允许绑定 Emby 管理员账号，从源头阻断风险。
 - **自助续期修复**：`/users/me/renew` 不再允许无条件免费续期，必须提供有效注册码，通过 `ConsumeRegCode` 验证并消耗。
 - **Telegram 强制绑定策略**：`handleUnbindTelegram` 现在正确检查 `force_bind_telegram` 配置，非管理员用户在强制绑定模式下无法解绑。`handleTelegramStatus` 返回真实的 `force_bind` 和 `can_unbind` 状态。
@@ -131,10 +131,6 @@ Twilight 0.0.4 Go 后端重构版已更新。
 - **前端审计页面**：新增 `/admin/violations` 管理页面，支持按类型筛选、搜索、单条删除和全部清除。
 - **Store 层**：新增 `ViolationLog` 结构体和 `AddViolationLog`、`ListViolationLogs`、`DeleteViolationLog`、`ClearViolationLogs` 方法。
 - **数据库兼容**：新增字段均使用 `omitempty` 或 nil-safe slice，以字段形式存在于单一状态文档中，旧备份恢复到新版本无需迁移。
-
-### 媒体库权限
-
-- **绑定时应用默认隐藏库**：用户通过 `handleBindEmby` 绑定已有 Emby 账号时，自动应用 `emby_default_hidden_libraries` 配置（与注册创建新账号行为一致）。
 
 ### 服务器图标
 
@@ -221,7 +217,6 @@ Twilight 0.0.4 Go 后端重构版已更新。
 ### 媒体与外部集成
 
 - 新增 Bangumi 同步流程，并对齐前端的同步状态显示。
-- 新增 Emby 媒体库自助能力，便于用户和管理员查看/选择可用媒体库。
 
 ### 邀请与卡码
 

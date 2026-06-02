@@ -271,8 +271,6 @@ func (a *App) handleBindEmby(w http.ResponseWriter, r *http.Request, _ Params) {
 		return
 	}
 	_ = a.embySetUserEnabled(r.Context(), u.EmbyID, a.embyShouldEnableUser(u))
-	// Apply default hidden libraries for non-admin/non-whitelist users on bind
-	a.applyDefaultHiddenLibraries(r.Context(), u)
 	ok(w, "Emby account linked", map[string]any{"emby_id": u.EmbyID, "emby_username": u.EmbyUsername, "user": publicUser(u)})
 }
 func (a *App) handleRegisterEmby(w http.ResponseWriter, r *http.Request, params Params) {
@@ -340,7 +338,6 @@ func (a *App) handleRegisterEmby(w http.ResponseWriter, r *http.Request, params 
 		return
 	}
 	_ = a.embySetUserEnabled(r.Context(), u.EmbyID, a.embyShouldEnableUser(u))
-	a.applyDefaultHiddenLibraries(r.Context(), u)
 	ok(w, "Emby account created", map[string]any{"user": publicUser(u), "emby_id": u.EmbyID, "emby_username": u.EmbyUsername, "request_id": ""})
 }
 

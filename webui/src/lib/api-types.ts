@@ -81,7 +81,6 @@ export interface UserInfo {
   pending_emby?: boolean;  // 系统账号已建但待补建 Emby
   pending_emby_days?: number | null;  // 注册码授予的开通天数（待 Emby 补建）
   emby_disabled_by_expiry?: boolean;  // 到期后仅禁用 Emby，系统账号仍可登录
-  library_self_service?: boolean;  // 是否允许在个人设置中自助显隐管理员开放的媒体库
 }
 
 export interface BatchUserResult {
@@ -300,24 +299,6 @@ export interface EmbyInfo {
   total_sessions?: number;
   operating_system?: string;
   message?: string;
-}
-
-export interface EmbyLibraryItem {
-  id: string;
-  name: string;
-  type?: string;
-}
-
-export interface EmbyLibraryAccess {
-  has_emby: boolean;
-  enable_all: boolean;
-  enabled_ids: string[];
-  blocked_names: string[];
-  all_libraries: EmbyLibraryItem[];
-  libraries: EmbyLibraryItem[];
-  default_hidden_libraries: string[];
-  self_service_libraries: string[];
-  self_service_enabled: boolean;
 }
 
 export interface EmbySession {
