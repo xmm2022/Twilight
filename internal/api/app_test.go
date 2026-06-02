@@ -2183,6 +2183,146 @@ func TestTelegramAnonymousGroupUserRequiresInlineAuth(t *testing.T) {
 	}
 }
 
+func TestTelegramGroupUserPanelShowsEmbyInfoAndActions(t *testing.T) {
+	app := newTestApp(t)
+	app.cfg().EmbyToken = "emby-token"
+	emby := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/Users/emby-user" {
+			t.Fatalf("unexpected Emby request: %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"Id":"emby-user","Name":"remote-alpha","Policy":{"IsDisabled":true,"IsHidden":false,"IsAdministrator":false},"DateLastActivity":"2026-01-02T03:04:05Z"}`))
+	}))
+	defer emby.Close()
+	app.cfg().EmbyURL = emby.URL
+
+	user := store.User{UID: 42, Username: "alpha", Role: store.RoleNormal, Active: true, TelegramID: 1001, TelegramUsername: "alpha_tg", EmbyID: "emby-user", EmbyUsername: "alpha-emby", RegisterTime: time.Now().Unix(), LibrarySelfService: true}
+	text := app.telegramGroupUserPanelText(context.Background(), user)
+	for _, want := range []string{"== Web 账号 ==", "== Emby 远端 ==", "远端用户名: remote-alpha", "远端状态: 禁用", "媒体库自助: 开启"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("panel text missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "emby-user") || strings.Contains(text, "emby-token") {
+		t.Fatalf("panel leaked sensitive Emby identifier/token:\n%s", text)
+	}
+
+	labels := telegramInlineButtonLabels(app.telegramGroupUserPanelMarkup("tok", user, ""))
+	for _, want := range []string{"禁用 Emby", "启用 Emby", "删除 Emby", "删除用户"} {
+		if !stringSliceContains(labels, want) {
+			t.Fatalf("panel buttons missing %q: %#v", want, labels)
+		}
+	}
+}
+
+func TestTelegramPanelEmbyDeleteRequiresConfirmAndClearsLocalBinding(t *testing.T) {
+	app := newTestApp(t)
+	app.cfg().TelegramMode = true
+	app.cfg().TelegramBotToken = "123:ABC"
+	tgRequests := []map[string]any{}
+	tg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		body["_path"] = r.URL.Path
+		tgRequests = append(tgRequests, body)
+		if r.URL.Path != "/bot123:ABC/editMessageText" {
+			t.Fatalf("unexpected Telegram request: %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+	}))
+	defer tg.Close()
+	app.cfg().TelegramAPIURL = tg.URL
+
+	app.cfg().EmbyToken = "emby-token"
+	deleteCount := 0
+	emby := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/Users/emby-user":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"Id":"emby-user","Name":"remote-alpha","Policy":{}}`))
+		case r.Method == http.MethodDelete && r.URL.Path == "/Users/emby-user":
+			deleteCount++
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			t.Fatalf("unexpected Emby request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer emby.Close()
+	app.cfg().EmbyURL = emby.URL
+
+	user, err := app.store().CreateUser(store.User{Username: "target", Role: store.RoleNormal, Active: true, EmbyID: "emby-user", EmbyUsername: "remote-alpha"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	panel := telegramPanelContext{Token: "tok-delete-emby", ChatID: -1001, MessageID: 9001, TargetUID: user.UID, ExpiresAt: time.Now().Add(telegramPanelTTL).Unix()}
+	app.telegramSavePanel(panel)
+	defer app.telegramDeletePanel(panel.Token)
+
+	app.telegramApplyPanelAction(context.Background(), panel, "emby_delete_confirm")
+	if deleteCount != 0 {
+		t.Fatalf("Emby was deleted without confirmation")
+	}
+	current, _ := app.store().User(user.UID)
+	if current.EmbyID == "" {
+		t.Fatalf("local Emby binding was cleared without confirmation")
+	}
+
+	panel.ConfirmAction = "emby_delete"
+	panel = app.telegramTouchPanel(panel)
+	app.telegramApplyPanelAction(context.Background(), panel, "emby_delete_confirm")
+	if deleteCount != 1 {
+		t.Fatalf("expected one Emby delete request, got %d", deleteCount)
+	}
+	current, _ = app.store().User(user.UID)
+	if current.EmbyID != "" || current.EmbyUsername != "" || current.PendingEmby || current.PendingEmbyDays != nil {
+		t.Fatalf("local Emby binding was not cleared: %#v", current)
+	}
+	if len(tgRequests) == 0 || !strings.Contains(asString(tgRequests[len(tgRequests)-1]["text"]), "Emby 账号已删除") {
+		t.Fatalf("final Telegram edit did not report deletion: %#v", tgRequests)
+	}
+}
+
+func TestTelegramProtectedTargetUsesUnifiedProtectedUsers(t *testing.T) {
+	app := newTestApp(t)
+	app.cfg().AdminUsernames = []string{"configured-admin"}
+	for _, user := range []store.User{
+		{Username: "admin", Role: store.RoleAdmin},
+		{Username: "white", Role: store.RoleWhitelist},
+		{Username: "configured-admin", Role: store.RoleNormal},
+	} {
+		if !app.telegramProtectedTarget(user) {
+			t.Fatalf("expected protected Telegram target: %#v", user)
+		}
+		labels := telegramInlineButtonLabels(app.telegramGroupUserPanelMarkup("tok", user, ""))
+		if len(labels) != 1 || labels[0] != "刷新" {
+			t.Fatalf("protected target should only expose refresh button, got %#v", labels)
+		}
+	}
+}
+
+func telegramInlineButtonLabels(markup any) []string {
+	m, _ := markup.(map[string]any)
+	rows, _ := m["inline_keyboard"].([][]map[string]string)
+	labels := []string{}
+	for _, row := range rows {
+		for _, button := range row {
+			labels = append(labels, button["text"])
+		}
+	}
+	return labels
+}
+
+func stringSliceContains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestSchedulerManualRunUpdatesSingleHistoryEntry(t *testing.T) {
 	app := newTestApp(t)
 	run, okRun := app.startManualSchedulerJob(context.Background(), "daily_stats", nil)

@@ -1582,9 +1582,7 @@ class ApiClient {
   }
 
   async deleteRegcode(code: string) {
-    return this.request(`/admin/regcodes/${encodeURIComponent(code)}`, {
-      method: "DELETE",
-    });
+    return this.batchDeleteRegcodes([code]);
   }
 
   async batchDeleteRegcodes(codes: string[]) {
