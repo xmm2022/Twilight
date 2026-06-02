@@ -1423,6 +1423,7 @@ func TestSchedulerCleanupNoEmbySkipsPendingEntitlements(t *testing.T) {
 	app := newTestApp(t)
 	app.cfg().AutoCleanupNoEmby = true
 	app.cfg().AutoCleanupNoEmbyDays = 1
+	app.cfg().AdminUsernames = []string{"configured-no-emby"}
 	old := time.Now().AddDate(0, 0, -3).Unix()
 	plain, err := app.store().CreateUser(store.User{Username: "plain-no-emby", Role: store.RoleNormal, Active: true, RegisterTime: old, CreatedAt: old})
 	if err != nil {
@@ -1430,6 +1431,10 @@ func TestSchedulerCleanupNoEmbySkipsPendingEntitlements(t *testing.T) {
 	}
 	days := 30
 	pending, err := app.store().CreateUser(store.User{Username: "pending-emby", Role: store.RoleNormal, Active: true, PendingEmby: true, PendingEmbyDays: &days, RegisterTime: old, CreatedAt: old})
+	if err != nil {
+		t.Fatal(err)
+	}
+	configuredAdmin, err := app.store().CreateUser(store.User{Username: "configured-no-emby", Role: store.RoleNormal, Active: true, RegisterTime: old, CreatedAt: old})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1446,6 +1451,9 @@ func TestSchedulerCleanupNoEmbySkipsPendingEntitlements(t *testing.T) {
 	}
 	if u, ok := app.store().User(pending.UID); !ok || !u.PendingEmby {
 		t.Fatalf("pending Emby entitlement user was not preserved: ok=%v user=%#v", ok, u)
+	}
+	if _, ok := app.store().User(configuredAdmin.UID); !ok {
+		t.Fatal("configured admin no-Emby user was deleted")
 	}
 }
 
@@ -1624,6 +1632,44 @@ func TestSchedulerEmbySyncRetriesTransient5xx(t *testing.T) {
 	}
 	if policyAttempts != 1 {
 		t.Fatalf("expected exactly 1 policy POST after recovery, got %d", policyAttempts)
+	}
+}
+
+func TestSchedulerEmbySyncSkipsPolicyUpdateWhenRemoteStateMatches(t *testing.T) {
+	app := newTestApp(t)
+	app.cfg().EmbyToken = "token"
+	remoteUsers := []map[string]any{
+		{"Id": "real-alpha", "Name": "alpha", "Policy": map[string]any{"IsDisabled": false}},
+	}
+	policyRequests := 0
+	emby := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/Users":
+			_ = json.NewEncoder(w).Encode(remoteUsers)
+		case strings.HasPrefix(r.URL.Path, "/Users/"):
+			policyRequests++
+			http.Error(w, "policy endpoint should not be called when state is already known", http.StatusInternalServerError)
+		default:
+			t.Fatalf("unexpected Emby request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer emby.Close()
+	app.cfg().EmbyURL = emby.URL
+
+	if _, err := app.store().CreateUser(store.User{Username: "alpha", EmbyUsername: "alpha", EmbyID: "real-alpha", Role: store.RoleNormal, Active: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	summary, _, err := app.runSchedulerJob(httptest.NewRequest(http.MethodPost, "/scheduler", nil), "emby_sync")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int(numeric(summary["synced_state"])) != 1 || int(numeric(summary["state_unchanged"])) != 1 {
+		t.Fatalf("expected already-synced remote state to be counted without policy writes: %#v", summary)
+	}
+	if policyRequests != 0 {
+		t.Fatalf("policy endpoint was called despite matching remote state: %d", policyRequests)
 	}
 }
 
@@ -2414,6 +2460,72 @@ func TestSchedulerJobsReconcileStaleRunningHistory(t *testing.T) {
 	}
 	if !boolish(runs[0].Summary["interrupted"]) {
 		t.Fatalf("reconciled run should be marked interrupted: %#v", runs[0])
+	}
+}
+
+func TestSchedulerJobsPreservesFreshExternalRunningHistory(t *testing.T) {
+	app := newTestApp(t)
+	run, err := app.store().AddSchedulerRunReturning(store.SchedulerRun{JobID: "enforce_group_membership", Type: "auto", Trigger: "scheduler", Status: "running", Message: "running", StartedAt: time.Now().Unix()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/scheduler/jobs", nil)
+	rr := httptest.NewRecorder()
+	app.handleSchedulerJobs(rr, req, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("jobs status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	runs := app.store().SchedulerRuns("enforce_group_membership", 1)
+	if len(runs) != 1 || runs[0].ID != run.ID || runs[0].Status != "running" || runs[0].FinishedAt != 0 {
+		t.Fatalf("fresh external running history should stay running: %#v", runs)
+	}
+	var body struct {
+		Data struct {
+			Jobs []map[string]any `json:"jobs"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, job := range body.Data.Jobs {
+		if asString(job["id"]) == "enforce_group_membership" {
+			found = true
+			if !boolish(job["is_running"]) {
+				t.Fatalf("fresh external running job should be reported running: %#v", job)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("enforce_group_membership job not returned")
+	}
+}
+
+func TestSchedulerFinishedRunRedactsPersistentFields(t *testing.T) {
+	finished := schedulerFinishedRun(
+		"system_auto_update",
+		"manual",
+		"manual",
+		1,
+		map[string]any{
+			"message": "failed with token=abc123456789 and password=SuperSecret123",
+			"nested":  []any{map[string]any{"stderr": "Authorization: Bearer abcdefghijklmnopqrstuvwxyz"}},
+		},
+		[]string{"retry failed: api_key=key-abcdefghijklmnopqrstuvwxyz"},
+		fmt.Errorf("remote error: token=abc123456789 password=SuperSecret123"),
+	)
+	data, err := json.Marshal(finished)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(data)
+	for _, leaked := range []string{"abc123456789", "SuperSecret123", "abcdefghijklmnopqrstuvwxyz"} {
+		if strings.Contains(out, leaked) {
+			t.Fatalf("scheduler run leaked sensitive value %q: %s", leaked, out)
+		}
+	}
+	if !strings.Contains(out, "[REDACTED]") {
+		t.Fatalf("scheduler run did not include redacted markers: %s", out)
 	}
 }
 
@@ -4099,6 +4211,7 @@ func TestRenewReactivatesDisabledNonInvitedUser(t *testing.T) {
 // 也登不上。同时锁定 schedulerSummary 中暴露 skipped_protected 计数。
 func TestCheckExpiredSkipsAdminAndWhitelist(t *testing.T) {
 	app := newTestApp(t)
+	app.cfg().AdminUsernames = []string{"exp-config-admin"}
 
 	expiredUnix := time.Now().Add(-2 * time.Hour).Unix()
 	admin, err := app.store().CreateUser(store.User{Username: "exp-admin", Role: store.RoleAdmin, Active: true, ExpiredAt: expiredUnix})
@@ -4106,6 +4219,10 @@ func TestCheckExpiredSkipsAdminAndWhitelist(t *testing.T) {
 		t.Fatal(err)
 	}
 	whitelist, err := app.store().CreateUser(store.User{Username: "exp-wl", Role: store.RoleWhitelist, Active: true, ExpiredAt: expiredUnix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	configuredAdmin, err := app.store().CreateUser(store.User{Username: "exp-config-admin", Role: store.RoleNormal, Active: true, ExpiredAt: expiredUnix})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4132,11 +4249,14 @@ func TestCheckExpiredSkipsAdminAndWhitelist(t *testing.T) {
 	if u, _ := app.store().User(whitelist.UID); !u.Active {
 		t.Fatalf("R62-3 regression: whitelist user auto-disabled by check_expired")
 	}
+	if u, _ := app.store().User(configuredAdmin.UID); !u.Active {
+		t.Fatalf("configured admin auto-disabled by check_expired")
+	}
 
-	// summary 必须暴露 skipped_protected 计数（admin + whitelist = 2）。
+	// summary 必须暴露 skipped_protected 计数（admin + whitelist + configured admin = 3）。
 	got := int(numeric(summary["skipped_protected"]))
-	if got != 2 {
-		t.Fatalf("skipped_protected=%d in summary, want 2 (admin+whitelist); summary=%v", got, summary)
+	if got != 3 {
+		t.Fatalf("skipped_protected=%d in summary, want 3; summary=%v", got, summary)
 	}
 }
 

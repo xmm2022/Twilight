@@ -315,13 +315,13 @@ func (a *App) telegramKickTargets() ([]telegramKickTarget, map[string]int, int) 
 			skipped["no_telegram"]++
 			continue
 		}
-		if u.Role == store.RoleAdmin {
-			skipped["admin"]++
-			continue
-		}
-		if u.Role == store.RoleWhitelist {
-			skipped["whitelist"]++
-			preservedBound++
+		if reason := a.protectedUserReason(u); reason != "" {
+			if reason == "whitelist" {
+				skipped["whitelist"]++
+				preservedBound++
+			} else {
+				skipped["admin"]++
+			}
 			continue
 		}
 		if u.Active && u.EmbyID != "" {
@@ -396,14 +396,13 @@ func (a *App) telegramKickPlan(chatID string) telegramKickPlan {
 			targets = append(targets, telegramKickTarget{TelegramID: entry.TelegramID, Reason: "no_account"})
 			continue
 		}
-		if u.Role == store.RoleAdmin {
-			skipped["admin"]++
-			preserved++
-			continue
-		}
-		if u.Role == store.RoleWhitelist {
-			skipped["whitelist"]++
-			preserved++
+		if reason := a.protectedUserReason(u); reason != "" {
+			if reason == "whitelist" {
+				skipped["whitelist"]++
+				preserved++
+			} else {
+				skipped["admin"]++
+			}
 			continue
 		}
 		if u.Active && u.EmbyID != "" {

@@ -13,6 +13,8 @@ import (
 	"github.com/prejudice-studio/twilight/internal/store"
 )
 
+const schedulerRunningWindowSeconds = int64(30 * 60)
+
 func (a *App) RunScheduler(ctx context.Context) error {
 	zap.L().Info("scheduler runner started")
 	// 主循环 panic 兜底：reloadConfigIfChanged / runDueSchedulerJobs 调用栈深，
@@ -95,20 +97,16 @@ func schedulerJobEnabledByConfig(systemUpdateEnabled bool, job map[string]any) b
 }
 
 func (a *App) schedulerJobDue(jobID string, spec map[string]any, now time.Time) bool {
-	// 仍然扫一窗口（20 条）来检查 running 防重入——running 任务比较稀疏，
-	// 拿不到的代价就是漏判，而 LastSchedulerRunByType 自身只挑 type 命中
-	// 的最新一条，不能替代 running 检查。
-	for _, run := range a.store().SchedulerRuns(jobID, 20) {
-		if run.Status == "running" && time.Since(time.Unix(run.StartedAt, 0)) < 30*time.Minute {
-			return false
-		}
+	snapshot := a.store().SchedulerRunSnapshot(jobID, 20)
+	if schedulerSnapshotRecentlyRunning(snapshot, now) {
+		return false
 	}
 	// 关键：last 必须从全量历史里取最新 auto run，否则 admin 在窗口内对同
 	// job 手动重跑 21 次会把 auto 记录挤出 SchedulerRuns(20)，进而把 last
 	// 退化为 0，cron_daily 路径会判定"今天还没跑过 auto"再起一次。
 	last := int64(0)
-	if run, ok := a.store().LastSchedulerRunByType(jobID, "auto"); ok {
-		last = run.StartedAt
+	if snapshot.HasLatestAuto {
+		last = snapshot.LatestAuto.StartedAt
 	}
 	switch strings.ToLower(asString(spec["type"])) {
 	case "cron_daily", "daily":
@@ -122,6 +120,10 @@ func (a *App) schedulerJobDue(jobID string, spec map[string]any, now time.Time) 
 	default:
 		return false
 	}
+}
+
+func schedulerSnapshotRecentlyRunning(snapshot store.SchedulerRunSnapshot, now time.Time) bool {
+	return snapshot.HasLatestRunning && now.Unix()-snapshot.LatestRunning.StartedAt < schedulerRunningWindowSeconds
 }
 
 func (a *App) runScheduledJob(ctx context.Context, jobID string) {
@@ -142,33 +144,7 @@ func (a *App) runScheduledJob(ctx context.Context, jobID string) {
 		return
 	}
 	zap.L().Info("scheduler job started", zap.String("job_id", jobID), zap.String("type", "auto"), zap.Int64("run_id", run.ID))
-	go func() {
-		// 协程入口加 panic recover，避免单次任务崩溃带垮整个调度器。
-		defer func() {
-			if r := recover(); r != nil {
-				// 使用 zap.String + redactSensitiveText：避免 zap.Any 走 ReflectType
-				// 反射 dump 整个 panic 值（panic value 可能是携带 token/password 字段
-				// 的 struct，反射编码会绕过 sensitiveLogKey 字符串脱敏）。
-				zap.L().Error("scheduler job panic", zap.String("job_id", jobID), zap.Int64("run_id", run.ID), zap.String("panic", redactSensitiveText(fmt.Sprintf("%v", r))))
-			}
-		}()
-		defer finish()
-		req, _ := http.NewRequestWithContext(runCtx, http.MethodPost, "/scheduler/internal", nil)
-		summary, logs, jobErr := a.runSchedulerJob(req, jobID)
-		finished := schedulerFinishedRun(jobID, "auto", "scheduler", started, summary, logs, jobErr)
-		finished.ID = run.ID
-		if _, updateErr := a.store().UpdateSchedulerRun(run.ID, func(current *store.SchedulerRun) error {
-			*current = finished
-			return nil
-		}); updateErr != nil {
-			zap.L().Warn("scheduler job run record update failed", zap.String("job_id", jobID), zap.Int64("run_id", run.ID), zap.Error(updateErr))
-		}
-		if jobErr != nil {
-			zap.L().Warn("scheduler job failed", zap.String("job_id", jobID), zap.Error(jobErr))
-		} else {
-			zap.L().Info("scheduler job completed", zap.String("job_id", jobID))
-		}
-	}()
+	go a.executeSchedulerRun(runCtx, run, jobID, "auto", "scheduler", "/scheduler/internal", started, nil, false, finish)
 }
 
 func (a *App) startManualSchedulerJob(ctx context.Context, jobID string, params map[string]any) (store.SchedulerRun, bool) {
@@ -184,35 +160,45 @@ func (a *App) startManualSchedulerJob(ctx context.Context, jobID string, params 
 		return store.SchedulerRun{}, false
 	}
 	zap.L().Info("scheduler job started", zap.String("job_id", jobID), zap.String("type", "manual"), zap.Int64("run_id", run.ID))
-	go func() {
-		// 同 runScheduledJob 的保护：panic 不能逃出协程。
-		defer func() {
-			if r := recover(); r != nil {
-				// 同上：panic value 走 zap.String + redact 路径，杜绝 ReflectType
-				// 反射输出绕过敏感字段脱敏。
-				zap.L().Error("manual scheduler job panic", zap.String("job_id", jobID), zap.Int64("run_id", run.ID), zap.String("panic", redactSensitiveText(fmt.Sprintf("%v", r))))
-			}
-		}()
-		defer finish()
-		req, _ := http.NewRequestWithContext(runCtx, http.MethodPost, "/scheduler/manual", nil)
-		req = req.WithContext(context.WithValue(req.Context(), schedulerParamsContextKey, params))
-		req = req.WithContext(context.WithValue(req.Context(), schedulerManualContextKey, true))
-		summary, logs, err := a.runSchedulerJob(req, jobID)
-		finished := schedulerFinishedRun(jobID, "manual", "manual", started, summary, logs, err)
+	go a.executeSchedulerRun(runCtx, run, jobID, "manual", "manual", "/scheduler/manual", started, params, true, finish)
+	return run, true
+}
+
+func (a *App) executeSchedulerRun(runCtx context.Context, run store.SchedulerRun, jobID, runType, trigger, requestPath string, started int64, params map[string]any, manual bool, finish func()) {
+	var (
+		summary map[string]any
+		logs    []string
+		jobErr  error
+	)
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			panicText := redactSensitiveText(fmt.Sprintf("%v", recovered))
+			jobErr = fmt.Errorf("scheduler job panic: %s", panicText)
+			summary = map[string]any{"success": false, "panic": true}
+			logs = append(logs, "job panic: "+panicText)
+			zap.L().Error("scheduler job panic", zap.String("job_id", jobID), zap.Int64("run_id", run.ID), zap.String("panic", panicText))
+		}
+		finished := schedulerFinishedRun(jobID, runType, trigger, started, summary, logs, jobErr)
 		finished.ID = run.ID
 		if _, updateErr := a.store().UpdateSchedulerRun(run.ID, func(current *store.SchedulerRun) error {
 			*current = finished
 			return nil
 		}); updateErr != nil {
-			zap.L().Warn("manual scheduler job run record update failed", zap.String("job_id", jobID), zap.Int64("run_id", run.ID), zap.Error(updateErr))
+			zap.L().Warn("scheduler job run record update failed", zap.String("job_id", jobID), zap.Int64("run_id", run.ID), zap.Error(updateErr))
 		}
-		if err != nil {
-			zap.L().Warn("manual scheduler job failed", zap.String("job_id", jobID), zap.Error(err))
+		if jobErr != nil {
+			zap.L().Warn("scheduler job failed", zap.String("job_id", jobID), zap.String("type", runType), zap.Error(jobErr))
 		} else {
-			zap.L().Info("manual scheduler job completed", zap.String("job_id", jobID))
+			zap.L().Info("scheduler job completed", zap.String("job_id", jobID), zap.String("type", runType))
 		}
+		finish()
 	}()
-	return run, true
+	req, _ := http.NewRequestWithContext(runCtx, http.MethodPost, requestPath, nil)
+	if manual {
+		req = req.WithContext(context.WithValue(req.Context(), schedulerParamsContextKey, params))
+		req = req.WithContext(context.WithValue(req.Context(), schedulerManualContextKey, true))
+	}
+	summary, logs, jobErr = a.runSchedulerJob(req, jobID)
 }
 
 func schedulerFinishedRun(jobID, runType, trigger string, started int64, summary map[string]any, logs []string, err error) store.SchedulerRun {
@@ -242,9 +228,67 @@ func schedulerFinishedRun(jobID, runType, trigger string, started int64, summary
 		StartedAt:  started,
 		FinishedAt: finished,
 		EndedAt:    finished,
-		Summary:    summary,
-		Logs:       logs,
+		Summary:    sanitizeSchedulerSummary(summary),
+		Logs:       sanitizeSchedulerLogs(logs),
 		Error:      errText,
+	}
+}
+
+func sanitizeSchedulerSummary(summary map[string]any) map[string]any {
+	if summary == nil {
+		return nil
+	}
+	sanitized, _ := sanitizeSchedulerValue(summary).(map[string]any)
+	return sanitized
+}
+
+func sanitizeSchedulerLogs(logs []string) []string {
+	if len(logs) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(logs))
+	for _, logLine := range logs {
+		out = append(out, redactSensitiveText(logLine))
+	}
+	return out
+}
+
+func sanitizeSchedulerValue(value any) any {
+	switch v := value.(type) {
+	case string:
+		return redactSensitiveText(v)
+	case []string:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			out = append(out, redactSensitiveText(item))
+		}
+		return out
+	case []any:
+		out := make([]any, 0, len(v))
+		for _, item := range v {
+			out = append(out, sanitizeSchedulerValue(item))
+		}
+		return out
+	case []map[string]any:
+		out := make([]map[string]any, 0, len(v))
+		for _, item := range v {
+			out = append(out, sanitizeSchedulerSummary(item))
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for key, item := range v {
+			out[key] = sanitizeSchedulerValue(item)
+		}
+		return out
+	case map[string]string:
+		out := make(map[string]string, len(v))
+		for key, item := range v {
+			out[key] = redactSensitiveText(item)
+		}
+		return out
+	default:
+		return value
 	}
 }
 
@@ -267,8 +311,8 @@ func (a *App) schedulerNextRunAt(jobID string, spec map[string]any, now time.Tim
 	// 重跑挤出 SchedulerRuns(20) 时把 last 退化成 0，让前端"下次自动运行"
 	// 时间显示成 now / 当天而不是真正的次日。
 	last := int64(0)
-	if run, ok := a.store().LastSchedulerRunByType(jobID, "auto"); ok {
-		last = run.StartedAt
+	if snapshot := a.store().SchedulerRunSnapshot(jobID, 1); snapshot.HasLatestAuto {
+		last = snapshot.LatestAuto.StartedAt
 	}
 	switch strings.ToLower(asString(spec["type"])) {
 	case "cron_daily", "daily":

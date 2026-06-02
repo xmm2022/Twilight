@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/prejudice-studio/twilight/internal/store"
 	"go.uber.org/zap"
 )
 
@@ -28,6 +27,7 @@ var schedulerJobs = []map[string]any{
 
 func (a *App) handleSchedulerJobs(w http.ResponseWriter, r *http.Request, _ Params) {
 	jobs := make([]map[string]any, 0, len(schedulerJobs))
+	now := time.Now()
 	for _, job := range schedulerJobs {
 		item := cloneMap(job)
 		jobID := fmt.Sprint(job["id"])
@@ -44,23 +44,22 @@ func (a *App) handleSchedulerJobs(w http.ResponseWriter, r *http.Request, _ Para
 		item["trigger_spec"] = spec
 		item["default_trigger_spec"] = a.schedulerDefaultTriggerSpec(jobID)
 		item["last_run"] = nil
-		running := a.schedulerJobRunning(jobID)
-		a.reconcileSchedulerRunState(jobID, running)
-		item["next_run_at"] = zeroNil(a.schedulerNextRunAt(jobID, spec, time.Now()))
+		snapshot := a.store().SchedulerRunSnapshot(jobID, 20)
+		running := a.schedulerJobRunning(jobID) || schedulerSnapshotRecentlyRunning(snapshot, now)
+		a.reconcileSchedulerRunState(jobID, running, now)
+		if !running {
+			snapshot = a.store().SchedulerRunSnapshot(jobID, 20)
+		}
+		item["next_run_at"] = zeroNil(a.schedulerNextRunAt(jobID, spec, now))
 		item["auto_disabled"] = schedulerTriggerDisabled(spec)
-		if runs := a.store().SchedulerRuns(jobID, 20); len(runs) > 0 {
+		if runs := snapshot.Runs; len(runs) > 0 {
 			item["last_run"] = runs[0]
-			var lastAuto, lastManual int64
-			for _, run := range runs {
-				if run.Type == "auto" && lastAuto == 0 {
-					lastAuto = run.StartedAt
-				}
-				if run.Type == "manual" && lastManual == 0 {
-					lastManual = run.StartedAt
-				}
+			if snapshot.HasLatestAuto {
+				item["last_auto_run_at"] = zeroNil(snapshot.LatestAuto.StartedAt)
 			}
-			item["last_auto_run_at"] = zeroNil(lastAuto)
-			item["last_manual_run_at"] = zeroNil(lastManual)
+			if snapshot.HasLatestManual {
+				item["last_manual_run_at"] = zeroNil(snapshot.LatestManual.StartedAt)
+			}
 		}
 		item["is_running"] = running
 		jobs = append(jobs, item)
@@ -75,14 +74,14 @@ func (a *App) handleSchedulerTerminate(w http.ResponseWriter, r *http.Request, p
 		return
 	}
 	if !a.terminateSchedulerJob(jobID) {
-		a.reconcileSchedulerRunState(jobID, false)
+		a.reconcileSchedulerRunState(jobID, false, time.Now())
 		ok(w, "job is not running", map[string]any{"job_id": jobID, "terminated": false, "already_stopped": true})
 		return
 	}
 	ok(w, "job termination requested", map[string]any{"job_id": jobID, "terminated": true})
 }
 func (a *App) handleSchedulerLastRun(w http.ResponseWriter, r *http.Request, params Params) {
-	a.reconcileSchedulerRunState(params["job_id"], a.schedulerJobRunning(params["job_id"]))
+	a.reconcileSchedulerRunState(params["job_id"], a.schedulerJobRunning(params["job_id"]), time.Now())
 	runs := a.store().SchedulerRuns(params["job_id"], 1)
 	var last any
 	if len(runs) > 0 {
@@ -91,7 +90,7 @@ func (a *App) handleSchedulerLastRun(w http.ResponseWriter, r *http.Request, par
 	ok(w, "OK", map[string]any{"job_id": params["job_id"], "last_run": last})
 }
 func (a *App) handleSchedulerHistory(w http.ResponseWriter, r *http.Request, params Params) {
-	a.reconcileSchedulerRunState(params["job_id"], a.schedulerJobRunning(params["job_id"]))
+	a.reconcileSchedulerRunState(params["job_id"], a.schedulerJobRunning(params["job_id"]), time.Now())
 	runs := a.store().SchedulerRuns(params["job_id"], queryInt(r, "limit", 20))
 	ok(w, "OK", map[string]any{"job_id": params["job_id"], "history": runs, "total": len(runs)})
 }
@@ -198,32 +197,12 @@ func schedulerRuntimeParamsMap(value any) map[string]any {
 	return params
 }
 
-func (a *App) reconcileSchedulerRunState(jobID string, running bool) {
+func (a *App) reconcileSchedulerRunState(jobID string, running bool, now time.Time) {
 	if running {
 		return
 	}
-	now := time.Now().Unix()
-	for _, run := range a.store().SchedulerRuns(jobID, 20) {
-		if run.Status != "running" {
-			continue
-		}
-		if _, err := a.store().UpdateSchedulerRun(run.ID, func(current *store.SchedulerRun) error {
-			if current.Status != "running" {
-				return nil
-			}
-			current.Status = "failed"
-			current.Message = "job interrupted before completion"
-			current.Error = "job interrupted before completion"
-			current.FinishedAt = now
-			current.EndedAt = now
-			if current.Summary == nil {
-				current.Summary = map[string]any{}
-			}
-			current.Summary["interrupted"] = true
-			current.Summary["success"] = false
-			return nil
-		}); err != nil {
-			zap.L().Warn("scheduler run reconciliation failed", zap.String("job_id", jobID), zap.Int64("run_id", run.ID), zap.Error(err))
-		}
+	cutoff := now.Unix() - schedulerRunningWindowSeconds
+	if _, err := a.store().MarkInterruptedSchedulerRuns(jobID, cutoff, now.Unix()); err != nil {
+		zap.L().Warn("scheduler run reconciliation failed", zap.String("job_id", jobID), zap.Error(err))
 	}
 }

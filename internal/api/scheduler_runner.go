@@ -108,7 +108,12 @@ func (a *App) runSchedulerJob(r *http.Request, jobID string) (map[string]any, []
 		disabled := 0
 		embyDisabled := 0
 		skippedProtected := 0
-		for _, u := range a.store().ListUsers() {
+		users := a.store().ListUsers()
+		invitedUIDs := map[int64]bool{}
+		for _, rel := range a.store().InviteRelations() {
+			invitedUIDs[rel.ChildUID] = true
+		}
+		for _, u := range users {
 			if err := r.Context().Err(); err != nil {
 				return map[string]any{"success": false, "terminated": true, "disabled": disabled, "emby_disabled": embyDisabled, "skipped_protected": skippedProtected}, []string{"job terminated"}, err
 			}
@@ -116,10 +121,10 @@ func (a *App) runSchedulerJob(r *http.Request, jobID string) (map[string]any, []
 			// finite ExpiredAt"，但 demote-then-repromote 路径 / 手动 SQL /
 			// 旧迁移可能在 admin 上留下 ExpiredAt > 0；一旦 check_expired 命中
 			// 就会把 admin Active=false 并 DeleteUser session——管理员从此登
-			// 不上自己的 panel，且只有数据库直改才能解锁。这里强制角色白名
-			// 单跳过，并 emit `skipped_protected` 计数让 admin 在调度报告里
-			// 看到守护命中（区别于"无人需要禁用"的 0 值）。
-			if u.Role == store.RoleAdmin || u.Role == store.RoleWhitelist {
+			// 不上自己的 panel，且只有数据库直改才能解锁。这里统一走保护用
+			// 户口径（角色 + 配置管理员），并 emit `skipped_protected` 计数让
+			// admin 在调度报告里看到守护命中（区别于"无人需要禁用"的 0 值）。
+			if a.userIsProtected(u) {
 				if u.Active && u.ExpiredAt > 0 && u.ExpiredAt < now {
 					skippedProtected++
 				}
@@ -128,11 +133,12 @@ func (a *App) runSchedulerJob(r *http.Request, jobID string) (map[string]any, []
 			if u.Active && u.ExpiredAt > 0 && u.ExpiredAt < now {
 				// For invited users (have invite relation), only disable Emby access
 				// but keep the account active so they can still log in and renew
-				_, isInvited := a.store().ParentOf(u.UID)
+				isInvited := invitedUIDs[u.UID]
 				if isInvited {
+					sideCtx, sideCancel := schedulerSideEffectContext(r.Context())
 					// Only disable Emby, keep account active so the user
 					// can re-login (or the inviter can renew on their behalf)
-					if u.EmbyID != "" && a.embySetUserEnabled(r.Context(), u.EmbyID, false) == nil {
+					if u.EmbyID != "" && a.embySetUserEnabled(sideCtx, u.EmbyID, false) == nil {
 						embyDisabled++
 					}
 					// 即便保留 Active=true 让用户能重新登录续期，已经过期的
@@ -140,19 +146,22 @@ func (a *App) runSchedulerJob(r *http.Request, jobID string) (map[string]any, []
 					// SessionTTL 内仍能访问受保护接口（包括非续期接口），
 					// 与 authenticateAPIKey 的 `!u.Active` / 过期兜底语义
 					// 不一致。续期成功后用户重新登录即可拿新 session。
-					a.sessions().DeleteUser(r.Context(), u.UID)
+					a.sessions().DeleteUser(sideCtx, u.UID)
+					sideCancel()
 					disabled++
 				} else {
 					// Non-invited users: disable the whole account
-					updated, err := a.store().UpdateUser(u.UID, func(u *store.User) error { u.Active = false; return nil })
+					updated, err := a.store().SetUserActiveAtomic(u.UID, false)
 					if err == nil {
-						// 立即清除该用户的所有会话。否则 stale
-						// token 仍可访问受保护接口直到 SessionTTL 自然到期。
-						a.sessions().DeleteUser(r.Context(), updated.UID)
-						disabled++
-						if updated.EmbyID != "" && a.embySetUserEnabled(r.Context(), updated.EmbyID, false) == nil {
+						sideCtx, sideCancel := schedulerSideEffectContext(r.Context())
+						if updated.EmbyID != "" && a.embySetUserEnabled(sideCtx, updated.EmbyID, false) == nil {
 							embyDisabled++
 						}
+						// 立即清除该用户的所有会话。否则 stale
+						// token 仍可访问受保护接口直到 SessionTTL 自然到期。
+						a.sessions().DeleteUser(sideCtx, updated.UID)
+						disabled++
+						sideCancel()
 					}
 				}
 			}
@@ -247,16 +256,17 @@ func (a *App) runSchedulerJob(r *http.Request, jobID string) (map[string]any, []
 		for name := range duplicateRemoteNames {
 			delete(remoteByName, name)
 		}
+		users := a.store().ListUsers()
 		claimedRemoteIDs := map[string]int64{}
-		for _, u := range a.store().ListUsers() {
+		for _, u := range users {
 			if u.EmbyID != "" && !isSyntheticEmbyID(u.EmbyID, u.UID) {
 				claimedRemoteIDs[u.EmbyID] = u.UID
 			}
 		}
-		updatedNames, syncedState, missing, filledIDs, repairedPlaceholders, conflicts := 0, 0, 0, 0, 0, 0
-		for _, u := range a.store().ListUsers() {
+		updatedNames, syncedState, stateUnchanged, missing, filledIDs, repairedPlaceholders, conflicts := 0, 0, 0, 0, 0, 0, 0
+		for _, u := range users {
 			if err := syncCtx.Err(); err != nil {
-				return map[string]any{"success": false, "terminated": true, "updated_names": updatedNames, "synced_state": syncedState, "missing": missing, "filled_emby_ids": filledIDs, "repaired_placeholders": repairedPlaceholders, "conflicts": conflicts}, []string{"job terminated"}, err
+				return map[string]any{"success": false, "terminated": true, "updated_names": updatedNames, "synced_state": syncedState, "state_unchanged": stateUnchanged, "missing": missing, "filled_emby_ids": filledIDs, "repaired_placeholders": repairedPlaceholders, "conflicts": conflicts}, []string{"job terminated"}, err
 			}
 			placeholder := isSyntheticEmbyID(u.EmbyID, u.UID)
 			remoteUser, okRemote := remoteByID[u.EmbyID]
@@ -313,13 +323,19 @@ func (a *App) runSchedulerJob(r *http.Request, jobID string) (map[string]any, []
 					continue
 				}
 			}
+			desiredEnabled := a.embyShouldEnableUser(updatedUser)
+			if remoteDisabled, ok := embyRemoteDisabled(remoteUser); ok && remoteDisabled == !desiredEnabled {
+				syncedState++
+				stateUnchanged++
+				continue
+			}
 			if embyRetryOn5xx(syncCtx, func(ctx context.Context) error {
-				return a.embySetUserEnabled(ctx, updatedUser.EmbyID, a.embyShouldEnableUser(updatedUser))
+				return a.embySetUserEnabled(ctx, updatedUser.EmbyID, desiredEnabled)
 			}) == nil {
 				syncedState++
 			}
 		}
-		return map[string]any{"success": true, "remote_users": len(remote), "updated_names": updatedNames, "synced_state": syncedState, "missing": missing, "filled_emby_ids": filledIDs, "repaired_placeholders": repairedPlaceholders, "conflicts": conflicts}, []string{fmt.Sprintf("read %d Emby users", len(remote))}, nil
+		return map[string]any{"success": true, "remote_users": len(remote), "updated_names": updatedNames, "synced_state": syncedState, "state_unchanged": stateUnchanged, "missing": missing, "filled_emby_ids": filledIDs, "repaired_placeholders": repairedPlaceholders, "conflicts": conflicts}, []string{fmt.Sprintf("read %d Emby users", len(remote))}, nil
 	case "cleanup_no_emby":
 		ignoreEnabled := jobParamBool(params, "ignore_enabled_flag", false)
 		enabled := jobParamBool(params, "enabled", jobParamBool(params, "auto_enabled", a.cfg().AutoCleanupNoEmby))
@@ -344,7 +360,7 @@ func (a *App) runSchedulerJob(r *http.Request, jobID string) (map[string]any, []
 			if err := r.Context().Err(); err != nil {
 				return map[string]any{"success": false, "terminated": true, "candidates": candidates, "deleted": deleted, "failed": failed, "dry_run": dryRun, "skipped_pending_emby": skippedPending}, []string{"job terminated"}, err
 			}
-			if u.Role == store.RoleAdmin || u.Role == store.RoleWhitelist || u.EmbyID != "" {
+			if a.userIsProtected(u) || u.EmbyID != "" {
 				continue
 			}
 			if u.PendingEmby {
@@ -386,7 +402,7 @@ func (a *App) runSchedulerJob(r *http.Request, jobID string) (map[string]any, []
 			if err := r.Context().Err(); err != nil {
 				return map[string]any{"success": false, "terminated": true, "candidates": candidates, "cleared": cleared, "failed": failed, "dry_run": dryRun}, []string{"job terminated"}, err
 			}
-			if u.Role == store.RoleAdmin || u.Role == store.RoleWhitelist || u.EmbyID != "" || !u.PendingEmby {
+			if a.userIsProtected(u) || u.EmbyID != "" || !u.PendingEmby {
 				continue
 			}
 			candidates++
@@ -585,6 +601,24 @@ func embyRemoteName(user map[string]any) string {
 	return strings.TrimSpace(firstNonEmpty(asString(user["Name"]), asString(user["name"]), asString(user["UserName"]), asString(user["Username"])))
 }
 
+func embyRemoteDisabled(user map[string]any) (bool, bool) {
+	policy, _ := user["Policy"].(map[string]any)
+	if policy == nil {
+		policy, _ = user["policy"].(map[string]any)
+	}
+	if policy == nil {
+		return false, false
+	}
+	value, ok := policy["IsDisabled"]
+	if !ok {
+		value, ok = policy["is_disabled"]
+	}
+	if !ok {
+		return false, false
+	}
+	return boolish(value), true
+}
+
 func normalizeEmbyName(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
 }
@@ -606,6 +640,10 @@ var schedulerManualContextKey schedulerManualKey
 func schedulerManualRun(r *http.Request) bool {
 	manual, _ := r.Context().Value(schedulerManualContextKey).(bool)
 	return manual
+}
+
+func schedulerSideEffectContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(parent), 15*time.Second)
 }
 
 func jobParamInt(params map[string]any, key string, fallback int) int {

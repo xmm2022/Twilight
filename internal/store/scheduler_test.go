@@ -3,6 +3,7 @@ package store
 import (
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestAddSchedulerRunNormalizesDefaultsAndLegacyEndedAt(t *testing.T) {
@@ -96,4 +97,55 @@ func TestLastSchedulerRunByTypeBypassesRecentWindow(t *testing.T) {
 	if _, ok := st.LastSchedulerRunByType("missing_job", "auto"); ok {
 		t.Fatal("LastSchedulerRunByType should return false for missing job")
 	}
+}
+
+func TestSchedulerRunSnapshotAndInterruptedMarking(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	now := time.Now().Unix()
+	if _, err := st.AddSchedulerRunReturning(SchedulerRun{JobID: "job", Type: "auto", Trigger: "scheduler", Status: "success", StartedAt: now - 120}); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := st.AddSchedulerRunReturning(SchedulerRun{JobID: "job", Type: "auto", Trigger: "scheduler", Status: "running", StartedAt: now - 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale, err := st.AddSchedulerRunReturning(SchedulerRun{JobID: "job", Type: "manual", Trigger: "manual", Status: "running", StartedAt: now - 3600})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot := st.SchedulerRunSnapshot("job", 2)
+	if len(snapshot.Runs) != 2 || !snapshot.HasLatestAuto || snapshot.LatestAuto.ID != fresh.ID || !snapshot.HasLatestRunning || snapshot.LatestRunning.ID != fresh.ID {
+		t.Fatalf("unexpected scheduler snapshot: %#v", snapshot)
+	}
+	changed, err := st.MarkInterruptedSchedulerRuns("job", now-1800, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed != 1 {
+		t.Fatalf("changed=%d, want 1", changed)
+	}
+	runs := st.SchedulerRuns("job", 10)
+	for _, run := range runs {
+		switch run.ID {
+		case fresh.ID:
+			if run.Status != "running" {
+				t.Fatalf("fresh running row should not be interrupted: %#v", run)
+			}
+		case stale.ID:
+			if run.Status != "failed" || run.FinishedAt != now || !boolishStore(run.Summary["interrupted"]) {
+				t.Fatalf("stale running row was not interrupted: %#v", run)
+			}
+		}
+	}
+}
+
+func boolishStore(value any) bool {
+	b, _ := value.(bool)
+	return b
 }

@@ -4,6 +4,16 @@ import "time"
 
 const maxStoredSchedulerRuns = 200
 
+type SchedulerRunSnapshot struct {
+	Runs             []SchedulerRun
+	LatestAuto       SchedulerRun
+	HasLatestAuto    bool
+	LatestManual     SchedulerRun
+	HasLatestManual  bool
+	LatestRunning    SchedulerRun
+	HasLatestRunning bool
+}
+
 func (s *Store) AddSchedulerRun(run SchedulerRun) error {
 	_, err := s.AddSchedulerRunReturning(run)
 	return err
@@ -75,6 +85,40 @@ func (s *Store) SchedulerRuns(jobID string, limit int) []SchedulerRun {
 	return out
 }
 
+func (s *Store) SchedulerRunSnapshot(jobID string, limit int) SchedulerRunSnapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	snapshot := SchedulerRunSnapshot{Runs: make([]SchedulerRun, 0, limit)}
+	for _, run := range s.state.SchedulerRuns {
+		if jobID != "" && run.JobID != jobID {
+			continue
+		}
+		if len(snapshot.Runs) < limit {
+			snapshot.Runs = append(snapshot.Runs, run)
+		}
+		switch run.Type {
+		case "auto":
+			if !snapshot.HasLatestAuto || run.StartedAt > snapshot.LatestAuto.StartedAt {
+				snapshot.LatestAuto = run
+				snapshot.HasLatestAuto = true
+			}
+		case "manual":
+			if !snapshot.HasLatestManual || run.StartedAt > snapshot.LatestManual.StartedAt {
+				snapshot.LatestManual = run
+				snapshot.HasLatestManual = true
+			}
+		}
+		if run.Status == "running" && (!snapshot.HasLatestRunning || run.StartedAt > snapshot.LatestRunning.StartedAt) {
+			snapshot.LatestRunning = run
+			snapshot.HasLatestRunning = true
+		}
+	}
+	return snapshot
+}
+
 // LastSchedulerRunByType 返回 (jobID, runType) 命中的最新一条 SchedulerRun（按
 // StartedAt 取大者，处理乱序记录）。该方法**不**走 SchedulerRuns 的 20 条窗
 // 口——cron_daily 任务的"今天是否已经自动跑过"判定必须基于完整历史，否则
@@ -122,6 +166,54 @@ func (s *Store) SetSchedulerScheduleWithParams(jobID string, spec map[string]any
 	}
 	s.state.SchedulerSchedules[jobID] = schedule
 	return schedule, s.saveLocked()
+}
+
+func (s *Store) MarkInterruptedSchedulerRuns(jobID string, beforeUnix int64, nowUnix int64) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.refreshLocked(); err != nil {
+		return 0, err
+	}
+	changed := 0
+	for _, run := range s.state.SchedulerRuns {
+		if jobID != "" && run.JobID != jobID {
+			continue
+		}
+		if run.Status == "running" && run.StartedAt <= beforeUnix {
+			changed++
+		}
+	}
+	if changed == 0 {
+		return 0, nil
+	}
+	prev, err := s.snapshotStateLocked()
+	if err != nil {
+		return 0, err
+	}
+	for i := range s.state.SchedulerRuns {
+		run := &s.state.SchedulerRuns[i]
+		if jobID != "" && run.JobID != jobID {
+			continue
+		}
+		if run.Status != "running" || run.StartedAt > beforeUnix {
+			continue
+		}
+		run.Status = "failed"
+		run.Message = "job interrupted before completion"
+		run.Error = "job interrupted before completion"
+		run.FinishedAt = nowUnix
+		run.EndedAt = nowUnix
+		if run.Summary == nil {
+			run.Summary = map[string]any{}
+		}
+		run.Summary["interrupted"] = true
+		run.Summary["success"] = false
+	}
+	if err := s.saveLocked(); err != nil {
+		s.state = prev
+		return 0, err
+	}
+	return changed, nil
 }
 
 func (s *Store) SchedulerSchedule(jobID string) (SchedulerSchedule, bool) {
