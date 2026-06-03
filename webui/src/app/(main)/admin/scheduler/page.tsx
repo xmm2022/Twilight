@@ -2,8 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Activity,
+  AlertTriangle,
   CalendarClock,
   CheckCircle2,
+  Clock3,
   FileText,
   Loader2,
   PlayCircle,
@@ -13,6 +16,7 @@ import {
   Square,
   TimerReset,
   XCircle,
+  type LucideIcon,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -34,6 +38,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useAsyncResource } from "@/hooks/use-async-resource";
 import { PageError } from "@/components/layout/page-state";
@@ -512,6 +517,48 @@ function StatusBadge({ job, isRunning }: { job: SchedulerJobItem; isRunning?: bo
   );
 }
 
+type JobView = "all" | "running" | "failed" | "custom" | "manual";
+
+function MetricCard({
+  icon: Icon,
+  label,
+  value,
+  hint,
+  tone = "default",
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string | number;
+  hint: string;
+  tone?: "default" | "sky" | "amber" | "destructive";
+}) {
+  const toneClass = {
+    default: "bg-muted text-muted-foreground",
+    sky: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
+    amber: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+    destructive: "bg-destructive/10 text-destructive",
+  }[tone];
+
+  return (
+    <Card className="border-border/80 bg-card/70 backdrop-blur-sm">
+      <CardContent className="flex items-start gap-3 p-4">
+        <div className={`rounded-2xl p-2 ${toneClass}`}>
+          <Icon className="h-4 w-4" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground">{label}</p>
+          <p className="mt-1 truncate text-xl font-semibold tabular-nums">{value}</p>
+          <p className="mt-1 truncate text-xs text-muted-foreground">{hint}</p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function jobIsRunning(job: SchedulerJobItem, running: Record<string, boolean>) {
+  return job.is_running || Boolean(running[job.id]);
+}
+
 // 哪些任务在手动触发时支持参数面板
 const PARAMETERIZED_JOBS = new Set(["cleanup_no_emby", "cleanup_pending_emby_entitlements", "kick_unknown_group_members"]);
 
@@ -521,6 +568,7 @@ export default function AdminSchedulerPage() {
   const [running, setRunning] = useState<Record<string, boolean>>({});
   const [terminating, setTerminating] = useState<Record<string, boolean>>({});
   const [rejoinEnabling, setRejoinEnabling] = useState(false);
+  const [jobView, setJobView] = useState<JobView>("all");
   const pollTimerRef = useRef<number | null>(null);
 
   // 日志/历史弹窗
@@ -564,6 +612,26 @@ export default function AdminSchedulerPage() {
     () => jobs.some((j) => !j.manual_only && j.enabled && j.trigger_spec?.type !== "manual"),
     [jobs]
   );
+
+  const schedulerStats = useMemo(() => {
+    const runningCount = jobs.filter((job) => jobIsRunning(job, running)).length;
+    const failedCount = jobs.filter((job) => job.last_run?.status === "failed").length;
+    const customCount = jobs.filter((job) => job.is_custom).length;
+    const timedCount = jobs.filter((job) => !job.manual_only && job.enabled && job.trigger_spec?.type !== "manual").length;
+    const manualCount = jobs.filter((job) => job.manual_only || job.trigger_spec?.type === "manual").length;
+    const nextJob = jobs
+      .filter((job) => !job.manual_only && job.enabled && job.next_run_at && job.trigger_spec?.type !== "manual")
+      .sort((a, b) => Number(a.next_run_at || 0) - Number(b.next_run_at || 0))[0] || null;
+    return { runningCount, failedCount, customCount, timedCount, manualCount, nextJob };
+  }, [jobs, running]);
+
+  const filteredJobs = useMemo(() => {
+    if (jobView === "running") return jobs.filter((job) => jobIsRunning(job, running));
+    if (jobView === "failed") return jobs.filter((job) => job.last_run?.status === "failed");
+    if (jobView === "custom") return jobs.filter((job) => job.is_custom);
+    if (jobView === "manual") return jobs.filter((job) => job.manual_only || job.trigger_spec?.type === "manual");
+    return jobs;
+  }, [jobView, jobs, running]);
 
   useEffect(() => {
     if (!anyRunning) {
@@ -733,17 +801,62 @@ export default function AdminSchedulerPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-bold sm:text-3xl">定时任务</h1>
-          <p className="text-sm text-muted-foreground">
-            手动触发后台定时任务并查看最近一次的执行情况。任务在后台异步执行，本页面会自动轮询状态。
-          </p>
-        </div>
-        <Button variant="outline" onClick={() => void refresh()} disabled={isLoading} className="w-full sm:w-auto">
-          {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-          刷新
-        </Button>
+      <Card className="overflow-hidden border-primary/20 bg-gradient-to-br from-primary/10 via-card to-sky-500/10">
+        <CardContent className="p-5 sm:p-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0 space-y-3">
+              <Badge variant="outline" className="w-fit border-primary/30 bg-background/70 text-primary">
+                <CalendarClock className="mr-1 h-3.5 w-3.5" />
+                Scheduler Console
+              </Badge>
+              <div className="space-y-1">
+                <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">定时任务</h1>
+                <p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">
+                  管理后台巡检、清理和同步任务。任务异步执行，运行中会自动轮询；手动触发不会阻塞当前页面。
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row lg:items-center">
+              <Badge variant={anyRunning ? "outline" : "secondary"} className="justify-center py-2 text-xs">
+                {anyRunning ? "正在轮询运行状态" : "当前无运行任务"}
+              </Badge>
+              <Button variant="outline" onClick={() => void refresh()} disabled={isLoading} className="bg-background/70 sm:w-auto">
+                {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                刷新任务
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard
+          icon={Activity}
+          label="运行中"
+          value={schedulerStats.runningCount}
+          hint={schedulerStats.runningCount > 0 ? "页面每 2 秒刷新状态" : "无后台任务占用中"}
+          tone="sky"
+        />
+        <MetricCard
+          icon={CalendarClock}
+          label="自动任务"
+          value={schedulerStats.timedCount}
+          hint={`手动任务 ${schedulerStats.manualCount} 个`}
+        />
+        <MetricCard
+          icon={AlertTriangle}
+          label="上次失败"
+          value={schedulerStats.failedCount}
+          hint={schedulerStats.failedCount > 0 ? "建议查看运行日志" : "最近状态正常"}
+          tone={schedulerStats.failedCount > 0 ? "destructive" : "default"}
+        />
+        <MetricCard
+          icon={Clock3}
+          label="下次执行"
+          value={schedulerStats.nextJob ? formatTimestamp(schedulerStats.nextJob.next_run_at) : "—"}
+          hint={schedulerStats.nextJob ? schedulerStats.nextJob.name : "暂无自动计划"}
+          tone="amber"
+        />
       </div>
 
       {jobs.length === 0 ? (
@@ -756,88 +869,134 @@ export default function AdminSchedulerPage() {
         <>
           {!schedulerHasTimedJobs && (
             <Card className="border-amber-500/30 bg-amber-500/5">
-              <CardContent className="py-4 text-sm text-amber-700 dark:text-amber-300">
-                当前未发现已注册的自动定时任务。请确认调度器进程已启动，否则任务只会在你手动点击“立即运行”时执行。
+              <CardContent className="flex gap-3 py-4 text-sm text-amber-700 dark:text-amber-300">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  当前未发现已注册的自动定时任务。请确认调度器进程已启动，否则任务只会在手动点击“立即运行”时执行。
+                </span>
               </CardContent>
             </Card>
           )}
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {jobs.map((job) => {
-            const lr = job.last_run;
-            const triggering = Boolean(running[job.id]);
-            const isRunning = job.is_running || triggering;
-              const rejoinCandidates = Number((lr?.summary as Record<string, unknown> | null | undefined)?.["rejoin_candidates"] ?? 0);
-            return (
-              <Card key={job.id} className="flex min-h-[360px] flex-col overflow-hidden">
-                <CardHeader className="space-y-2">
-                  <div className="flex items-start justify-between gap-3">
-                    <CardTitle className="min-w-0 text-base leading-snug">{job.name}</CardTitle>
-                    <StatusBadge job={job} isRunning={isRunning} />
-                  </div>
-                  <CardDescription className="min-h-10 break-words leading-relaxed">
-                    {job.description}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="mt-auto space-y-3">
-                  <div className="space-y-1 text-xs text-muted-foreground">
-                    <div className="flex items-center gap-2">
-                      <CalendarClock className="h-3.5 w-3.5 shrink-0" />
-                      <span className="truncate">
-                        触发：{describeTriggerSpec(job.trigger_spec)}
+          <div className="flex flex-col gap-3 rounded-2xl border border-border/80 bg-card/70 p-3 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 px-1">
+              <p className="text-sm font-medium">任务列表</p>
+              <p className="text-xs text-muted-foreground">按运行状态快速筛选；操作按钮位于每个任务卡片底部。</p>
+            </div>
+            <Tabs value={jobView} onValueChange={(value) => setJobView(value as JobView)}>
+              <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:inline-flex sm:w-auto sm:grid-cols-none">
+                <TabsTrigger value="all" className="gap-1.5 px-3">
+                  全部
+                  <span className="rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">{jobs.length}</span>
+                </TabsTrigger>
+                <TabsTrigger value="running" className="gap-1.5 px-3">
+                  运行中
+                  <span className="rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">{schedulerStats.runningCount}</span>
+                </TabsTrigger>
+                <TabsTrigger value="failed" className="gap-1.5 px-3">
+                  失败
+                  <span className="rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">{schedulerStats.failedCount}</span>
+                </TabsTrigger>
+                <TabsTrigger value="custom" className="gap-1.5 px-3">
+                  自定义
+                  <span className="rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">{schedulerStats.customCount}</span>
+                </TabsTrigger>
+                <TabsTrigger value="manual" className="gap-1.5 px-3">
+                  手动
+                  <span className="rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">{schedulerStats.manualCount}</span>
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+
+          {filteredJobs.length === 0 ? (
+            <Card className="border-dashed">
+              <CardContent className="py-10 text-center text-sm text-muted-foreground">
+                当前筛选下没有任务
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
+              {filteredJobs.map((job) => {
+                const lr = job.last_run;
+                const isRunning = jobIsRunning(job, running);
+                const rejoinCandidates = Number((lr?.summary as Record<string, unknown> | null | undefined)?.["rejoin_candidates"] ?? 0);
+                const cardClass = isRunning
+                  ? "border-sky-500/35 ring-1 ring-sky-500/20"
+                  : lr?.status === "failed"
+                    ? "border-destructive/35"
+                    : "border-border/80";
+                return (
+                  <Card key={job.id} className={`flex flex-col overflow-hidden bg-card/70 backdrop-blur-sm ${cardClass}`}>
+                    <CardHeader className="space-y-3 border-b border-border/60 bg-muted/15 pb-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <StatusBadge job={job} isRunning={isRunning} />
                         {job.manual_only && (
-                          <Badge variant="outline" className="ml-1.5 text-[10px] px-1 py-0 border-amber-500/40 text-amber-600 dark:text-amber-400">
+                          <Badge variant="outline" className="border-amber-500/40 text-[10px] text-amber-600 dark:text-amber-400">
                             仅手动
                           </Badge>
                         )}
                         {!job.manual_only && job.is_custom && (
-                          <Badge variant="outline" className="ml-1.5 text-[10px] px-1 py-0">已自定义</Badge>
+                          <Badge variant="outline" className="text-[10px]">自定义触发器</Badge>
                         )}
-                      </span>
-                    </div>
-                    {!job.manual_only && (
-                      <div className="flex items-center gap-2">
-                        <TimerReset className="h-3.5 w-3.5 shrink-0" />
-                        <span className="truncate">下次执行：{formatTimestamp(job.next_run_at)}</span>
+                        {job.auto_disabled && (
+                          <Badge variant="outline" className="border-muted-foreground/30 text-[10px] text-muted-foreground">
+                            自动已停用
+                          </Badge>
+                        )}
                       </div>
-                    )}
-                  </div>
+                      <div className="space-y-1">
+                        <CardTitle className="text-base leading-snug">{job.name}</CardTitle>
+                        <CardDescription className="break-words leading-relaxed">{job.description}</CardDescription>
+                      </div>
+                    </CardHeader>
 
-                  {lr && (
-                    <div className="space-y-0.5 rounded-md border border-border/60 bg-muted/30 p-2 text-xs">
-                      <p>
-                        <span className="text-muted-foreground">开始：</span>
-                        {formatTimestamp(lr.started_at)}
-                      </p>
-                      <p>
-                        <span className="text-muted-foreground">结束：</span>
-                        {formatTimestamp(lr.finished_at)}
-                      </p>
-                      <p>
-                        <span className="text-muted-foreground">耗时：</span>
-                        {formatDuration(lr.started_at, lr.finished_at)}
-                      </p>
-                      {lr.trigger && lr.trigger !== "scheduled" && (
-                        <p>
-                          <span className="text-muted-foreground">类型：</span>
-                          {formatRunType(lr)}{lr.trigger === "startup" ? "（启动时）" : ""}
-                        </p>
-                      )}
-                      {lr.trigger === "scheduled" && (
-                        <p><span className="text-muted-foreground">类型：</span>{formatRunType(lr)}</p>
-                      )}
-                      {(job.last_auto_run_at || job.last_manual_run_at) && (
-                        <p className="text-muted-foreground">
-                          自动: {formatTimestamp(job.last_auto_run_at)} · 手动: {formatTimestamp(job.last_manual_run_at)}
-                        </p>
-                      )}
-                      {lr.error && (
-                        <p className="break-words text-destructive">
-                          错误：{lr.error}
-                        </p>
-                      )}
-                      {renderSummaryChips(lr.summary)}
+                    <CardContent className="flex flex-1 flex-col gap-4 p-4">
+                      <div className="grid gap-2 rounded-2xl border border-border/60 bg-muted/20 p-3 text-xs sm:grid-cols-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <CalendarClock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          <span className="truncate">触发：{describeTriggerSpec(job.trigger_spec)}</span>
+                        </div>
+                        <div className="flex min-w-0 items-center gap-2">
+                          <TimerReset className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          <span className="truncate">下次：{job.manual_only ? "仅手动" : formatTimestamp(job.next_run_at)}</span>
+                        </div>
+                        <div className="flex min-w-0 items-center gap-2">
+                          <Clock3 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          <span className="truncate">自动：{formatTimestamp(job.last_auto_run_at)}</span>
+                        </div>
+                        <div className="flex min-w-0 items-center gap-2">
+                          <Activity className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          <span className="truncate">手动：{formatTimestamp(job.last_manual_run_at)}</span>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-border/60 bg-background/55 p-3 text-xs">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="font-medium">最近一次运行</p>
+                          {lr ? (
+                            <Badge variant={lr.status === "success" ? "success" : lr.status === "failed" ? "destructive" : "outline"} className="text-[10px]">
+                              {lr.status}
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[10px] text-muted-foreground">暂无</Badge>
+                          )}
+                        </div>
+                        {lr ? (
+                          <div className="mt-3 space-y-1">
+                            <p><span className="text-muted-foreground">开始：</span>{formatTimestamp(lr.started_at)}</p>
+                            <p><span className="text-muted-foreground">结束：</span>{formatTimestamp(lr.finished_at)}</p>
+                            <p><span className="text-muted-foreground">耗时：</span>{formatDuration(lr.started_at, lr.finished_at)}</p>
+                            <p><span className="text-muted-foreground">类型：</span>{formatRunType(lr)}{lr.trigger === "startup" ? "（启动时）" : ""}</p>
+                            {lr.error && <p className="break-words text-destructive">错误：{lr.error}</p>}
+                            {renderSummaryChips(lr.summary)}
+                          </div>
+                        ) : (
+                          <p className="mt-3 text-muted-foreground">该任务还没有运行记录。</p>
+                        )}
+                      </div>
+
                       {job.id === "enforce_group_membership" && rejoinCandidates > 0 && (
-                        <div className="space-y-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-2">
+                        <div className="space-y-2 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs">
                           <p className="text-amber-700 dark:text-amber-300">
                             检测到 {rejoinCandidates} 个已禁用但重新入群用户，可重新校验后批量启用。
                           </p>
@@ -848,68 +1007,45 @@ export default function AdminSchedulerPage() {
                             disabled={rejoinEnabling || isRunning}
                             className="h-8 border-amber-500/40 text-amber-700 hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200"
                           >
-                            {rejoinEnabling ? (
-                              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <CheckCircle2 className="mr-2 h-3.5 w-3.5" />
-                            )}
+                            {rejoinEnabling ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="mr-2 h-3.5 w-3.5" />}
                             一键启用回群用户
                           </Button>
                         </div>
                       )}
-                    </div>
-                  )}
 
-                  <div className={job.manual_only ? "grid grid-cols-[1fr_auto_auto] gap-2" : "grid grid-cols-[1fr_auto_auto_auto] gap-2"}>
-                    <Button
-                      onClick={() => void handleTrigger(job)}
-                      disabled={isRunning}
-                      className="flex-1"
-                    >
-                      {isRunning ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <PlayCircle className="mr-2 h-4 w-4" />
-                      )}
-                      {isRunning ? "运行中…" : "立即运行"}
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      size="icon"
-                      onClick={() => void handleTerminate(job)}
-                      disabled={!isRunning || Boolean(terminating[job.id])}
-                      title="终止当前运行"
-                    >
-                      {terminating[job.id] ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Square className="h-4 w-4" />
-                      )}
-                    </Button>
-                    {!job.manual_only && (
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={() => setScheduleJob(job)}
-                        title="编辑触发器"
-                      >
-                        <Settings2 className="h-4 w-4" />
-                      </Button>
-                    )}
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() => void openLogs(job)}
-                      title="查看运行日志"
-                    >
-                      <FileText className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-            })}
-          </div>
+                      <div className="mt-auto flex flex-col gap-2 sm:flex-row">
+                        <Button onClick={() => void handleTrigger(job)} disabled={isRunning} className="sm:flex-1">
+                          {isRunning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlayCircle className="mr-2 h-4 w-4" />}
+                          {isRunning ? "运行中" : "立即运行"}
+                        </Button>
+                        <div className={`grid gap-2 ${job.manual_only ? "grid-cols-2" : "grid-cols-3"} sm:flex`}>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => void handleTerminate(job)}
+                            disabled={!isRunning || Boolean(terminating[job.id])}
+                          >
+                            {terminating[job.id] ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Square className="mr-2 h-4 w-4" />}
+                            终止
+                          </Button>
+                          {!job.manual_only && (
+                            <Button variant="outline" size="sm" onClick={() => setScheduleJob(job)}>
+                              <Settings2 className="mr-2 h-4 w-4" />
+                              编辑
+                            </Button>
+                          )}
+                          <Button variant="outline" size="sm" onClick={() => void openLogs(job)}>
+                            <FileText className="mr-2 h-4 w-4" />
+                            日志
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
         </>
       )}
 

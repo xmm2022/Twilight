@@ -8,9 +8,6 @@ import {
   Upload,
   Loader2,
   Trash2,
-  Copy,
-  Check,
-  X,
   Eye,
   Download,
 } from "lucide-react";
@@ -23,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useAsyncResource } from "@/hooks/use-async-resource";
 import { PageError, PageLoading } from "@/components/layout/page-state";
@@ -126,13 +124,10 @@ export default function AppearanceSettingsPage() {
   const [uploading, setUploading] = useState(false);
   const [bgUploading, setBgUploading] = useState<"light" | "dark" | null>(null);
   const [saving, setSaving] = useState(false);
-  const [copied, setCopied] = useState<string | null>(null);
 
   // 预览
   const [lightPreview, setLightPreview] = useState("");
   const [darkPreview, setDarkPreview] = useState("");
-  const [showLightPreview, setShowLightPreview] = useState(false);
-  const [showDarkPreview, setShowDarkPreview] = useState(false);
 
   // 分发标签页
   const [activeTab, setActiveTab] = useState<"background" | "avatar">("background");
@@ -488,6 +483,215 @@ export default function AppearanceSettingsPage() {
     return <PageLoading message="正在加载外观设置..." />;
   }
 
+  const renderBackgroundPanel = (theme: "light" | "dark") => {
+    const isLight = theme === "light";
+    const title = isLight ? "浅色主题背景" : "暗色主题背景";
+    const description = isLight ? "用于白天或浅色模式下的页面底图" : "用于夜间或暗色模式下的页面底图";
+    const bgField = isLight ? "lightBg" : "darkBg";
+    const imageField = isLight ? "lightBgImage" : "darkBgImage";
+    const blurField = isLight ? "lightBlur" : "darkBlur";
+    const opacityField = isLight ? "lightOpacity" : "darkOpacity";
+    const bgValue = bgConfig[bgField];
+    const imageValue = bgConfig[imageField];
+    const flow = isLight ? bgConfig.lightFlow : bgConfig.darkFlow;
+    const blur = bgConfig[blurField];
+    const opacity = bgConfig[opacityField];
+    const preview = isLight ? lightPreview : darkPreview;
+    const uploadId = `${theme}-bg-upload`;
+    const isUploading = bgUploading === theme;
+    const fallback = isLight
+      ? "linear-gradient(135deg, #f8fafc 0%, #dbeafe 52%, #f5d0fe 100%)"
+      : "linear-gradient(135deg, #111827 0%, #312e81 52%, #0f172a 100%)";
+
+    return (
+      <Card key={theme} className="overflow-hidden border-border/80 bg-card/70 backdrop-blur-sm">
+        <CardHeader className="border-b border-border/60 bg-muted/20">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0 space-y-1">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Palette className={`h-5 w-5 ${isLight ? "text-amber-500" : "text-slate-400"}`} />
+                {title}
+              </CardTitle>
+              <CardDescription>{description}</CardDescription>
+            </div>
+            <Badge variant="outline" className="w-fit text-[11px]">
+              {imageValue ? "图片优先" : bgValue ? "CSS 背景" : "使用默认"}
+            </Badge>
+          </div>
+        </CardHeader>
+
+        <CardContent className="grid gap-5 p-4 lg:grid-cols-[minmax(240px,0.9fr)_minmax(0,1.35fr)] lg:p-6">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <Label className="flex items-center gap-2 text-sm">
+                <Eye className="h-4 w-4 text-muted-foreground" />
+                实时预览
+              </Label>
+              <span className="text-xs text-muted-foreground">
+                模糊 {blur}px · 透明度 {opacity}%
+              </span>
+            </div>
+            <div className="relative min-h-[260px] overflow-hidden rounded-2xl border border-border bg-muted shadow-inner">
+              <div
+                className="absolute inset-0"
+                style={{
+                  background: preview || fallback,
+                  backgroundPosition: "center",
+                  backgroundSize: flow ? "220% 220%" : "cover",
+                  animation: flow ? "twilight-gradient-flow 14s ease infinite" : undefined,
+                  filter: `blur(${blur}px)`,
+                  opacity: opacity / 100,
+                  transform: blur > 0 ? "scale(1.06)" : undefined,
+                }}
+              />
+              <div className="absolute inset-0 bg-gradient-to-br from-black/35 via-black/10 to-black/45" />
+              <div className="relative z-10 flex min-h-[260px] flex-col justify-between p-4 text-white">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.25em] text-white/70">Twilight</p>
+                  <p className="mt-2 text-lg font-semibold">{isLight ? "Light Mode" : "Dark Mode"}</p>
+                </div>
+                <div className="rounded-xl border border-white/20 bg-white/15 p-3 backdrop-blur-md">
+                  <p className="text-sm font-medium">背景预览区域</p>
+                  <p className="mt-1 text-xs text-white/75">保存后将在主页和侧边区域刷新显示</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-5">
+            <div className="space-y-2">
+              <Label className="text-sm">快速应用预设梯度</Label>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {gradientPresets.map((preset) => {
+                  const selected = bgValue === preset.value && !imageValue;
+                  return (
+                    <motion.button
+                      key={preset.name}
+                      type="button"
+                      whileHover={{ scale: 1.03 }}
+                      whileTap={{ scale: 0.98 }}
+                      className={`group overflow-hidden rounded-xl border bg-background text-left transition-all ${
+                        selected ? "border-primary shadow-sm" : "border-border/70 hover:border-primary/50"
+                      }`}
+                      onClick={() => applyPreset(theme, preset.value)}
+                    >
+                      <div className="h-12" style={{ background: preset.value }} />
+                      <div className="px-2 py-1.5 text-xs text-muted-foreground group-hover:text-foreground">
+                        {preset.name}
+                      </div>
+                    </motion.button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
+              <div className="rounded-xl border border-border/70 bg-muted/20 px-3 py-2">
+                <Label htmlFor={`${theme}-flow`}>流光渐变</Label>
+                <p className="text-xs text-muted-foreground">开启后预设渐变会缓慢流动，并自动清空该主题的图片 URL。</p>
+              </div>
+              <Switch
+                id={`${theme}-flow`}
+                checked={flow}
+                onCheckedChange={(checked) => handleFlowToggle(theme, checked)}
+                className="justify-self-start sm:justify-self-end"
+              />
+            </div>
+
+            <Separator />
+
+            <div className="grid gap-4 xl:grid-cols-2">
+              <div className="space-y-2 xl:col-span-2">
+                <Label htmlFor={`${theme}-bg-css`}>CSS 梯度或颜色</Label>
+                <Textarea
+                  id={`${theme}-bg-css`}
+                  placeholder="例如: linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
+                  value={bgValue}
+                  onChange={(e) => handleBgChange(bgField, e.target.value)}
+                  rows={3}
+                  className="min-h-[92px] font-mono text-sm"
+                />
+              </div>
+
+              <div className="space-y-2 xl:col-span-2">
+                <Label htmlFor={`${theme}-bg-url`}>背景图片 URL</Label>
+                <Input
+                  id={`${theme}-bg-url`}
+                  placeholder="https://example.com/image.jpg 或 url(https://...)"
+                  value={imageValue}
+                  onChange={(e) => handleBgChange(imageField, e.target.value)}
+                  className="font-mono text-sm"
+                />
+              </div>
+
+              <div className="space-y-2 xl:col-span-2">
+                <Label htmlFor={uploadId}>本地上传背景图</Label>
+                <label
+                  htmlFor={uploadId}
+                  className={`flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-xl border border-dashed border-border bg-muted/20 px-3 py-2 text-sm transition-colors hover:border-primary/50 hover:bg-muted/35 ${
+                    isUploading ? "pointer-events-none opacity-60" : ""
+                  }`}
+                >
+                  <span className="min-w-0">
+                    <span className="block font-medium">选择 JPG / PNG / GIF / WebP</span>
+                    <span className="block text-xs text-muted-foreground">最大 5MB，上传后仍需点击保存背景</span>
+                  </span>
+                  {isUploading ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" /> : <Upload className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                  <Input
+                    id={uploadId}
+                    type="file"
+                    accept="image/*"
+                    disabled={isUploading}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        void handleBgFileUpload(file, theme);
+                        e.currentTarget.value = "";
+                      }
+                    }}
+                    className="sr-only"
+                  />
+                </label>
+              </div>
+
+              <div className="space-y-2 rounded-xl border border-border/60 bg-muted/20 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <Label htmlFor={`${theme}-blur`}>模糊程度</Label>
+                  <span className="text-xs tabular-nums text-muted-foreground">{blur}px</span>
+                </div>
+                <Input
+                  id={`${theme}-blur`}
+                  type="range"
+                  min={0}
+                  max={30}
+                  step={1}
+                  value={blur}
+                  onChange={(e) => handleVisualChange(blurField, Number(e.target.value))}
+                />
+              </div>
+
+              <div className="space-y-2 rounded-xl border border-border/60 bg-muted/20 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <Label htmlFor={`${theme}-opacity`}>透明度</Label>
+                  <span className="text-xs tabular-nums text-muted-foreground">{opacity}%</span>
+                </div>
+                <Input
+                  id={`${theme}-opacity`}
+                  type="range"
+                  min={10}
+                  max={100}
+                  step={1}
+                  value={opacity}
+                  onChange={(e) => handleVisualChange(opacityField, Number(e.target.value))}
+                />
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
   return (
     <motion.div
       variants={container}
@@ -495,451 +699,138 @@ export default function AppearanceSettingsPage() {
       animate="show"
       className="space-y-6"
     >
-      {/* 标签页 */}
-      <motion.div variants={item} className="flex gap-2 border-b border-border">
-        <button
-          onClick={() => setActiveTab("background")}
-          className={`pb-3 px-4 font-medium transition-colors ${
-            activeTab === "background"
-              ? "border-b-2 border-primary text-primary"
-              : "text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          <Palette className="inline mr-2 h-4 w-4" />
-          背景主题
-        </button>
-        <button
-          onClick={() => setActiveTab("avatar")}
-          className={`pb-3 px-4 font-medium transition-colors ${
-            activeTab === "avatar"
-              ? "border-b-2 border-primary text-primary"
-              : "text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          <Upload className="inline mr-2 h-4 w-4" />
-          用户头像
-        </button>
-      </motion.div>
-
-      {/* 背景主题标签页 */}
-      {activeTab === "background" && (
-        <motion.div variants={item} className="space-y-6">
-          {/* 浅色主题背景 */}
-          <Card className="border-border bg-card/50 backdrop-blur-sm">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Palette className="h-5 w-5 text-amber-500" />
-                浅色主题背景
-              </CardTitle>
-              <CardDescription>
-                自定义浅色模式下的页面背景
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* 预设梯度 */}
-              <div className="space-y-2">
-                <Label className="text-sm">快速应用预设梯度</Label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {gradientPresets.map((preset) => (
-                    <motion.button
-                      key={preset.name}
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      className="relative group"
-                      onClick={() => applyPreset("light", preset.value)}
-                    >
-                      <div
-                        className="h-16 rounded-lg border-2 border-border transition-all group-hover:border-primary"
-                        style={{ background: preset.value }}
-                      />
-                      <span className="absolute -bottom-6 left-0 right-0 text-center text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                        {preset.name}
-                      </span>
-                    </motion.button>
-                  ))}
-                </div>
-              </div>
-
-              <Separator />
-
-              <div className="flex items-center justify-between rounded-lg border border-border/70 px-3 py-2">
-                <div>
-                  <Label htmlFor="light-flow">流光渐变</Label>
-                  <p className="text-xs text-muted-foreground">开启后预设渐变会缓慢流动</p>
-                </div>
-                <Switch
-                  id="light-flow"
-                  checked={bgConfig.lightFlow}
-                  onCheckedChange={(checked) => handleFlowToggle("light", checked)}
-                />
-              </div>
-
-              {/* 自定义 CSS */}
-              <div className="space-y-2">
-                <Label htmlFor="light-bg-css">CSS 梯度或颜色</Label>
-                <Textarea
-                  id="light-bg-css"
-                  placeholder="例如: linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
-                  value={bgConfig.lightBg}
-                  onChange={(e) => handleBgChange("lightBg", e.target.value)}
-                  rows={3}
-                  className="font-mono text-sm"
-                />
-              </div>
-
-              {/* 背景图片 */}
-              <div className="space-y-2">
-                <Label htmlFor="light-bg-url">背景图片 URL</Label>
-                <Input
-                  id="light-bg-url"
-                  placeholder="https://example.com/image.jpg 或 url(https://...)"
-                  value={bgConfig.lightBgImage}
-                  onChange={(e) => handleBgChange("lightBgImage", e.target.value)}
-                  className="font-mono text-sm"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="light-bg-upload">本地上传背景图</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="light-bg-upload"
-                    type="file"
-                    accept="image/*"
-                    disabled={bgUploading === "light"}
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        void handleBgFileUpload(file, "light");
-                        e.currentTarget.value = "";
-                      }
-                    }}
-                  />
-                  {bgUploading === "light" && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
-                </div>
-                <p className="text-xs text-muted-foreground">支持 JPG/PNG/GIF/WebP，最大 5MB</p>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="light-blur">模糊程度 ({bgConfig.lightBlur}px)</Label>
-                  <Input
-                    id="light-blur"
-                    type="range"
-                    min={0}
-                    max={30}
-                    step={1}
-                    value={bgConfig.lightBlur}
-                    onChange={(e) => handleVisualChange("lightBlur", Number(e.target.value))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="light-opacity">透明度 ({bgConfig.lightOpacity}%)</Label>
-                  <Input
-                    id="light-opacity"
-                    type="range"
-                    min={10}
-                    max={100}
-                    step={1}
-                    value={bgConfig.lightOpacity}
-                    onChange={(e) => handleVisualChange("lightOpacity", Number(e.target.value))}
-                  />
-                </div>
-              </div>
-
-              {/* 预览 */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label>预览</Label>
-                  <button
-                    onClick={() => setShowLightPreview(!showLightPreview)}
-                    className="flex items-center gap-1 text-xs text-primary hover:underline"
-                  >
-                    <Eye className="h-3 w-3" />
-                    {showLightPreview ? "隐藏" : "显示"}
-                  </button>
-                </div>
-                {showLightPreview && (
-                  <div
-                    className="h-32 rounded-lg border-2 border-border"
-                    style={{
-                      background: lightPreview,
-                      backgroundSize: bgConfig.lightFlow ? "220% 220%" : undefined,
-                      animation: bgConfig.lightFlow ? "twilight-gradient-flow 14s ease infinite" : undefined,
-                      filter: `blur(${bgConfig.lightBlur}px)`,
-                      opacity: bgConfig.lightOpacity / 100,
-                    }}
-                  />
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* 暗色主题背景 */}
-          <Card className="border-border bg-card/50 backdrop-blur-sm">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Palette className="h-5 w-5 text-slate-400" />
-                暗色主题背景
-              </CardTitle>
-              <CardDescription>
-                自定义暗色模式下的页面背景
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* 预设梯度 */}
-              <div className="space-y-2">
-                <Label className="text-sm">快速应用预设梯度</Label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {gradientPresets.map((preset) => (
-                    <motion.button
-                      key={preset.name}
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      className="relative group"
-                      onClick={() => applyPreset("dark", preset.value)}
-                    >
-                      <div
-                        className="h-16 rounded-lg border-2 border-border transition-all group-hover:border-primary"
-                        style={{ background: preset.value }}
-                      />
-                      <span className="absolute -bottom-6 left-0 right-0 text-center text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                        {preset.name}
-                      </span>
-                    </motion.button>
-                  ))}
-                </div>
-              </div>
-
-              <Separator />
-
-              <div className="flex items-center justify-between rounded-lg border border-border/70 px-3 py-2">
-                <div>
-                  <Label htmlFor="dark-flow">流光渐变</Label>
-                  <p className="text-xs text-muted-foreground">开启后预设渐变会缓慢流动</p>
-                </div>
-                <Switch
-                  id="dark-flow"
-                  checked={bgConfig.darkFlow}
-                  onCheckedChange={(checked) => handleFlowToggle("dark", checked)}
-                />
-              </div>
-
-              {/* 自定义 CSS */}
-              <div className="space-y-2">
-                <Label htmlFor="dark-bg-css">CSS 梯度或颜色</Label>
-                <Textarea
-                  id="dark-bg-css"
-                  placeholder="例如: linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%)"
-                  value={bgConfig.darkBg}
-                  onChange={(e) => handleBgChange("darkBg", e.target.value)}
-                  rows={3}
-                  className="font-mono text-sm"
-                />
-              </div>
-
-              {/* 背景图片 */}
-              <div className="space-y-2">
-                <Label htmlFor="dark-bg-url">背景图片 URL</Label>
-                <Input
-                  id="dark-bg-url"
-                  placeholder="https://example.com/image.jpg 或 url(https://...)"
-                  value={bgConfig.darkBgImage}
-                  onChange={(e) => handleBgChange("darkBgImage", e.target.value)}
-                  className="font-mono text-sm"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="dark-bg-upload">本地上传背景图</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="dark-bg-upload"
-                    type="file"
-                    accept="image/*"
-                    disabled={bgUploading === "dark"}
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        void handleBgFileUpload(file, "dark");
-                        e.currentTarget.value = "";
-                      }
-                    }}
-                  />
-                  {bgUploading === "dark" && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
-                </div>
-                <p className="text-xs text-muted-foreground">支持 JPG/PNG/GIF/WebP，最大 5MB</p>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="dark-blur">模糊程度 ({bgConfig.darkBlur}px)</Label>
-                  <Input
-                    id="dark-blur"
-                    type="range"
-                    min={0}
-                    max={30}
-                    step={1}
-                    value={bgConfig.darkBlur}
-                    onChange={(e) => handleVisualChange("darkBlur", Number(e.target.value))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="dark-opacity">透明度 ({bgConfig.darkOpacity}%)</Label>
-                  <Input
-                    id="dark-opacity"
-                    type="range"
-                    min={10}
-                    max={100}
-                    step={1}
-                    value={bgConfig.darkOpacity}
-                    onChange={(e) => handleVisualChange("darkOpacity", Number(e.target.value))}
-                  />
-                </div>
-              </div>
-
-              {/* 预览 */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label>预览</Label>
-                  <button
-                    onClick={() => setShowDarkPreview(!showDarkPreview)}
-                    className="flex items-center gap-1 text-xs text-primary hover:underline"
-                  >
-                    <Eye className="h-3 w-3" />
-                    {showDarkPreview ? "隐藏" : "显示"}
-                  </button>
-                </div>
-                {showDarkPreview && (
-                  <div
-                    className="h-32 rounded-lg border-2 border-border"
-                    style={{
-                      background: darkPreview,
-                      backgroundSize: bgConfig.darkFlow ? "220% 220%" : undefined,
-                      animation: bgConfig.darkFlow ? "twilight-gradient-flow 14s ease infinite" : undefined,
-                      filter: `blur(${bgConfig.darkBlur}px)`,
-                      opacity: bgConfig.darkOpacity / 100,
-                    }}
-                  />
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* 操作按钮 */}
-          <div className="flex gap-3">
-            <Button
-              onClick={handleSaveBg}
-              disabled={saving}
-              className="flex-1 sm:flex-none"
-            >
-              {saving ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Download className="mr-2 h-4 w-4" />
-              )}
-              保存背景
-            </Button>
-            <Button
-              onClick={handleResetBg}
-              variant="outline"
-              disabled={saving}
-            >
-              <Trash2 className="mr-2 h-4 w-4" />
-              重置为默认
-            </Button>
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "background" | "avatar")} className="space-y-5">
+        <motion.div variants={item} className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="min-w-0 space-y-1">
+            <h1 className="text-2xl font-bold sm:text-3xl">外观设置</h1>
+            <p className="text-sm text-muted-foreground">统一管理个人背景与头像，保存后会同步刷新相关区域。</p>
           </div>
+          <TabsList className="grid h-auto w-full grid-cols-2 sm:w-auto">
+            <TabsTrigger value="background" className="gap-2">
+              <Palette className="h-4 w-4" />
+              背景主题
+            </TabsTrigger>
+            <TabsTrigger value="avatar" className="gap-2">
+              <Upload className="h-4 w-4" />
+              用户头像
+            </TabsTrigger>
+          </TabsList>
         </motion.div>
-      )}
 
-      {/* 用户头像标签页 */}
-      {activeTab === "avatar" && (
-        <motion.div variants={item}>
-          <Card className="border-border bg-card/50 backdrop-blur-sm">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Upload className="h-5 w-5 text-blue-500" />
-                用户头像
-              </CardTitle>
-              <CardDescription>
-                上传一张个人头像图片，推荐尺寸 200x200px，最大 2MB
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* 头像预览 */}
-              <div className="flex flex-col items-center gap-4">
-                <div className="relative">
-                  <div
-                    className="h-32 w-32 rounded-full border-4 border-primary/20 bg-muted flex items-center justify-center overflow-hidden"
-                  >
+        <TabsContent value="background" className="mt-0 space-y-5">
+          <motion.div variants={item} className="grid gap-5">
+            {renderBackgroundPanel("light")}
+            {renderBackgroundPanel("dark")}
+
+            <div className="flex flex-col gap-3 rounded-2xl border border-border/80 bg-card/70 p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">保存背景配置</p>
+                <p className="text-xs text-muted-foreground">预览和表单变更只保存在当前页面，点击保存后才会应用。</p>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <Button onClick={handleResetBg} variant="outline" disabled={saving} className="sm:w-auto">
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  重置为默认
+                </Button>
+                <Button onClick={handleSaveBg} disabled={saving} className="sm:w-auto">
+                  {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                  保存背景
+                </Button>
+              </div>
+            </div>
+          </motion.div>
+        </TabsContent>
+
+        <TabsContent value="avatar" className="mt-0">
+          <motion.div variants={item} className="grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
+            <Card className="border-border/80 bg-card/70 backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Upload className="h-5 w-5 text-blue-500" />
+                  当前头像
+                </CardTitle>
+                <CardDescription>头像会在导航、个人信息和管理列表中展示。</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col items-center gap-4">
+                <div className="relative rounded-full bg-gradient-to-br from-primary/30 via-sky-500/20 to-fuchsia-500/20 p-1.5">
+                  <div className="flex h-40 w-40 items-center justify-center overflow-hidden rounded-full border border-border bg-muted shadow-inner">
                     {avatar ? (
                       <Image
                         src={avatar}
                         alt="用户头像"
-                        width={128}
-                        height={128}
+                        width={160}
+                        height={160}
                         unoptimized
-                        className="w-full h-full object-cover"
+                        className="h-full w-full object-cover"
                       />
                     ) : (
                       <div className="text-center">
-                        <Upload className="h-8 w-8 mx-auto text-muted-foreground" />
-                        <p className="text-xs text-muted-foreground mt-2">
-                          未设置
-                        </p>
+                        <Upload className="mx-auto h-9 w-9 text-muted-foreground" />
+                        <p className="mt-2 text-xs text-muted-foreground">未设置</p>
                       </div>
                     )}
                   </div>
                 </div>
-
-                {/* 上传区域 */}
-                <label className="w-full">
-                  <div className="border-2 border-dashed border-primary/30 rounded-lg p-6 text-center cursor-pointer hover:border-primary/60 transition-colors">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) handleAvatarUpload(file);
-                      }}
-                      disabled={uploading}
-                      className="hidden"
-                    />
-                    <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                    <p className="text-sm font-medium">点击选择或拖放上传</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      支持 JPG, PNG, GIF, WebP（最大 2MB）
-                    </p>
-                  </div>
-                </label>
-
-                {/* 删除按钮 */}
+                <Badge variant={avatar ? "success" : "outline"} className="text-xs">
+                  {avatar ? "已设置个人头像" : "当前使用默认头像"}
+                </Badge>
                 {avatar && (
-                  <Button
-                    onClick={handleDeleteAvatar}
-                    variant="destructive"
-                    disabled={saving || uploading}
-                  >
-                    {saving ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="mr-2 h-4 w-4" />
-                    )}
+                  <Button onClick={handleDeleteAvatar} variant="destructive" disabled={saving || uploading} className="w-full">
+                    {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
                     删除头像
                   </Button>
                 )}
-              </div>
+              </CardContent>
+            </Card>
 
-              {/* 信息提示 */}
-              <Alert className="bg-blue-500/10 border-blue-500/20">
-                <AlertDescription>
-                  💡 头像将在全站展示，建议选择高质量的个人头像
-                </AlertDescription>
-              </Alert>
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
+            <Card className="border-border/80 bg-card/70 backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle>上传新头像</CardTitle>
+                <CardDescription>推荐尺寸 200x200px 或更高，最大 2MB。</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <label
+                  className={`flex min-h-[220px] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-primary/25 bg-primary/5 p-6 text-center transition-colors hover:border-primary/60 hover:bg-primary/10 ${
+                    uploading ? "pointer-events-none opacity-60" : ""
+                  }`}
+                >
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        void handleAvatarUpload(file);
+                        e.currentTarget.value = "";
+                      }
+                    }}
+                    disabled={uploading}
+                    className="sr-only"
+                  />
+                  <div className="mb-4 rounded-full bg-background p-4 shadow-sm">
+                    {uploading ? <Loader2 className="h-8 w-8 animate-spin text-primary" /> : <Upload className="h-8 w-8 text-primary" />}
+                  </div>
+                  <p className="text-base font-semibold">点击选择头像图片</p>
+                  <p className="mt-1 text-sm text-muted-foreground">支持 JPG、PNG、GIF、WebP，上传成功后立即生效。</p>
+                </label>
+
+                {avatar && (
+                  <div className="rounded-xl border border-border/70 bg-muted/20 p-3">
+                    <p className="text-xs font-medium text-muted-foreground">当前头像地址</p>
+                    <p className="mt-1 truncate font-mono text-xs">{avatar}</p>
+                  </div>
+                )}
+
+                <Alert className="border-blue-500/20 bg-blue-500/10">
+                  <AlertDescription>
+                    头像会在全站展示。为避免裁切失真，建议使用主体居中的正方形图片。
+                  </AlertDescription>
+                </Alert>
+              </CardContent>
+            </Card>
+          </motion.div>
+        </TabsContent>
+      </Tabs>
     </motion.div>
   );
 }
