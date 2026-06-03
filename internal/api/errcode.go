@@ -335,7 +335,7 @@ const (
 	// 前端按 res.code === EMBY_ACCOUNT_CONFLICT 判定即可。
 	ErrEmbyAccountConflict ErrCode = "EMBY_ACCOUNT_CONFLICT"
 
-	// === 批量 / 求片 / 演示 / 上传 / 运行时日志补码 ===
+	// === 批量 / 求片 / 上传 / 运行时日志补码 ===
 	// 替换若干"裸 fail() + 中文 message"调用点，统一前端文案契约。
 	ErrBatchDaysInvalid ErrCode = "BATCH_DAYS_INVALID"
 	// ErrBatchSelfTarget：批量操作命中当前 admin 自己（典型是 batch-delete
@@ -344,8 +344,6 @@ const (
 	ErrBatchSelfTarget             ErrCode = "BATCH_SELF_TARGET"
 	ErrRegcodeStorageMismatch      ErrCode = "REGCODE_STORAGE_MISMATCH"
 	ErrRuntimeLogStreamUnsupported ErrCode = "RUNTIME_LOG_STREAM_UNSUPPORTED"
-	ErrDemoActionRateLimited       ErrCode = "DEMO_ACTION_RATE_LIMITED"
-	ErrDemoActionInvalid           ErrCode = "DEMO_ACTION_INVALID"
 	ErrConfigSaveFailed            ErrCode = "CONFIG_SAVE_FAILED"
 	ErrAPIKeyLoginRateLimited      ErrCode = "AUTH_APIKEY_LOGIN_RATE_LIMITED"
 )

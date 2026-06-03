@@ -337,23 +337,6 @@
 | POST | `/api/v1/signin` | User | 签到 |
 | GET | `/api/v1/signin/history` | User | 签到历史 |
 
-## Demo
-
-演示（TestWeb）接口返回预设假数据，不触达真实业务状态，全部为 Public。
-
-| 方法 | 路径 | 鉴权 | 说明 |
-| ---- | ---- | ---- | ---- |
-| GET | `/api/v1/demo/bootstrap` | Public | 演示聚合数据 |
-| GET | `/api/v1/demo/auth/me` | Public | 演示当前用户 |
-| GET | `/api/v1/demo/system/info` | Public | 演示系统信息 |
-| GET | `/api/v1/demo/admin/users` | Public | 演示用户列表 |
-| GET | `/api/v1/demo/admin/regcodes` | Public | 演示注册码列表 |
-| GET | `/api/v1/demo/media/search` | Public | 演示媒体搜索 |
-| POST | `/api/v1/demo/action` | Public | 演示写操作（模拟结果） |
-| POST | `/api/v1/demo/action/{action_name}` | Public | 演示具名写操作（动作名白名单校验，忽略请求体，不执行真实操作） |
-| PUT | `/api/v1/demo/action/{action_name}` | Public | 同上（PUT） |
-| DELETE | `/api/v1/demo/action/{action_name}` | Public | 同上（DELETE） |
-
 ## API Key
 
 外部 API Key 专用接口，全部为 API Key 鉴权。接入方式与权限模型见 [API Key 外部接入](../reference/api-key.md)。

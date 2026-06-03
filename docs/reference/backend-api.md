@@ -212,19 +212,8 @@ Cookie 鉴权的变更类请求（`POST` / `PUT` / `DELETE`）不再要求额外
 | Security | `/security` | 设备、登录历史、IP 黑名单、可疑行为 |
 | Batch | `/batch` | 批量用户操作、导出、观看统计 |
 | Stats / Invite / Signin / Announcements | `/stats` `/invite` `/signin` `/announcements` | 播放统计、邀请树、签到（装饰性）、公告 |
-| Demo | `/demo` | TestWeb 演示专用模拟接口，只返回假数据 |
 
-### 4.1 TestWeb 演示接口
-
-`/api/v1/demo/*` 仅供演示页面使用：
-
-- 认证：公开（`AuthPublic`），不读取登录态。
-- 数据：全部为后端静态预设假数据，不读取存储、不调用真实业务服务。
-- 写操作：忽略请求体，不回显用户输入，不写存储、不调用 Emby、不调用 Telegram。
-- 动作名：`/demo/action/{action_name}` 只接受安全白名单字符，拒绝路径片段、控制字符和 URL 编码绕过。
-- 生产建议：可通过反向代理限制公开访问，避免访客误以为是真实后台。
-
-### 4.2 命名与归属约定
+### 4.1 命名与归属约定
 
 | 场景 | 约定 |
 | ---- | ---- |
@@ -1770,14 +1759,6 @@ curl -N "http://localhost:5000/api/v1/system/admin/runtime/logs/stream?limit=100
 - 说明：读取面向所有访客的公告列表。公告数据以字段形式存于单一状态文档。
 - 认证：公开（`AuthPublic`）
 - 功能详见 [公告系统](../features/announcements.md)。
-
-### 11.7 Demo 模块
-
-见上文 [4.1 TestWeb 演示接口](#41-testweb-演示接口)。全部为 `AuthPublic`，只返回静态假数据：
-
-- `GET /demo/bootstrap`、`GET /demo/auth/me`、`GET /demo/system/info`
-- `GET /demo/admin/users`、`GET /demo/admin/regcodes`、`GET /demo/media/search`
-- `POST/PUT/DELETE /demo/action/{action_name}`（动作名走安全白名单）
 
 ## 12. API Key 模块（概要）
 

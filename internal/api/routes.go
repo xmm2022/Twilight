@@ -128,7 +128,7 @@ func (a *App) registerRoutes() {
 	a.registerAPIKeyRoutes()
 	a.registerSecurityRoutes()
 	a.registerBatchRoutes()
-	a.registerStatsInviteSigninAnnouncementDemoRoutes()
+	a.registerStatsInviteSigninAnnouncementRoutes()
 }
 
 func (a *App) registerAdminRoutes() {
@@ -258,7 +258,7 @@ func (a *App) registerBatchRoutes() {
 	a.add(http.MethodPost, "/api/v1/batch/send-reminders", AuthAdmin, a.handleSendReminders)
 }
 
-func (a *App) registerStatsInviteSigninAnnouncementDemoRoutes() {
+func (a *App) registerStatsInviteSigninAnnouncementRoutes() {
 	a.add(http.MethodGet, "/api/v1/stats/me", AuthUser, a.handleWatchStats)
 	a.add(http.MethodGet, "/api/v1/stats/user/:uid", AuthUser, a.handleWatchStats)
 	a.add(http.MethodGet, "/api/v1/invite/config", AuthPublic, a.handleInviteConfig)
@@ -275,14 +275,4 @@ func (a *App) registerStatsInviteSigninAnnouncementDemoRoutes() {
 	a.add(http.MethodPost, "/api/v1/signin", AuthUser, a.handleSignin)
 	a.add(http.MethodGet, "/api/v1/signin/history", AuthUser, a.handleSigninHistory)
 	a.add(http.MethodGet, "/api/v1/announcements", AuthPublic, a.handleAnnouncements)
-	a.add(http.MethodGet, "/api/v1/demo/bootstrap", AuthPublic, a.handleDemoBootstrap)
-	a.add(http.MethodGet, "/api/v1/demo/auth/me", AuthPublic, a.handleDemoMe)
-	a.add(http.MethodGet, "/api/v1/demo/system/info", AuthPublic, a.handleSystemInfo)
-	a.add(http.MethodGet, "/api/v1/demo/admin/users", AuthPublic, a.handleDemoUsers)
-	a.add(http.MethodGet, "/api/v1/demo/admin/regcodes", AuthPublic, a.handleDemoRegcodes)
-	a.add(http.MethodGet, "/api/v1/demo/media/search", AuthPublic, a.handleDemoMediaSearch)
-	a.add(http.MethodPost, "/api/v1/demo/action", AuthPublic, a.handleDemoAction)
-	a.add(http.MethodPost, "/api/v1/demo/action/:action_name", AuthPublic, a.handleDemoAction)
-	a.add(http.MethodPut, "/api/v1/demo/action/:action_name", AuthPublic, a.handleDemoAction)
-	a.add(http.MethodDelete, "/api/v1/demo/action/:action_name", AuthPublic, a.handleDemoAction)
 }

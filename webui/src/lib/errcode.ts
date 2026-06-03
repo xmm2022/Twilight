@@ -252,15 +252,13 @@ export type ErrCode =
   // === 鉴权中间件 / Emby 越权拦截 ===
   | "EMBY_ADMIN_BLOCKED"
   | "EMBY_ADMIN_RESTRICTED"
-  // === 批量 / 求片 / 演示 / 上传 / 运行时日志补码 ===
+  // === 批量 / 求片 / 上传 / 运行时日志补码 ===
   | "BATCH_DAYS_INVALID"
   | "BATCH_LIBRARY_ACTION_INVALID"
   | "BATCH_SELF_TARGET"
   | "USER_NO_EMBY"
   | "REGCODE_STORAGE_MISMATCH"
   | "RUNTIME_LOG_STREAM_UNSUPPORTED"
-  | "DEMO_ACTION_RATE_LIMITED"
-  | "DEMO_ACTION_INVALID"
   | "CONFIG_SAVE_FAILED"
   | "AUTH_APIKEY_LOGIN_RATE_LIMITED"
   // === 中间件层（IP 黑名单 / 全局限流 / 路由分发） ===
@@ -524,15 +522,13 @@ export const ErrCodes = {
   // 鉴权中间件 / Emby 越权拦截
   EmbyAdminBlocked: "EMBY_ADMIN_BLOCKED",
   EmbyAdminRestricted: "EMBY_ADMIN_RESTRICTED",
-  // 批量 / 求片 / 演示 / 上传 / 运行时日志补码
+  // 批量 / 求片 / 上传 / 运行时日志补码
   BatchDaysInvalid: "BATCH_DAYS_INVALID",
   BatchLibraryActionInvalid: "BATCH_LIBRARY_ACTION_INVALID",
   BatchSelfTarget: "BATCH_SELF_TARGET",
   UserHasNoEmby: "USER_NO_EMBY",
   RegcodeStorageMismatch: "REGCODE_STORAGE_MISMATCH",
   RuntimeLogStreamUnsupported: "RUNTIME_LOG_STREAM_UNSUPPORTED",
-  DemoActionRateLimited: "DEMO_ACTION_RATE_LIMITED",
-  DemoActionInvalid: "DEMO_ACTION_INVALID",
   ConfigSaveFailed: "CONFIG_SAVE_FAILED",
   APIKeyLoginRateLimited: "AUTH_APIKEY_LOGIN_RATE_LIMITED",
   // 中间件层（IP 黑名单 / 全局限流 / 路由分发）

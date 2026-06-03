@@ -21,7 +21,6 @@ import (
 	"github.com/prejudice-studio/twilight/internal/validate"
 )
 
-var demoActionPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$`)
 var telegramPublicUsernamePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{4,31}$`)
 
 // generatedPasswordHexLen 是自动生成密码主体段（"Twilight-" 之后）的 hex 长度。

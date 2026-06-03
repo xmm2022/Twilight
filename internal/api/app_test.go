@@ -464,7 +464,6 @@ func TestFrontendRouteCompatibilityDoesNot404(t *testing.T) {
 		{http.MethodGet, "/api/v1/announcements"},
 		{http.MethodGet, "/api/v1/invite/config"},
 		{http.MethodGet, "/api/v1/signin/config"},
-		{http.MethodGet, "/api/v1/demo/bootstrap"},
 		{http.MethodGet, "/api/v1/apikey/info"},
 	}
 	for _, route := range routes {
@@ -1317,25 +1316,6 @@ func TestConfigSchemaRendersTelegramNewlines(t *testing.T) {
 	}
 	if len(cfg.TelegramCustomCommands) != 1 || cfg.TelegramCustomCommands[0].Reply != "第一行\n第二行" {
 		t.Fatalf("telegram custom command did not round-trip: %#v", cfg.TelegramCustomCommands)
-	}
-}
-
-func TestDemoEndpointsAreReadonlyAndValidateActions(t *testing.T) {
-	app := newTestApp(t)
-	media := doJSON(app, http.MethodGet, "/api/v1/demo/media/search?q=dune", ``, nil)
-	if media.Code != http.StatusOK || !strings.Contains(media.Body.String(), "Dune") || !strings.Contains(media.Body.String(), `"readonly":true`) {
-		t.Fatalf("demo media status=%d body=%s", media.Code, media.Body.String())
-	}
-	if media.Header().Get("Cache-Control") != "no-store" || media.Header().Get("X-Twilight-Demo") != "true" {
-		t.Fatalf("demo headers missing: cache=%q demo=%q", media.Header().Get("Cache-Control"), media.Header().Get("X-Twilight-Demo"))
-	}
-	valid := doJSON(app, http.MethodPost, "/api/v1/demo/action/media-request", ``, nil)
-	if valid.Code != http.StatusOK || !strings.Contains(valid.Body.String(), `"mutated":false`) {
-		t.Fatalf("demo action status=%d body=%s", valid.Code, valid.Body.String())
-	}
-	invalid := doJSON(app, http.MethodPost, "/api/v1/demo/action/bad%0Aname", ``, nil)
-	if invalid.Code != http.StatusBadRequest {
-		t.Fatalf("invalid demo action status=%d body=%s", invalid.Code, invalid.Body.String())
 	}
 }
 
