@@ -70,7 +70,7 @@ import type {
   ViolationLog,
 } from "./api-types";
 import { confirmPhrases } from "./confirm-phrases";
-import { API_BASE, ApiError, apiRequest, apiRequestForm } from "./api-request";
+import { API_BASE, ApiError, apiRequest, apiRequestForm, type ApiRequestExtraOptions } from "./api-request";
 import { normalizeMediaRequestStatus } from "./media-status";
 
 class ApiClient {
@@ -143,9 +143,10 @@ class ApiClient {
 
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    extra: ApiRequestExtraOptions = {},
   ): Promise<ApiResponse<T>> {
-    return apiRequest<T>(endpoint, options);
+    return apiRequest<T>(endpoint, options, extra);
   }
 
   private async requestForm<T>(
@@ -737,6 +738,8 @@ class ApiClient {
         ...this.batchUserSelectionBody(selection),
         confirm: confirmPhrases.batchLockEmbyUnbind,
       }),
+    }, {
+      timeoutMs: 600_000,
     });
   }
 

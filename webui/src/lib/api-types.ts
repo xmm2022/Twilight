@@ -94,6 +94,7 @@ export interface BatchUserResult {
   errors: Array<{ uid: number; error: string }>;
   selected_all?: boolean;
   emby_grant_locked?: boolean;
+  skipped_no_emby?: number;
 }
 
 export interface CodeUsePreview {

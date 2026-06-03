@@ -1702,6 +1702,52 @@ func (s *Store) UpdateUser(uid int64, fn func(*User) error) (User, error) {
 	return updated, nil
 }
 
+// LockEmbyGrantForBoundUsers sets EmbyGrantLocked=true for bound users in one
+// store write. Users without Emby are returned as skipped instead of being
+// treated as failures so bulk UI actions can safely target broad filters.
+func (s *Store) LockEmbyGrantForBoundUsers(uids []int64) (updated []int64, missing []int64, skippedNoEmby []int64, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.refreshLocked(); err != nil {
+		return nil, nil, nil, err
+	}
+	prev, err := s.snapshotStateLocked()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	seen := map[int64]bool{}
+	changed := false
+	for _, uid := range uids {
+		if seen[uid] {
+			continue
+		}
+		seen[uid] = true
+		u, ok := s.state.Users[uid]
+		if !ok {
+			missing = append(missing, uid)
+			continue
+		}
+		if strings.TrimSpace(u.EmbyID) == "" {
+			skippedNoEmby = append(skippedNoEmby, uid)
+			continue
+		}
+		if !u.EmbyGrantLocked {
+			u.EmbyGrantLocked = true
+			s.state.Users[uid] = u
+			changed = true
+		}
+		updated = append(updated, uid)
+	}
+	if !changed {
+		return updated, missing, skippedNoEmby, nil
+	}
+	if err := s.saveLocked(); err != nil {
+		s.state = prev
+		return nil, nil, nil, err
+	}
+	return updated, missing, skippedNoEmby, nil
+}
+
 // SetUserRoleAtomic 在同一把写锁内做 last-admin 计数 + 写入。
 // 解决了原 handleAdminUpdateUser / handleAdminSetRole 把"读 ListUsers 计数"
 // 与"UpdateUser 闭包"分两段执行导致的 TOCTOU：两个 admin 并发降级两个不同 admin

@@ -4450,22 +4450,40 @@ func TestBatchLockEmbyUnbindSupportsSelectedFilter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	gamma, err := app.store().CreateUser(store.User{Username: "gamma-lock", PasswordHash: "x", Role: store.RoleNormal, Active: true})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := app.store().UpdateUser(beta.UID, func(u *store.User) error { u.Active = false; return nil }); err != nil {
 		t.Fatal(err)
 	}
 
 	body := fmt.Sprintf(`{"select_all":true,"filter":{"role":1,"active":true,"search":"lock"},"confirm":%q}`, confirmBatchLockEmbyUnbind)
 	resp := doJSONWithHeaders(app, http.MethodPost, "/api/v1/batch/users/emby-unbind-lock", body, cookies, headers)
-	if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), `"selected_all":true`) || !strings.Contains(resp.Body.String(), `"success":1`) {
+	if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), `"selected_all":true`) || !strings.Contains(resp.Body.String(), `"success":1`) || !strings.Contains(resp.Body.String(), `"skipped_no_emby":0`) {
 		t.Fatalf("batch lock status=%d body=%s", resp.Code, resp.Body.String())
 	}
 	updatedAlpha, _ := app.store().User(alpha.UID)
 	updatedBeta, _ := app.store().User(beta.UID)
+	updatedGamma, _ := app.store().User(gamma.UID)
 	if !updatedAlpha.EmbyGrantLocked {
 		t.Fatal("selected active user was not locked")
 	}
 	if updatedBeta.EmbyGrantLocked {
 		t.Fatal("filtered-out disabled user was locked")
+	}
+	if updatedGamma.EmbyGrantLocked {
+		t.Fatal("select_all should pre-filter user without Emby")
+	}
+
+	body = fmt.Sprintf(`{"uids":[%d],"confirm":%q}`, gamma.UID, confirmBatchLockEmbyUnbind)
+	resp = doJSONWithHeaders(app, http.MethodPost, "/api/v1/batch/users/emby-unbind-lock", body, cookies, headers)
+	if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), `"success":0`) || !strings.Contains(resp.Body.String(), `"failed":0`) || !strings.Contains(resp.Body.String(), `"skipped_no_emby":1`) {
+		t.Fatalf("explicit no-Emby lock status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	updatedGamma, _ = app.store().User(gamma.UID)
+	if updatedGamma.EmbyGrantLocked {
+		t.Fatal("explicit user without Emby should be skipped, not locked")
 	}
 }
 

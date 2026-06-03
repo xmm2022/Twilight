@@ -134,29 +134,50 @@ func (a *App) handleBatchLockEmbyUnbind(w http.ResponseWriter, r *http.Request, 
 		failWithCode(w, http.StatusBadRequest, ErrBatchConfirmRequired, "missing confirm "+confirmBatchLockEmbyUnbind)
 		return
 	}
-	uids, okPayload := a.batchUserUIDsFromPayload(w, payload, 200, 5000, "too many users in one batch")
+	uids, okPayload := a.batchBoundEmbyUserUIDsFromPayload(w, payload, 200, 5000, "too many users in one batch")
 	if !okPayload {
 		return
 	}
 	result := batchResult(len(uids))
+	usersByUID := map[int64]store.User{}
+	for _, user := range a.store().ListUsers() {
+		usersByUID[user.UID] = user
+	}
+	eligible := make([]int64, 0, len(uids))
+	skippedNoEmby := 0
 	for _, uid := range uids {
-		target, okUser := a.store().User(uid)
+		target, okUser := usersByUID[uid]
 		if !okUser {
 			addBatchOutcomeWithCode(result, uid, ErrUserNotFound, fmt.Errorf("%s", userNotFoundMessage))
+			continue
+		}
+		if strings.TrimSpace(target.EmbyID) == "" {
+			skippedNoEmby++
 			continue
 		}
 		if a.userIsProtected(target) {
 			addBatchOutcomeWithCode(result, uid, ErrUserProtected, fmt.Errorf("cannot lock protected account: %s", a.protectedUserReason(target)))
 			continue
 		}
-		_, err := a.store().UpdateUser(uid, func(u *store.User) error {
-			u.EmbyGrantLocked = true
-			return nil
-		})
-		addBatchOutcome(result, uid, err)
+		eligible = append(eligible, uid)
+	}
+	updated, missing, skippedDuringWrite, err := a.store().LockEmbyGrantForBoundUsers(eligible)
+	if err != nil {
+		for _, uid := range eligible {
+			addBatchOutcome(result, uid, err)
+		}
+	} else {
+		for _, uid := range updated {
+			addBatchOutcome(result, uid, nil)
+		}
+		for _, uid := range missing {
+			addBatchOutcomeWithCode(result, uid, ErrUserNotFound, fmt.Errorf("%s", userNotFoundMessage))
+		}
+		skippedNoEmby += len(skippedDuringWrite)
 	}
 	result["selected_all"] = boolValue(payload, "select_all", false)
 	result["emby_grant_locked"] = true
+	result["skipped_no_emby"] = skippedNoEmby
 	ok(w, "批量禁止 Emby 自助解绑完成", result)
 }
 
@@ -179,6 +200,27 @@ func (a *App) batchUserUIDsFromPayload(w http.ResponseWriter, payload map[string
 		return nil, false
 	}
 	return uniqueInt64s(uids), true
+}
+
+func (a *App) batchBoundEmbyUserUIDsFromPayload(w http.ResponseWriter, payload map[string]any, maxExplicit, maxSelectedAll int, tooManyMessage string) ([]int64, bool) {
+	if !boolValue(payload, "select_all", false) {
+		return a.batchUserUIDsFromPayload(w, payload, maxExplicit, maxSelectedAll, tooManyMessage)
+	}
+	filter, _ := payload["filter"].(map[string]any)
+	if strings.EqualFold(asString(filter["emby"]), "unbound") {
+		return []int64{}, true
+	}
+	boundFilter := map[string]any{}
+	for key, value := range filter {
+		boundFilter[key] = value
+	}
+	boundFilter["emby"] = "bound"
+	boundPayload := map[string]any{}
+	for key, value := range payload {
+		boundPayload[key] = value
+	}
+	boundPayload["filter"] = boundFilter
+	return a.batchUserUIDsFromPayload(w, boundPayload, maxExplicit, maxSelectedAll, tooManyMessage)
 }
 
 func (a *App) filteredBatchUserUIDs(payload map[string]any, limit int) ([]int64, int) {

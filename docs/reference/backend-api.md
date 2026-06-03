@@ -1711,7 +1711,7 @@ curl -N "http://localhost:5000/api/v1/system/admin/runtime/logs/stream?limit=100
 | `POST /batch/users/enable` | `AuthAdmin` | 批量启用 |
 | `POST /batch/users/renew` | `AuthAdmin` | 批量续期 |
 | `POST /batch/users/delete` | `AuthAdmin` | 批量删除 |
-| `POST /batch/users/emby-unbind-lock` | `AuthAdmin` | 批量写入 `emby_grant_locked=true`，禁止用户自助解绑 Emby |
+| `POST /batch/users/emby-unbind-lock` | `AuthAdmin` | 批量为已绑定 Emby 的用户写入 `emby_grant_locked=true`，禁止用户自助解绑 Emby；未绑定 Emby 的用户返回在 `skipped_no_emby` 中，不视为失败 |
 | `GET /batch/export/users` | `AuthAdmin` | 导出用户 |
 | `GET /batch/export/playback` | `AuthAdmin` | 导出播放记录 |
 | `GET /batch/watch-stats` | `AuthUser` | 当前用户观看统计 |
@@ -1721,6 +1721,8 @@ curl -N "http://localhost:5000/api/v1/system/admin/runtime/logs/stream?limit=100
 | `POST /batch/send-reminders` | `AuthAdmin` | 发送到期提醒 |
 
 批量用户接口支持两种目标格式：显式 `uids`（单次最多 200 个）或 `{"select_all":true,"filter":{...}}`（按当前筛选匹配全部用户，最多 5000 个）。`filter` 支持 `role`、`active`、`emby`（`bound` / `unbound`）和 `search`。管理员 / 受保护账号由后端自动跳过。
+
+`/batch/users/emby-unbind-lock` 在 `select_all` 模式下会先把目标收窄到已绑定 Emby 的用户；显式 `uids` 中未绑定 Emby 的用户会计入 `skipped_no_emby`，不视为失败。
 
 ### 11.3 Stats 模块
 

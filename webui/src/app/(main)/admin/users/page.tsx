@@ -854,9 +854,10 @@ export default function AdminUsersPage() {
     try {
       const res = await api.batchLockEmbyUnbind(selectedBatchTarget());
       if (res.success && res.data) {
+        const skippedNoEmby = res.data.skipped_no_emby || 0;
         toast({
           title: "已禁止自助解绑 Emby",
-          description: `成功 ${res.data.success} 个，失败 ${res.data.failed} 个`,
+          description: `成功 ${res.data.success} 个，跳过未绑定 Emby ${skippedNoEmby} 个，失败 ${res.data.failed} 个`,
           variant: res.data.failed ? "default" : "success",
         });
         await refreshAfterBatch();

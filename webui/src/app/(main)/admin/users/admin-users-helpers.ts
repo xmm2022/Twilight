@@ -70,7 +70,7 @@ export function batchToggleConfirmConfig(enable: boolean, count: number): Confir
 export function batchLockEmbyUnbindConfirmConfig(count: number): ConfirmOptions {
   return {
     title: "禁止所选用户自助解绑 Emby？",
-    description: `将为 ${count} 个已选用户写入 Emby 授权锁。之后用户不能自助解绑 Emby，管理员仍可强制解绑。管理员账号由后端保护，会自动跳过。`,
+    description: `将为 ${count} 个已选目标中已绑定 Emby 的用户写入 Emby 授权锁；未绑定 Emby 的用户会自动跳过。之后用户不能自助解绑 Emby，管理员仍可强制解绑。管理员账号由后端保护。`,
     tone: "warning",
     confirmLabel: "禁止解绑",
   };
