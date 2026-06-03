@@ -77,6 +77,8 @@ import {
   ToggleActiveDialog,
 } from "./admin-users-dialogs";
 
+type UserSelectionScope = "manual" | "emby" | "all";
+
 export default function AdminUsersPage() {
   const { toast } = useToast();
   const { confirmAction } = useConfirm();
@@ -119,7 +121,9 @@ export default function AdminUsersPage() {
   });
 
   const [selectedUserIds, setSelectedUserIds] = useState<Set<number>>(new Set());
-  const [selectAllMatching, setSelectAllMatching] = useState(false);
+  const [selectionScope, setSelectionScope] = useState<UserSelectionScope>("manual");
+  const [selectionScopeCount, setSelectionScopeCount] = useState(0);
+  const [selectEmbyLoading, setSelectEmbyLoading] = useState(false);
   const [batchUserLoading, setBatchUserLoading] = useState(false);
 
   // 删除（含邀请树级联）对话框
@@ -262,7 +266,7 @@ export default function AdminUsersPage() {
     [users, selectedUserIds],
   );
   const selectedUids = useMemo(() => Array.from(selectedUserIds), [selectedUserIds]);
-  const selectedCount = selectAllMatching ? total : selectedUserIds.size;
+  const selectedCount = selectionScope === "all" ? total : selectionScope === "emby" ? selectionScopeCount : selectedUserIds.size;
   const selectedEmbyCount = useMemo(
     () => selectedUsers.filter((user) => Boolean(user.emby_id)).length,
     [selectedUsers],
@@ -271,35 +275,49 @@ export default function AdminUsersPage() {
     () => selectedUsers.filter((user) => user.role === 0).length,
     [selectedUsers],
   );
-  const allPageSelected = users.length > 0 && (selectAllMatching || users.every((user) => selectedUserIds.has(user.uid)));
-
   const currentListState = useMemo(
     () => ({ page, perPage, search, roleFilter, activeFilter, embyFilter, sortBy }),
     [page, perPage, search, roleFilter, activeFilter, embyFilter, sortBy],
   );
 
+  const isUserSelected = (user: UserInfo) =>
+    selectionScope === "all" ||
+    (selectionScope === "emby" && Boolean(user.emby_id)) ||
+    selectedUserIds.has(user.uid);
+
+  const allPageSelected = users.length > 0 && users.every(isUserSelected);
+
   const clearUserSelection = () => {
     setSelectedUserIds(new Set());
-    setSelectAllMatching(false);
+    setSelectionScope("manual");
+    setSelectionScopeCount(0);
   };
 
+  const embyMatchingFilter = () => ({
+    ...usersBatchFilterParams(currentListState),
+    emby: "bound" as const,
+  });
+
   const selectedBatchTarget = () => (
-    selectAllMatching
+    selectionScope === "all"
       ? { select_all: true, filter: usersBatchFilterParams(currentListState) }
+      : selectionScope === "emby"
+        ? { select_all: true, filter: embyMatchingFilter() }
       : selectedUids
   );
 
   const toggleSelectedUser = (uid: number) => {
-    if (selectAllMatching) {
-      setSelectAllMatching(false);
-      setSelectedUserIds(new Set(users.filter((user) => user.uid !== uid).map((user) => user.uid)));
+    if (selectionScope !== "manual") {
+      setSelectionScope("manual");
+      setSelectionScopeCount(0);
+      setSelectedUserIds(new Set(users.filter((user) => isUserSelected(user) && user.uid !== uid).map((user) => user.uid)));
       return;
     }
     setSelectedUserIds((prev) => toggleSetMember(prev, uid));
   };
 
   const toggleSelectCurrentPage = () => {
-    if (selectAllMatching) {
+    if (selectionScope !== "manual") {
       clearUserSelection();
       return;
     }
@@ -314,9 +332,41 @@ export default function AdminUsersPage() {
     });
   };
 
+  const selectCurrentPageUsers = () => {
+    setSelectionScope("manual");
+    setSelectionScopeCount(0);
+    setSelectedUserIds(new Set(users.map((user) => user.uid)));
+  };
+
   const selectAllMatchingUsers = () => {
     setSelectedUserIds(new Set(users.map((user) => user.uid)));
-    setSelectAllMatching(true);
+    setSelectionScope("all");
+    setSelectionScopeCount(total);
+  };
+
+  const selectEmbyMatchingUsers = async () => {
+    setSelectEmbyLoading(true);
+    try {
+      const res = await api.getUsers({
+        ...usersListParams(currentListState),
+        page: 1,
+        per_page: 1,
+        emby: "bound",
+      });
+      const count = res.success && res.data ? res.data.total : users.filter((user) => Boolean(user.emby_id)).length;
+      if (count <= 0) {
+        clearUserSelection();
+        toast({ title: "没有可选择的 Emby 用户", description: "当前筛选条件下没有已绑定 Emby 的用户。" });
+        return;
+      }
+      setSelectedUserIds(new Set(users.filter((user) => Boolean(user.emby_id)).map((user) => user.uid)));
+      setSelectionScope("emby");
+      setSelectionScopeCount(count);
+    } catch (error: any) {
+      toast({ title: "选择失败", description: error.message || "无法获取拥有 Emby 的用户数量", variant: "destructive" });
+    } finally {
+      setSelectEmbyLoading(false);
+    }
   };
 
   const handleSearch = () => {
@@ -873,7 +923,10 @@ export default function AdminUsersPage() {
 
   const handleSelectedDelete = async () => {
     if (selectedCount === 0) return;
-    const action = await confirmAction(batchDeleteConfirmConfig(selectedCount, selectAllMatching ? undefined : selectedEmbyCount));
+    const action = await confirmAction(batchDeleteConfirmConfig(
+      selectedCount,
+      selectionScope === "emby" ? selectedCount : selectionScope === "manual" ? selectedEmbyCount : undefined,
+    ));
     if (!action) return;
     const deleteEmby = action === "with_emby";
     setBatchUserLoading(true);
@@ -1619,27 +1672,40 @@ export default function AdminUsersPage() {
           <CardContent className="flex flex-col gap-4 p-4 xl:flex-row xl:items-center xl:justify-between">
             <div className="space-y-1">
               <p className="font-medium">
-                {selectAllMatching ? `已选择全部 ${total} 个匹配用户` : selectedCount > 0 ? `已选择 ${selectedCount} 个用户` : "批量选择"}
+                {selectionScope === "all"
+                  ? `已选择全部 ${total} 个匹配用户`
+                  : selectionScope === "emby"
+                    ? `已选择 ${selectionScopeCount} 个拥有 Emby 的匹配用户`
+                    : selectedCount > 0
+                      ? `已选择 ${selectedCount} 个用户`
+                      : "批量选择"}
               </p>
               {selectedCount > 0 ? (
                 <p className="text-xs text-muted-foreground">
-                  {selectAllMatching
+                  {selectionScope === "all"
                     ? "将按当前筛选条件作用于全部匹配用户；管理员账号会被后端自动跳过。"
+                    : selectionScope === "emby"
+                      ? "将按当前筛选条件中已绑定 Emby 的用户执行；未绑定 Emby 的用户不会进入本次选择。"
                     : `当前页可见已选用户中 ${selectedEmbyCount} 个已绑定 Emby${selectedAdminCount > 0 ? `，${selectedAdminCount} 个管理员会被后端自动跳过` : "；管理员账号会被后端自动跳过"}。`}
                 </p>
               ) : (
-                <p className="text-xs text-muted-foreground">可先选择当前页，或直接选择当前筛选条件下的全部匹配用户。</p>
+                <p className="text-xs text-muted-foreground">可选择当前页、当前筛选下拥有 Emby 的用户，或当前筛选下全部用户。</p>
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant="outline" size="sm" onClick={toggleSelectCurrentPage} disabled={batchUserLoading || users.length === 0}>
-                {selectAllMatching ? "取消全部选择" : allPageSelected ? "取消当前页" : "选择当前页"}
-              </Button>
-              {total > users.length && !selectAllMatching && (
-                <Button variant="outline" size="sm" onClick={selectAllMatchingUsers} disabled={batchUserLoading || total === 0}>
-                  选择全部 {total} 个匹配用户
+              <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/20 p-1">
+                <span className="px-2 text-xs text-muted-foreground">选择范围</span>
+                <Button variant={selectionScope === "manual" && selectedCount > 0 && allPageSelected ? "default" : "outline"} size="sm" onClick={selectCurrentPageUsers} disabled={batchUserLoading || users.length === 0}>
+                  选中当前页
                 </Button>
-              )}
+                <Button variant={selectionScope === "emby" ? "default" : "outline"} size="sm" onClick={() => void selectEmbyMatchingUsers()} disabled={batchUserLoading || selectEmbyLoading || total === 0}>
+                  {selectEmbyLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link2 className="mr-2 h-4 w-4" />}
+                  选中拥有 Emby 的
+                </Button>
+                <Button variant={selectionScope === "all" ? "default" : "outline"} size="sm" onClick={selectAllMatchingUsers} disabled={batchUserLoading || total === 0}>
+                  选中全部
+                </Button>
+              </div>
               <Button variant="outline" size="sm" onClick={clearUserSelection} disabled={batchUserLoading || selectedCount === 0}>
                 清空选择
               </Button>
@@ -1682,7 +1748,7 @@ export default function AdminUsersPage() {
                     <div className="flex min-w-0 items-start gap-3">
                       <input
                         type="checkbox"
-                        checked={selectedUserIds.has(user.uid)}
+                        checked={isUserSelected(user)}
                         onChange={() => toggleSelectedUser(user.uid)}
                         className="mt-1 h-4 w-4"
                         aria-label={`选择 ${user.username}`}
@@ -1776,7 +1842,7 @@ export default function AdminUsersPage() {
                       <td className="px-4 py-3">
                         <input
                           type="checkbox"
-                          checked={selectedUserIds.has(user.uid)}
+                          checked={isUserSelected(user)}
                           onChange={() => toggleSelectedUser(user.uid)}
                           className="h-4 w-4"
                           aria-label={`选择 ${user.username}`}
