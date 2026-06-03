@@ -92,6 +92,8 @@ export interface BatchUserResult {
   success: number;
   failed: number;
   errors: Array<{ uid: number; error: string }>;
+  selected_all?: boolean;
+  emby_grant_locked?: boolean;
 }
 
 export interface CodeUsePreview {
@@ -494,6 +496,12 @@ export interface CreateRegcodeData {
   target_username?: string;
   target_telegram_username?: string;
   target_telegram_id?: number;
+}
+
+export interface BatchUserSelection {
+  uids?: number[];
+  select_all?: boolean;
+  filter?: Pick<AdminUserListParams, "role" | "active" | "emby" | "search">;
 }
 
 export interface ConfigFieldOption {

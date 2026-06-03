@@ -1,9 +1,9 @@
 import type { ConfirmOptions } from "@/components/ui/confirm-dialog";
-import type { AdminUserListParams, UserInfo } from "@/lib/api-types";
+import type { AdminUserListParams } from "@/lib/api-types";
 
 export type BatchDeleteAction = "local_only" | "with_emby";
 
-interface UsersListState {
+export interface UsersListState {
   page: number;
   perPage: number;
   search: string;
@@ -37,6 +37,16 @@ export function usersListParams(state: UsersListState): AdminUserListParams {
   };
 }
 
+export function usersBatchFilterParams(state: UsersListState) {
+  const params = usersListParams(state);
+  return {
+    role: params.role,
+    active: params.active,
+    emby: params.emby,
+    search: params.search,
+  };
+}
+
 export function hasStrongAdminPassword(password: string): boolean {
   return password.length >= 8 && /[a-z]/.test(password) && /[A-Z]/.test(password) && /\d/.test(password);
 }
@@ -48,12 +58,6 @@ export function toggleSetMember<T>(values: Set<T>, value: T): Set<T> {
   return next;
 }
 
-export function retainVisibleUserIds(selected: Set<number>, users: UserInfo[]): Set<number> {
-  const visible = new Set(users.map((user) => user.uid));
-  const next = new Set(Array.from(selected).filter((uid) => visible.has(uid)));
-  return next.size === selected.size ? selected : next;
-}
-
 export function batchToggleConfirmConfig(enable: boolean, count: number): ConfirmOptions {
   return {
     title: enable ? "启用所选用户？" : "禁用所选用户？",
@@ -63,7 +67,19 @@ export function batchToggleConfirmConfig(enable: boolean, count: number): Confir
   };
 }
 
-export function batchDeleteConfirmConfig(count: number, embyCount: number): ConfirmOptions {
+export function batchLockEmbyUnbindConfirmConfig(count: number): ConfirmOptions {
+  return {
+    title: "禁止所选用户自助解绑 Emby？",
+    description: `将为 ${count} 个已选用户写入 Emby 授权锁。之后用户不能自助解绑 Emby，管理员仍可强制解绑。管理员账号由后端保护，会自动跳过。`,
+    tone: "warning",
+    confirmLabel: "禁止解绑",
+  };
+}
+
+export function batchDeleteConfirmConfig(count: number, embyCount?: number): ConfirmOptions {
+  const embyLabel = typeof embyCount === "number"
+    ? `同时删除 Emby 账号（${embyCount} 个）`
+    : "同时删除已绑定的 Emby 账号";
   return {
     title: "删除所选用户？",
     description: `将删除 ${count} 个已选用户。管理员账号和当前管理员由后端保护，会自动跳过。`,
@@ -71,7 +87,7 @@ export function batchDeleteConfirmConfig(count: number, embyCount: number): Conf
     cancelLabel: "取消",
     actions: [
       { label: "仅删除本地账号", value: "local_only" as BatchDeleteAction, variant: "destructive" },
-      { label: `同时删除 Emby 账号（${embyCount} 个）`, value: "with_emby" as BatchDeleteAction, variant: "destructive" },
+      { label: embyLabel, value: "with_emby" as BatchDeleteAction, variant: "destructive" },
     ],
   };
 }

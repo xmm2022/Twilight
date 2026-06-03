@@ -11,7 +11,7 @@ Bot 由二进制子命令 `bot`（或 `all`）启动，轮询逻辑见 `internal
 | 私聊优先 | `/bind`、`/me`、`/emby`、`/playinfo`、`/resetpwd`、`/cancel`、`/about` 以及管理员命令 `/stats`、`/admin`、`/userinfo`、`/twfind`、`/twishelp` 仅在私聊生效。 |
 | 群聊保护 | 在群聊使用上述账号类命令时，Bot 只回复"请私聊使用"提示，不展示账号状态。`/start`、`/help`、`/twihelp` 在群聊会被替换为群聊提示文案。 |
 | 管理员判定 | `telegramAdminID` 判定逻辑：Telegram ID 命中 `[Telegram].admin_id` 列表，或该 Telegram ID 已绑定到一个 `Role == admin` 的 Twilight 账号。 |
-| 敏感信息边界 | Bot 不展示密码、Token、Emby ID、Telegram ID、服务器线路/地址、数据库连接串等敏感信息。 |
+| 敏感信息边界 | Bot 默认不展示密码、Token、Emby ID、Telegram ID、服务器线路/地址、数据库连接串等敏感信息；管理员自定义 `/twguser` 模板时可显式使用 `{telegram_userid}`。 |
 | 写操作边界 | 私聊命令全部为只读。唯一的写操作入口是群组 `/twguser` 内联面板，且每次按钮点击都重新校验管理员身份（详见后文）。 |
 | 命令解析 | 命令统一转小写并剥离 `@botname` 后缀（`telegramCommand`），因此在群里写 `/stats@yourbot` 也能识别。 |
 
@@ -74,7 +74,7 @@ Bot 由二进制子命令 `bot`（或 `all`）启动，轮询逻辑见 `internal
 - 非管理员或匿名身份发起的越权指令，连同提示消息会在 30 秒后自动删除。
 - 删除 Emby 账号类操作会尊重用户记录上的 `emby_grant_locked`。通过注册码、白名单码、邀请码、后台授予、Telegram 授予或自助创建获得过 Emby 注册资格的账号，不能通过面板删除 Emby 后再次自助注册。
 
-面板文本可通过 `[Telegram].group_user_panel_template` 自定义，也可在 Web 后台配置页的 Telegram 分组中编辑。留空使用内置模板；未知占位符会原样保留，便于发现拼写错误。安全边界不变：模板不提供邮箱、Emby ID、Telegram ID、密码、Token 或服务器线路占位符。
+面板文本可通过 `[Telegram].group_user_panel_template` 自定义，也可在 Web 后台配置页的 Telegram 分组中编辑。留空使用内置模板；未知占位符会原样保留，便于发现拼写错误。模板不提供邮箱、Emby ID、密码、Token 或服务器线路占位符；如确需展示 Telegram ID，可显式使用 `{telegram_userid}`。
 
 常用占位符：
 
@@ -87,7 +87,7 @@ Bot 由二进制子命令 `bot`（或 `all`）启动，轮询逻辑见 `internal
 | `{web_status}` / `{web_active}` | Web 账号启用状态。 |
 | `{expire_status}` / `{expired_at}` | 到期摘要 / 具体到期时间。 |
 | `{register_time}` / `{created_at}` | 注册时间 / 创建时间。 |
-| `{telegram_status}` / `{telegram_username}` | Telegram 绑定摘要 / Telegram 用户名。 |
+| `{telegram_status}` / `{telegram_username}` / `{telegram_userid}` | Telegram 绑定摘要 / Telegram 用户名 / Telegram 用户 ID。无用户名时 `{telegram_username}` 显示 `None`。 |
 | `{emby_status}` / `{emby_username}` | 本地 Emby 绑定摘要 / 本地 Emby 用户名。 |
 | `{emby_bound_status}` / `{emby_bound}` | 本地 Emby 绑定状态 / 是否已绑定。 |
 | `{emby_unbind_allowed}` | 是否允许用户自助解绑 Emby。 |
@@ -116,7 +116,7 @@ Bot 由二进制子命令 `bot`（或 `all`）启动，轮询逻辑见 `internal
 
 - 群聊不处理账号状态、播放统计、绑定码、管理员统计等敏感命令，仅 `/twguser` 在群内可用且受上述面板约束保护。
 - 管理员查询摘要仅展示用户名、UID、角色、启用状态、到期状态、Telegram 是否绑定、Emby 是否绑定、是否待开通 Emby。
-- Bot 不展示 Emby ID、Telegram ID、密码、Token、服务线路、数据库连接串。
+- Bot 默认模板不展示 Emby ID、Telegram ID、密码、Token、服务线路、数据库连接串；管理员自定义 `/twguser` 模板时可显式使用 `{telegram_userid}`。
 - `/emby` 只展示是否配置、是否可连通，不展示服务器地址。
 - `/playinfo` 只展示播放摘要，不展示外部服务凭据。
 - Bot 处理过程对每条 update 做 panic 隔离，日志中的 panic 文本与敏感内容都会经脱敏处理。

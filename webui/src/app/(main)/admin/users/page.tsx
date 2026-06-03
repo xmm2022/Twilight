@@ -19,6 +19,7 @@ import {
   UserCheck,
   CalendarClock,
   Send,
+  LockKeyhole,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -51,11 +52,12 @@ import { ErrCodes } from "@/lib/errcode";
 import { formatDate } from "@/lib/utils";
 import {
   batchDeleteConfirmConfig,
+  batchLockEmbyUnbindConfirmConfig,
   batchToggleConfirmConfig,
   buildUsersCacheKey,
   hasStrongAdminPassword,
-  retainVisibleUserIds,
   toggleSetMember,
+  usersBatchFilterParams,
   usersListParams,
 } from "./admin-users-helpers";
 import { renderExpireCell, renderRoleBadge, UserActionsMenu } from "./admin-users-cells";
@@ -117,6 +119,7 @@ export default function AdminUsersPage() {
   });
 
   const [selectedUserIds, setSelectedUserIds] = useState<Set<number>>(new Set());
+  const [selectAllMatching, setSelectAllMatching] = useState(false);
   const [batchUserLoading, setBatchUserLoading] = useState(false);
 
   // 删除（含邀请树级联）对话框
@@ -259,6 +262,7 @@ export default function AdminUsersPage() {
     [users, selectedUserIds],
   );
   const selectedUids = useMemo(() => Array.from(selectedUserIds), [selectedUserIds]);
+  const selectedCount = selectAllMatching ? total : selectedUserIds.size;
   const selectedEmbyCount = useMemo(
     () => selectedUsers.filter((user) => Boolean(user.emby_id)).length,
     [selectedUsers],
@@ -267,13 +271,38 @@ export default function AdminUsersPage() {
     () => selectedUsers.filter((user) => user.role === 0).length,
     [selectedUsers],
   );
-  const allPageSelected = users.length > 0 && users.every((user) => selectedUserIds.has(user.uid));
+  const allPageSelected = users.length > 0 && (selectAllMatching || users.every((user) => selectedUserIds.has(user.uid)));
+
+  const currentListState = useMemo(
+    () => ({ page, perPage, search, roleFilter, activeFilter, embyFilter, sortBy }),
+    [page, perPage, search, roleFilter, activeFilter, embyFilter, sortBy],
+  );
+
+  const clearUserSelection = () => {
+    setSelectedUserIds(new Set());
+    setSelectAllMatching(false);
+  };
+
+  const selectedBatchTarget = () => (
+    selectAllMatching
+      ? { select_all: true, filter: usersBatchFilterParams(currentListState) }
+      : selectedUids
+  );
 
   const toggleSelectedUser = (uid: number) => {
+    if (selectAllMatching) {
+      setSelectAllMatching(false);
+      setSelectedUserIds(new Set(users.filter((user) => user.uid !== uid).map((user) => user.uid)));
+      return;
+    }
     setSelectedUserIds((prev) => toggleSetMember(prev, uid));
   };
 
   const toggleSelectCurrentPage = () => {
+    if (selectAllMatching) {
+      clearUserSelection();
+      return;
+    }
     setSelectedUserIds((prev) => {
       const next = new Set(prev);
       if (allPageSelected) {
@@ -285,9 +314,15 @@ export default function AdminUsersPage() {
     });
   };
 
+  const selectAllMatchingUsers = () => {
+    setSelectedUserIds(new Set(users.map((user) => user.uid)));
+    setSelectAllMatching(true);
+  };
+
   const handleSearch = () => {
     invalidateUsersCache();
     setExpandedUserIds(new Set());
+    clearUserSelection();
     if (page !== 1) {
       setPage(1);
       return;
@@ -314,8 +349,9 @@ export default function AdminUsersPage() {
   }, [roleFilter, activeFilter, embyFilter, sortBy]);
 
   useEffect(() => {
-    setSelectedUserIds((prev) => retainVisibleUserIds(prev, users));
-  }, [users]);
+    clearUserSelection();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roleFilter, activeFilter, embyFilter, sortBy]);
 
   const handleForceSetEmbyPassword = async () => {
     const emby = forcePwdEmbyName.trim();
@@ -782,17 +818,17 @@ export default function AdminUsersPage() {
 
   const refreshAfterBatch = async () => {
     invalidateUsersCache();
-    setSelectedUserIds(new Set());
+    clearUserSelection();
     await loadUsers();
   };
 
   const handleSelectedToggleActive = async (enable: boolean) => {
-    if (selectedUids.length === 0) return;
-    const ok = await confirmAction(batchToggleConfirmConfig(enable, selectedUids.length));
+    if (selectedCount === 0) return;
+    const ok = await confirmAction(batchToggleConfirmConfig(enable, selectedCount));
     if (!ok) return;
     setBatchUserLoading(true);
     try {
-      const res = await api.batchToggleUsers(selectedUids, enable);
+      const res = await api.batchToggleUsers(selectedBatchTarget(), enable);
       if (res.success && res.data) {
         toast({
           title: enable ? "批量启用完成" : "批量禁用完成",
@@ -810,14 +846,38 @@ export default function AdminUsersPage() {
     }
   };
 
+  const handleSelectedLockEmbyUnbind = async () => {
+    if (selectedCount === 0) return;
+    const ok = await confirmAction(batchLockEmbyUnbindConfirmConfig(selectedCount));
+    if (!ok) return;
+    setBatchUserLoading(true);
+    try {
+      const res = await api.batchLockEmbyUnbind(selectedBatchTarget());
+      if (res.success && res.data) {
+        toast({
+          title: "已禁止自助解绑 Emby",
+          description: `成功 ${res.data.success} 个，失败 ${res.data.failed} 个`,
+          variant: res.data.failed ? "default" : "success",
+        });
+        await refreshAfterBatch();
+      } else {
+        toast({ title: "批量操作失败", description: res.message, variant: "destructive" });
+      }
+    } catch (error: any) {
+      toast({ title: "批量操作失败", description: error.message, variant: "destructive" });
+    } finally {
+      setBatchUserLoading(false);
+    }
+  };
+
   const handleSelectedDelete = async () => {
-    if (selectedUids.length === 0) return;
-    const action = await confirmAction(batchDeleteConfirmConfig(selectedUids.length, selectedEmbyCount));
+    if (selectedCount === 0) return;
+    const action = await confirmAction(batchDeleteConfirmConfig(selectedCount, selectAllMatching ? undefined : selectedEmbyCount));
     if (!action) return;
     const deleteEmby = action === "with_emby";
     setBatchUserLoading(true);
     try {
-      const res = await api.batchDeleteUsers(selectedUids, deleteEmby);
+      const res = await api.batchDeleteUsers(selectedBatchTarget(), deleteEmby);
       if (res.success && res.data) {
         toast({
           title: "批量删除完成",
@@ -1434,9 +1494,12 @@ export default function AdminUsersPage() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="搜索用户名、UID 或 Telegram ID..."
+                placeholder="搜索用户名、邮箱、UID 或 Telegram ID..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  clearUserSelection();
+                }}
                 onKeyDown={(e) => e.key === "Enter" && handleSearch()}
                 className="pl-10"
               />
@@ -1550,31 +1613,51 @@ export default function AdminUsersPage() {
       </Card>
 
       {/* Users Table */}
-      {selectedUserIds.size > 0 && (
+      {users.length > 0 && (
         <Card className="border-primary/30">
           <CardContent className="flex flex-col gap-4 p-4 xl:flex-row xl:items-center xl:justify-between">
             <div className="space-y-1">
-              <p className="font-medium">已选择 {selectedUserIds.size} 个用户</p>
-              <p className="text-xs text-muted-foreground">
-                其中 {selectedEmbyCount} 个已绑定 Emby{selectedAdminCount > 0 ? `，${selectedAdminCount} 个管理员会被后端自动跳过` : "；管理员账号会被后端自动跳过"}。
+              <p className="font-medium">
+                {selectAllMatching ? `已选择全部 ${total} 个匹配用户` : selectedCount > 0 ? `已选择 ${selectedCount} 个用户` : "批量选择"}
               </p>
+              {selectedCount > 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  {selectAllMatching
+                    ? "将按当前筛选条件作用于全部匹配用户；管理员账号会被后端自动跳过。"
+                    : `当前页可见已选用户中 ${selectedEmbyCount} 个已绑定 Emby${selectedAdminCount > 0 ? `，${selectedAdminCount} 个管理员会被后端自动跳过` : "；管理员账号会被后端自动跳过"}。`}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">可先选择当前页，或直接选择当前筛选条件下的全部匹配用户。</p>
+              )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => setSelectedUserIds(new Set())} disabled={batchUserLoading}>
+              <Button variant="outline" size="sm" onClick={toggleSelectCurrentPage} disabled={batchUserLoading || users.length === 0}>
+                {selectAllMatching ? "取消全部选择" : allPageSelected ? "取消当前页" : "选择当前页"}
+              </Button>
+              {total > users.length && !selectAllMatching && (
+                <Button variant="outline" size="sm" onClick={selectAllMatchingUsers} disabled={batchUserLoading || total === 0}>
+                  选择全部 {total} 个匹配用户
+                </Button>
+              )}
+              <Button variant="outline" size="sm" onClick={clearUserSelection} disabled={batchUserLoading || selectedCount === 0}>
                 清空选择
               </Button>
               <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/20 p-1">
                 <span className="px-2 text-xs text-muted-foreground">账号状态</span>
-                <Button variant="outline" size="sm" onClick={() => void handleSelectedToggleActive(true)} disabled={batchUserLoading}>
+                <Button variant="outline" size="sm" onClick={() => void handleSelectedToggleActive(true)} disabled={batchUserLoading || selectedCount === 0}>
                   <UserCheck className="mr-2 h-4 w-4" />
                   启用
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => void handleSelectedToggleActive(false)} disabled={batchUserLoading}>
+                <Button variant="outline" size="sm" onClick={() => void handleSelectedToggleActive(false)} disabled={batchUserLoading || selectedCount === 0}>
                   <Ban className="mr-2 h-4 w-4" />
                   禁用
                 </Button>
               </div>
-              <Button variant="destructive" size="sm" onClick={() => void handleSelectedDelete()} disabled={batchUserLoading}>
+              <Button variant="outline" size="sm" onClick={() => void handleSelectedLockEmbyUnbind()} disabled={batchUserLoading || selectedCount === 0}>
+                <LockKeyhole className="mr-2 h-4 w-4" />
+                禁止解绑 Emby
+              </Button>
+              <Button variant="destructive" size="sm" onClick={() => void handleSelectedDelete()} disabled={batchUserLoading || selectedCount === 0}>
                 {batchUserLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
                 删除所选
               </Button>
@@ -1606,6 +1689,9 @@ export default function AdminUsersPage() {
                       <div className="min-w-0">
                         <p className="truncate text-base font-medium">{user.username}</p>
                         <p className="mt-1 text-xs text-muted-foreground">UID: {user.uid}</p>
+                        <p className="mt-0.5 truncate text-xs text-muted-foreground" title={user.email || "未设置"}>
+                          邮箱: {user.email || "未设置"}
+                        </p>
                       </div>
                     </div>
                     {renderUserActions(user)}
@@ -1714,6 +1800,9 @@ export default function AdminUsersPage() {
                                 </span>
                               )}
                             </p>
+                            <p className="max-w-[260px] truncate text-xs text-muted-foreground" title={user.email || "未设置"}>
+                              邮箱: {user.email || "未设置"}
+                            </p>
                           </div>
                           <Button
                             variant="ghost"
@@ -1759,6 +1848,7 @@ export default function AdminUsersPage() {
                           <div className="grid gap-3 sm:grid-cols-2">
                             <div>
                               <p className="font-medium">更多信息</p>
+                              <p>邮箱: {user.email || "未设置"}</p>
                               <p>注册时间: {user.register_time ? formatDate(user.register_time) : "未知"}</p>
                               <p>创建时间: {user.created_at ? formatDate(user.created_at) : "未记录"}</p>
                             </div>

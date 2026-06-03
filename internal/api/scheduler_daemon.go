@@ -67,6 +67,7 @@ func (a *App) runDueSchedulerJobs(ctx context.Context) {
 	if !a.cfg().SchedulerEnabled {
 		return
 	}
+	now := time.Now()
 	for _, job := range schedulerJobs {
 		jobID := fmt.Sprint(job["id"])
 		if jobID == "" || boolish(job["manual_only"]) || !schedulerJobEnabledByConfig(a.cfg().SystemUpdateEnabled, job) {
@@ -76,7 +77,7 @@ func (a *App) runDueSchedulerJobs(ctx context.Context) {
 		if strings.EqualFold(asString(spec["type"]), "manual") {
 			continue
 		}
-		if !a.schedulerJobDue(jobID, spec, time.Now()) {
+		if !a.schedulerJobDue(jobID, spec, now) {
 			continue
 		}
 		// runScheduledJob 现在自己负责 fork 内部 goroutine：daemon 在拿到锁 +
@@ -304,14 +305,19 @@ func schedulerTriggerDisabled(spec map[string]any) bool {
 }
 
 func (a *App) schedulerNextRunAt(jobID string, spec map[string]any, now time.Time) int64 {
-	if schedulerTriggerDisabled(spec) {
-		return 0
-	}
 	// 与 schedulerJobDue 对齐：从全量历史里取最新 auto run，避免被 manual
 	// 重跑挤出 SchedulerRuns(20) 时把 last 退化成 0，让前端"下次自动运行"
 	// 时间显示成 now / 当天而不是真正的次日。
+	snapshot := a.store().SchedulerRunSnapshot(jobID, 1)
+	return schedulerNextRunAtFromSnapshot(spec, now, snapshot)
+}
+
+func schedulerNextRunAtFromSnapshot(spec map[string]any, now time.Time, snapshot store.SchedulerRunSnapshot) int64 {
+	if schedulerTriggerDisabled(spec) {
+		return 0
+	}
 	last := int64(0)
-	if snapshot := a.store().SchedulerRunSnapshot(jobID, 1); snapshot.HasLatestAuto {
+	if snapshot.HasLatestAuto {
 		last = snapshot.LatestAuto.StartedAt
 	}
 	switch strings.ToLower(asString(spec["type"])) {

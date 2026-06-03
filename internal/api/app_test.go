@@ -2275,22 +2275,26 @@ func TestTelegramGroupUserPanelCustomTemplatePlaceholders(t *testing.T) {
 	app := newTestApp(t)
 	app.cfg().AppName = "Custom Twilight"
 	app.cfg().EmbyToken = "emby-token"
-	app.cfg().TelegramGroupUserPanelTemplate = "站点: {server_name}\n用户: {username} / {uid}\n角色: {role}\nWeb: {web_status}\nTG: {telegram_username}\nEmby: {emby_status}\n未知: {unknown_placeholder}"
+	app.cfg().TelegramGroupUserPanelTemplate = "站点: {server_name}\n用户: {username} / {uid}\n角色: {role}\nWeb: {web_status}\nTG: {telegram_username} / {telegram_userid}\nEmby: {emby_status}\n未知: {unknown_placeholder}"
 	emby := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatalf("custom template without remote placeholders should not query Emby: %s %s", r.Method, r.URL.Path)
 	}))
 	defer emby.Close()
 	app.cfg().EmbyURL = emby.URL
 
-	user := store.User{UID: 42, Username: "alpha", Role: store.RoleWhitelist, Active: true, TelegramUsername: "alpha_tg", EmbyID: "emby-user", EmbyUsername: "alpha-emby", RegisterTime: time.Now().Unix()}
+	user := store.User{UID: 42, Username: "alpha", Role: store.RoleWhitelist, Active: true, TelegramID: 1001, TelegramUsername: "alpha_tg", EmbyID: "emby-user", EmbyUsername: "alpha-emby", RegisterTime: time.Now().Unix()}
 	text := app.telegramGroupUserPanelText(context.Background(), user)
-	for _, want := range []string{"站点: Custom Twilight", "用户: alpha / 42", "角色: 白名单", "Web: 启用", "TG: @alpha_tg", "Emby: 已绑定 (alpha-emby)", "未知: {unknown_placeholder}"} {
+	for _, want := range []string{"站点: Custom Twilight", "用户: alpha / 42", "角色: 白名单", "Web: 启用", "TG: @alpha_tg / 1001", "Emby: 已绑定 (alpha-emby)", "未知: {unknown_placeholder}"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("custom panel text missing %q:\n%s", want, text)
 		}
 	}
 	if strings.Contains(text, "emby-user") || strings.Contains(text, "emby-token") {
 		t.Fatalf("custom panel leaked sensitive Emby identifier/token:\n%s", text)
+	}
+	text = app.telegramGroupUserPanelText(context.Background(), store.User{UID: 43, Username: "beta", Role: store.RoleNormal, Active: true, TelegramID: 2002})
+	if !strings.Contains(text, "TG: None / 2002") {
+		t.Fatalf("custom panel should render missing telegram username as None:\n%s", text)
 	}
 }
 
@@ -4406,6 +4410,7 @@ func TestBatchUserDangerousActionsRequireConfirm(t *testing.T) {
 		{"disable", "/api/v1/batch/users/disable", `{"uids":[1]}`, confirmBatchDisableUsers},
 		{"delete", "/api/v1/batch/users/delete", `{"uids":[1]}`, confirmBatchDeleteUsers},
 		{"renew", "/api/v1/batch/users/renew", `{"uids":[1],"days":30}`, confirmBatchRenewUsers},
+		{"emby unbind lock", "/api/v1/batch/users/emby-unbind-lock", `{"uids":[1]}`, confirmBatchLockEmbyUnbind},
 	}
 
 	for _, tt := range tests {
@@ -4429,6 +4434,38 @@ func TestBatchUserDangerousActionsRequireConfirm(t *testing.T) {
 	tooLarge := doJSONWithHeaders(app, http.MethodPost, "/api/v1/batch/users/renew", fmt.Sprintf(`{"confirm":%q,"uids":[1],"days":36501}`, confirmBatchRenewUsers), cookies, headers)
 	if tooLarge.Code != http.StatusBadRequest || !strings.Contains(tooLarge.Body.String(), `"error_code":"BATCH_DAYS_INVALID"`) {
 		t.Fatalf("batch renew days cap status=%d body=%s", tooLarge.Code, tooLarge.Body.String())
+	}
+}
+
+func TestBatchLockEmbyUnbindSupportsSelectedFilter(t *testing.T) {
+	app := newTestApp(t)
+	cookies := registerAndLogin(t, app, "admin", "Admin123456")
+	headers := map[string]string{"X-Twilight-Client": "webui"}
+
+	alpha, err := app.store().CreateUser(store.User{Username: "alpha-lock", PasswordHash: "x", Role: store.RoleNormal, Active: true, EmbyID: "emby-alpha"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	beta, err := app.store().CreateUser(store.User{Username: "beta-lock", PasswordHash: "x", Role: store.RoleNormal, Active: true, EmbyID: "emby-beta"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.store().UpdateUser(beta.UID, func(u *store.User) error { u.Active = false; return nil }); err != nil {
+		t.Fatal(err)
+	}
+
+	body := fmt.Sprintf(`{"select_all":true,"filter":{"role":1,"active":true,"search":"lock"},"confirm":%q}`, confirmBatchLockEmbyUnbind)
+	resp := doJSONWithHeaders(app, http.MethodPost, "/api/v1/batch/users/emby-unbind-lock", body, cookies, headers)
+	if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), `"selected_all":true`) || !strings.Contains(resp.Body.String(), `"success":1`) {
+		t.Fatalf("batch lock status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	updatedAlpha, _ := app.store().User(alpha.UID)
+	updatedBeta, _ := app.store().User(beta.UID)
+	if !updatedAlpha.EmbyGrantLocked {
+		t.Fatal("selected active user was not locked")
+	}
+	if updatedBeta.EmbyGrantLocked {
+		t.Fatal("filtered-out disabled user was locked")
 	}
 }
 

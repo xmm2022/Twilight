@@ -278,6 +278,10 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request, _ Params) {
 		failWithCode(w, http.StatusBadRequest, ErrUsernameInvalid, err.Error())
 		return
 	}
+	if _, exists := a.store().FindUserByUsername(username); exists {
+		failWithCode(w, http.StatusConflict, ErrUsernameTaken, "用户名已被占用，请换一个用户名")
+		return
+	}
 	// 首注册时只有 username 可在创建前验证；UID 要等 CreateUser 后才知道。
 	// 因此这里仅用 AdminUsernames 做 bootstrap 预校验，AdminUIDs 仍在创建后
 	// 通过 configuredAdminMatch 按实际 UID 应用。否则只配置 admin_uids=[1]
@@ -376,7 +380,7 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request, _ Params) {
 			}
 			if errors.Is(err, store.ErrConflict) {
 				if _, exists := a.store().FindUserByUsername(username); exists {
-					failWithCode(w, http.StatusConflict, ErrUsernameTaken, "用户名已被使用")
+					failWithCode(w, http.StatusConflict, ErrUsernameTaken, "用户名已被占用，请换一个用户名")
 					return
 				}
 				if telegramBindCode != "" {
@@ -393,6 +397,12 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request, _ Params) {
 		registerReg = consumed
 	} else {
 		u, err = a.store().CreateUser(newUser)
+	}
+	if errors.Is(err, store.ErrConflict) {
+		if _, exists := a.store().FindUserByUsername(username); exists {
+			failWithCode(w, http.StatusConflict, ErrUsernameTaken, "用户名已被占用，请换一个用户名")
+			return
+		}
 	}
 	if statusFromError(w, err) {
 		return
@@ -426,7 +436,7 @@ func (a *App) handleRegisterAvailability(w http.ResponseWriter, r *http.Request,
 		_, found := a.store().FindUserByUsername(username)
 		available = !found
 		if !available {
-			message = "用户名已被使用"
+			message = "用户名已被占用，请换一个用户名"
 		}
 	}
 	currentUsers := a.store().UserCount()

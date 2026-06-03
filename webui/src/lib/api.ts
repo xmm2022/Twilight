@@ -5,6 +5,7 @@ import type {
   AnnouncementRenderMode,
   ApiKeyItem,
   ApiResponse,
+  BatchUserSelection,
   BatchUserResult,
   CodeUsePreview,
   CodeUseResponse,
@@ -315,7 +316,7 @@ class ApiClient {
   }
 
   async unbindEmbyAccount() {
-    return this.request("/users/me/emby/unbind", {
+    return this.request<UserInfo & { remote_emby_disabled?: boolean; old_emby_id?: string }>("/users/me/emby/unbind", {
       method: "POST",
     });
   }
@@ -704,17 +705,38 @@ class ApiClient {
     });
   }
 
-  async batchToggleUsers(uids: number[], enable: boolean) {
+  private batchUserSelectionBody(selection: number[] | BatchUserSelection) {
+    return Array.isArray(selection) ? { uids: selection } : selection;
+  }
+
+  async batchToggleUsers(selection: number[] | BatchUserSelection, enable: boolean) {
     return this.request<BatchUserResult>(`/batch/users/${enable ? "enable" : "disable"}`, {
       method: "POST",
-      body: JSON.stringify({ uids, confirm: enable ? confirmPhrases.batchEnableUsers : confirmPhrases.batchDisableUsers }),
+      body: JSON.stringify({
+        ...this.batchUserSelectionBody(selection),
+        confirm: enable ? confirmPhrases.batchEnableUsers : confirmPhrases.batchDisableUsers,
+      }),
     });
   }
 
-  async batchDeleteUsers(uids: number[], deleteEmby: boolean) {
+  async batchDeleteUsers(selection: number[] | BatchUserSelection, deleteEmby: boolean) {
     return this.request<BatchUserResult>("/batch/users/delete", {
       method: "POST",
-      body: JSON.stringify({ uids, delete_emby: deleteEmby, confirm: confirmPhrases.batchDeleteUsers }),
+      body: JSON.stringify({
+        ...this.batchUserSelectionBody(selection),
+        delete_emby: deleteEmby,
+        confirm: confirmPhrases.batchDeleteUsers,
+      }),
+    });
+  }
+
+  async batchLockEmbyUnbind(selection: number[] | BatchUserSelection) {
+    return this.request<BatchUserResult>("/batch/users/emby-unbind-lock", {
+      method: "POST",
+      body: JSON.stringify({
+        ...this.batchUserSelectionBody(selection),
+        confirm: confirmPhrases.batchLockEmbyUnbind,
+      }),
     });
   }
 

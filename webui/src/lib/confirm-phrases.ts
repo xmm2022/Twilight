@@ -3,6 +3,7 @@ export const confirmPhrases = {
   batchDisableUsers: "BATCH_DISABLE_USERS",
   batchDeleteUsers: "BATCH_DELETE_USERS",
   batchRenewUsers: "BATCH_RENEW_USERS",
+  batchLockEmbyUnbind: "BATCH_LOCK_EMBY_UNBIND",
   batchDeleteRegcodes: "BATCH_DELETE_REGCODES",
   cleanupInvalidUsers: "CLEANUP_INVALID_USERS",
   clearViolations: "CLEAR_VIOLATIONS",

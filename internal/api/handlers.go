@@ -377,7 +377,7 @@ func (a *App) handleUnbindEmby(w http.ResponseWriter, r *http.Request, _ Params)
 	data := publicUser(u)
 	data["remote_emby_disabled"] = remoteDisabled
 	data["old_emby_id"] = embyID
-	ok(w, "Emby account unbound", data)
+	ok(w, "远端 Emby 账号已禁用，并已解除本地绑定", data)
 }
 
 func (a *App) handleRenew(w http.ResponseWriter, r *http.Request, _ Params) {

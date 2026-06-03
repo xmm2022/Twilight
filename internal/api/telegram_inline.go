@@ -85,7 +85,7 @@ func (a *App) telegramSendGroupAdminAuth(ctx context.Context, chatID, commandMes
 
 func (a *App) telegramSendGroupUserPanel(ctx context.Context, chatID, commandMessageID int64, target store.User, requireAuth bool) {
 	panel := a.telegramCreatePanel(chatID, commandMessageID, target)
-	text := a.telegramGroupUserPanelText(ctx, target)
+	text := a.telegramGroupUserPanelTextForChat(ctx, chatID, target)
 	markup := a.telegramGroupUserPanelMarkup(panel.Token, target, panel.ConfirmAction)
 	messageID, err := a.telegramSendMessageWithMarkup(ctx, chatID, text, markup)
 	if err != nil {
@@ -475,13 +475,13 @@ func (a *App) telegramEditPanel(ctx context.Context, panel telegramPanelContext)
 		_ = a.telegramEditMessageText(ctx, panel.ChatID, panel.MessageID, "目标用户不存在或已被删除。", nil)
 		return
 	}
-	_ = a.telegramEditMessageText(ctx, panel.ChatID, panel.MessageID, a.telegramGroupUserPanelText(ctx, target), a.telegramGroupUserPanelMarkup(panel.Token, target, panel.ConfirmAction))
+	_ = a.telegramEditMessageText(ctx, panel.ChatID, panel.MessageID, a.telegramGroupUserPanelTextForChat(ctx, panel.ChatID, target), a.telegramGroupUserPanelMarkup(panel.Token, target, panel.ConfirmAction))
 }
 
 func (a *App) telegramEditPanelWithNotice(ctx context.Context, panel telegramPanelContext, target store.User, notice string) {
 	panel.ConfirmAction = ""
 	panel = a.telegramTouchPanel(panel)
-	text := a.telegramGroupUserPanelText(ctx, target)
+	text := a.telegramGroupUserPanelTextForChat(ctx, panel.ChatID, target)
 	if strings.TrimSpace(notice) != "" {
 		text += "\n\n" + notice
 	}
@@ -489,11 +489,15 @@ func (a *App) telegramEditPanelWithNotice(ctx context.Context, panel telegramPan
 }
 
 func (a *App) telegramGroupUserPanelText(ctx context.Context, u store.User) string {
+	return a.telegramGroupUserPanelTextForChat(ctx, 0, u)
+}
+
+func (a *App) telegramGroupUserPanelTextForChat(ctx context.Context, chatID int64, u store.User) string {
 	template := strings.TrimSpace(a.cfg().TelegramGroupUserPanelTemplate)
 	if template == "" {
 		template = config.DefaultTelegramGroupUserPanelTemplate
 	}
-	text := telegramRenderPanelTemplate(template, a.telegramGroupUserPanelPlaceholders(ctx, u, template))
+	text := telegramRenderPanelTemplate(template, a.telegramGroupUserPanelPlaceholders(ctx, chatID, u, template))
 	text = strings.TrimRight(text, "\n")
 	if len([]rune(text)) > 3900 {
 		text = truncateString(text, 3900) + "\n...(面板模板输出过长，已截断)"
@@ -509,7 +513,7 @@ func telegramRenderPanelTemplate(template string, values map[string]string) stri
 	return strings.NewReplacer(pairs...).Replace(template)
 }
 
-func (a *App) telegramGroupUserPanelPlaceholders(ctx context.Context, u store.User, template string) map[string]string {
+func (a *App) telegramGroupUserPanelPlaceholders(ctx context.Context, chatID int64, u store.User, template string) map[string]string {
 	remote := telegramPanelRemoteInfo{
 		Block:        "",
 		Status:       "-",
@@ -522,11 +526,15 @@ func (a *App) telegramGroupUserPanelPlaceholders(ctx context.Context, u store.Us
 	if telegramPanelTemplateNeedsRemote(template) {
 		remote = a.telegramGroupUserPanelRemoteInfo(ctx, u)
 	}
-	telegramUsername := strings.TrimPrefix(strings.TrimSpace(u.TelegramUsername), "@")
+	telegramUsername := a.telegramPanelUsername(ctx, chatID, u, template)
 	if telegramUsername == "" {
-		telegramUsername = "-"
+		telegramUsername = "None"
 	} else {
 		telegramUsername = "@" + telegramUsername
+	}
+	telegramUserID := "None"
+	if u.TelegramID != 0 {
+		telegramUserID = strconv.FormatInt(u.TelegramID, 10)
 	}
 	embyUsername := strings.TrimSpace(u.EmbyUsername)
 	if embyUsername == "" {
@@ -554,6 +562,7 @@ func (a *App) telegramGroupUserPanelPlaceholders(ctx context.Context, u store.Us
 		"created_at":           telegramUnixTimeLabel(u.CreatedAt),
 		"telegram_status":      telegramTelegramBindingLabel(u),
 		"telegram_username":    telegramUsername,
+		"telegram_userid":      telegramUserID,
 		"emby_status":          telegramLocalEmbyLabel(u),
 		"emby_bound_status":    telegramLocalEmbyBindingStatusLabel(u),
 		"emby_bound":           telegramYesNoLabel(u.EmbyID != ""),
@@ -577,6 +586,35 @@ func (a *App) telegramGroupUserPanelPlaceholders(ctx context.Context, u store.Us
 		"panel_ttl":            "1 分钟",
 		"panel_ttl_seconds":    strconv.Itoa(int(telegramPanelTTL.Seconds())),
 	}
+}
+
+func (a *App) telegramPanelUsername(ctx context.Context, chatID int64, u store.User, template string) string {
+	username := strings.TrimPrefix(strings.TrimSpace(u.TelegramUsername), "@")
+	if username != "" || u.TelegramID == 0 || chatID == 0 || !a.telegramAvailable() || !telegramPanelTemplateNeedsTelegramIdentity(template) {
+		return username
+	}
+	lookupCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	member, err := a.telegramGetChatMember(lookupCtx, fmt.Sprint(chatID), u.TelegramID)
+	if err != nil {
+		return username
+	}
+	remoteUser, _ := member["user"].(map[string]any)
+	username = strings.TrimPrefix(strings.TrimSpace(asString(remoteUser["username"])), "@")
+	if username == "" {
+		return ""
+	}
+	_, _ = a.store().UpdateUser(u.UID, func(current *store.User) error {
+		if current.TelegramID == u.TelegramID && strings.TrimPrefix(strings.TrimSpace(current.TelegramUsername), "@") != username {
+			current.TelegramUsername = username
+		}
+		return nil
+	})
+	return username
+}
+
+func telegramPanelTemplateNeedsTelegramIdentity(template string) bool {
+	return strings.Contains(template, "{telegram_username}")
 }
 
 func telegramPanelTemplateNeedsRemote(template string) bool {

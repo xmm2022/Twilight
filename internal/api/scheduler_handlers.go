@@ -50,7 +50,7 @@ func (a *App) handleSchedulerJobs(w http.ResponseWriter, r *http.Request, _ Para
 		if !running {
 			snapshot = a.store().SchedulerRunSnapshot(jobID, 20)
 		}
-		item["next_run_at"] = zeroNil(a.schedulerNextRunAt(jobID, spec, now))
+		item["next_run_at"] = zeroNil(schedulerNextRunAtFromSnapshot(spec, now, snapshot))
 		item["auto_disabled"] = schedulerTriggerDisabled(spec)
 		if runs := snapshot.Runs; len(runs) > 0 {
 			item["last_run"] = runs[0]

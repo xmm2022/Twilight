@@ -581,6 +581,7 @@ curl -X PUT "http://localhost:5000/api/v1/users/me" \
 - 认证：登录用户（`AuthUser`）
 - 限制：如果用户记录 `emby_grant_locked=true`，说明该账号曾通过注册码、白名单码、邀请码、后台授予、Telegram 面板授予或自助创建获得 Emby 注册资格，自助解绑会返回 `403` + `EMBY_UNBIND_FORBIDDEN`。该判定只看用户自身字段，不依赖注册码使用记录或邀请关系，删除卡码、清理卡码使用记录、断开邀请关系都不会解除锁。
 - 自助解绑会先调用 Emby API 禁用远端账号。远端账号不存在时允许清理本地绑定；远端存在但禁用失败时返回 `502` + `EMBY_DISABLE_FAILED`，并保留本地绑定，避免产生仍可登录的孤儿 Emby 账号。
+- 成功响应会返回解绑后的用户公开字段，并额外包含 `remote_emby_disabled` 与 `old_emby_id`：`remote_emby_disabled=true` 表示本次已确认禁用远端 Emby；为 `false` 通常表示原本没有远端绑定或远端已不存在。
 - 管理员解绑 / 强制解绑仍是管理员特权，也会同步禁用远端 Emby；这些操作不会清除 `emby_grant_locked`，被解绑用户不能借此再次自助创建远端 Emby。
 
 ```bash
@@ -1710,6 +1711,7 @@ curl -N "http://localhost:5000/api/v1/system/admin/runtime/logs/stream?limit=100
 | `POST /batch/users/enable` | `AuthAdmin` | 批量启用 |
 | `POST /batch/users/renew` | `AuthAdmin` | 批量续期 |
 | `POST /batch/users/delete` | `AuthAdmin` | 批量删除 |
+| `POST /batch/users/emby-unbind-lock` | `AuthAdmin` | 批量写入 `emby_grant_locked=true`，禁止用户自助解绑 Emby |
 | `GET /batch/export/users` | `AuthAdmin` | 导出用户 |
 | `GET /batch/export/playback` | `AuthAdmin` | 导出播放记录 |
 | `GET /batch/watch-stats` | `AuthUser` | 当前用户观看统计 |
@@ -1717,6 +1719,8 @@ curl -N "http://localhost:5000/api/v1/system/admin/runtime/logs/stream?limit=100
 | `GET /batch/watch-stats/global` | `AuthAdmin` | 全局观看统计 |
 | `GET /batch/expiring-users` | `AuthAdmin` | 即将过期用户 |
 | `POST /batch/send-reminders` | `AuthAdmin` | 发送到期提醒 |
+
+批量用户接口支持两种目标格式：显式 `uids`（单次最多 200 个）或 `{"select_all":true,"filter":{...}}`（按当前筛选匹配全部用户，最多 5000 个）。`filter` 支持 `role`、`active`、`emby`（`bound` / `unbound`）和 `search`。管理员 / 受保护账号由后端自动跳过。
 
 ### 11.3 Stats 模块
 

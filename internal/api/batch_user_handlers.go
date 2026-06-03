@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,12 +23,17 @@ func (a *App) handleBatchToggleUsers(w http.ResponseWriter, r *http.Request, ena
 	if enable {
 		confirmPhrase = confirmBatchEnableUsers
 	}
-	_, uids, okPayload := requireBatchPayload(w, r, confirmPhrase, 200, "too many users in one batch")
+	payload := decodeMap(r)
+	if confirmPhrase != "" && stringValue(payload, "confirm") != confirmPhrase {
+		failWithCode(w, http.StatusBadRequest, ErrBatchConfirmRequired, "missing confirm "+confirmPhrase)
+		return
+	}
+	uids, okPayload := a.batchUserUIDsFromPayload(w, payload, 200, 5000, "too many users in one batch")
 	if !okPayload {
 		return
 	}
 	result := batchResult(len(uids))
-	for _, uid := range uniqueInt64s(uids) {
+	for _, uid := range uids {
 		target, okUser := a.store().User(uid)
 		if !okUser {
 			addBatchOutcomeWithCode(result, uid, ErrUserNotFound, fmt.Errorf("%s", userNotFoundMessage))
@@ -45,6 +51,7 @@ func (a *App) handleBatchToggleUsers(w http.ResponseWriter, r *http.Request, ena
 		}
 		addBatchOutcome(result, uid, err)
 	}
+	result["selected_all"] = boolValue(payload, "select_all", false)
 	ok(w, "批量操作完成", result)
 }
 
@@ -78,13 +85,18 @@ func (a *App) handleBatchRenewUsers(w http.ResponseWriter, r *http.Request, _ Pa
 }
 
 func (a *App) handleBatchDeleteUsers(w http.ResponseWriter, r *http.Request, _ Params) {
-	payload, uids, okPayload := requireBatchPayload(w, r, confirmBatchDeleteUsers, 200, "too many users in one batch")
+	payload := decodeMap(r)
+	if stringValue(payload, "confirm") != confirmBatchDeleteUsers {
+		failWithCode(w, http.StatusBadRequest, ErrBatchConfirmRequired, "missing confirm "+confirmBatchDeleteUsers)
+		return
+	}
+	uids, okPayload := a.batchUserUIDsFromPayload(w, payload, 200, 5000, "too many users in one batch")
 	if !okPayload {
 		return
 	}
 	deleteEmby := boolValue(payload, "delete_emby", r.URL.Query().Get("delete_emby") != "false")
 	result := batchResult(len(uids))
-	for _, uid := range uniqueInt64s(uids) {
+	for _, uid := range uids {
 		if uid == current(r).User.UID {
 			addBatchOutcomeWithCode(result, uid, ErrBatchSelfTarget, fmt.Errorf("cannot delete current admin"))
 			continue
@@ -112,5 +124,91 @@ func (a *App) handleBatchDeleteUsers(w http.ResponseWriter, r *http.Request, _ P
 		}
 		addBatchOutcome(result, uid, a.store().DeleteUser(uid))
 	}
+	result["selected_all"] = boolValue(payload, "select_all", false)
 	ok(w, "批量删除完成", result)
+}
+
+func (a *App) handleBatchLockEmbyUnbind(w http.ResponseWriter, r *http.Request, _ Params) {
+	payload := decodeMap(r)
+	if stringValue(payload, "confirm") != confirmBatchLockEmbyUnbind {
+		failWithCode(w, http.StatusBadRequest, ErrBatchConfirmRequired, "missing confirm "+confirmBatchLockEmbyUnbind)
+		return
+	}
+	uids, okPayload := a.batchUserUIDsFromPayload(w, payload, 200, 5000, "too many users in one batch")
+	if !okPayload {
+		return
+	}
+	result := batchResult(len(uids))
+	for _, uid := range uids {
+		target, okUser := a.store().User(uid)
+		if !okUser {
+			addBatchOutcomeWithCode(result, uid, ErrUserNotFound, fmt.Errorf("%s", userNotFoundMessage))
+			continue
+		}
+		if a.userIsProtected(target) {
+			addBatchOutcomeWithCode(result, uid, ErrUserProtected, fmt.Errorf("cannot lock protected account: %s", a.protectedUserReason(target)))
+			continue
+		}
+		_, err := a.store().UpdateUser(uid, func(u *store.User) error {
+			u.EmbyGrantLocked = true
+			return nil
+		})
+		addBatchOutcome(result, uid, err)
+	}
+	result["selected_all"] = boolValue(payload, "select_all", false)
+	result["emby_grant_locked"] = true
+	ok(w, "批量禁止 Emby 自助解绑完成", result)
+}
+
+func (a *App) batchUserUIDsFromPayload(w http.ResponseWriter, payload map[string]any, maxExplicit, maxSelectedAll int, tooManyMessage string) ([]int64, bool) {
+	if boolValue(payload, "select_all", false) {
+		uids, matched := a.filteredBatchUserUIDs(payload, maxSelectedAll)
+		if maxSelectedAll > 0 && matched > maxSelectedAll {
+			failWithCode(w, http.StatusBadRequest, ErrBatchTooManyTargets, fmt.Sprintf("too many users in selected filter: %d > %d", matched, maxSelectedAll))
+			return nil, false
+		}
+		return uids, true
+	}
+	uids := int64Slice(payload["uids"])
+	if len(uids) == 0 {
+		failWithCode(w, http.StatusBadRequest, ErrBatchUIDsRequired, "uids required")
+		return nil, false
+	}
+	if maxExplicit > 0 && len(uids) > maxExplicit {
+		failWithCode(w, http.StatusBadRequest, ErrBatchTooManyTargets, tooManyMessage)
+		return nil, false
+	}
+	return uniqueInt64s(uids), true
+}
+
+func (a *App) filteredBatchUserUIDs(payload map[string]any, limit int) ([]int64, int) {
+	filter, _ := payload["filter"].(map[string]any)
+	roleFilter, hasRole := filter["role"]
+	activeFilter, hasActive := filter["active"]
+	embyFilter := strings.ToLower(asString(filter["emby"]))
+	search := strings.ToLower(strings.TrimSpace(asString(filter["search"])))
+	uids := []int64{}
+	matched := 0
+	for _, u := range a.store().ListUsers() {
+		if hasRole && strconv.Itoa(u.Role) != asString(roleFilter) {
+			continue
+		}
+		if hasActive && u.Active != boolish(activeFilter) {
+			continue
+		}
+		if embyFilter == "bound" && u.EmbyID == "" {
+			continue
+		}
+		if embyFilter == "unbound" && u.EmbyID != "" {
+			continue
+		}
+		if search != "" && !strings.Contains(strings.ToLower(u.Username+" "+u.Email+" "+u.EmbyID+" "+strconv.FormatInt(u.UID, 10)+" "+strconv.FormatInt(u.TelegramID, 10)), search) {
+			continue
+		}
+		matched++
+		if limit <= 0 || len(uids) < limit {
+			uids = append(uids, u.UID)
+		}
+	}
+	return uids, matched
 }

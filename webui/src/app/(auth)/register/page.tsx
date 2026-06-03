@@ -257,7 +257,7 @@ export default function RegisterPage() {
       const res = await api.register(payload);
 
       if (!res.success) {
-        toast({ title: "注册失败", description: res.message, variant: "destructive" });
+        toast({ title: "注册失败", description: res.error_code === ErrCodes.UsernameTaken ? "该用户名已被占用，请换一个用户名" : res.message, variant: "destructive" });
         return;
       }
 
@@ -268,9 +268,12 @@ export default function RegisterPage() {
       });
       router.push("/login");
     } catch (error: any) {
+      const message = error instanceof ApiError && error.errorCode === ErrCodes.UsernameTaken
+        ? "该用户名已被占用，请换一个用户名"
+        : error.message || "请检查网络连接";
       toast({
         title: "注册失败",
-        description: error.message || "请检查网络连接",
+        description: message,
         variant: "destructive",
       });
     } finally {

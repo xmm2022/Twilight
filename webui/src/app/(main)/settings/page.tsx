@@ -435,7 +435,11 @@ export default function SettingsPage() {
     try {
       const res = await api.unbindEmbyAccount();
       if (res.success) {
-        toast({ title: "解绑成功", variant: "success" });
+        toast({
+          title: "解绑成功",
+          description: res.data?.remote_emby_disabled ? "远端 Emby 账号已禁用，并已解除本地绑定" : "远端不存在或无需禁用，已解除本地绑定",
+          variant: "success",
+        });
         await loadData();
         await fetchUser();
         await loadEmbyUrls();
@@ -897,6 +901,11 @@ export default function SettingsPage() {
             {user?.emby_id && !canUnbindEmby && (
               <p className="text-sm text-muted-foreground">
                 该账号的 Emby 注册资格来自注册码、邀请码或管理员授予，不能自助解绑后重复注册。
+              </p>
+            )}
+            {user?.emby_id && canUnbindEmby && (
+              <p className="text-sm text-muted-foreground">
+                自助解绑会先禁用远端 Emby 账号，再解除本地绑定；如果远端禁用失败，本地绑定会保留。
               </p>
             )}
           </CardContent>
