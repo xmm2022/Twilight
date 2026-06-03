@@ -77,6 +77,9 @@ export interface UserInfo {
   bgm_sync_ready?: boolean;
   created_at?: string | number;
   register_time?: number;
+  registration_source?: string;
+  registration_source_name?: string;
+  registration_code?: string;
   is_pending?: boolean;  // 是否待激活
   pending_emby?: boolean;  // 系统账号已建但待补建 Emby
   pending_emby_days?: number | null;  // 注册码授予的开通天数（待 Emby 补建）
@@ -165,6 +168,7 @@ export interface UserSettings {
 export interface EmbyStatus {
   is_synced: boolean;
   is_active: boolean;
+  can_unbind?: boolean;
   active_sessions: number;
   message: string;
 }

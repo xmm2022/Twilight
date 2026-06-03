@@ -345,6 +345,10 @@ func (a *App) handleInviteUse(w http.ResponseWriter, r *http.Request, _ Params) 
 		failWithCode(w, http.StatusBadRequest, ErrInviteAlreadyHasParent, "当前账号已存在邀请上级，不能重复加入邀请树")
 		return
 	}
+	if !user.PendingEmby && a.userHasEmbyGrantHistory(user) {
+		failWithCode(w, http.StatusBadRequest, ErrCodeRegistrationGrantAlreadyUsed, "当前账号已经使用过 Emby 注册资格，不能重复使用邀请码")
+		return
+	}
 	inviter, okInviter := a.store().User(invite.InviterUID)
 	if !okInviter || !inviter.Active {
 		failWithCode(w, http.StatusForbidden, ErrInviterUnavailable, "邀请人状态不可用")
@@ -381,6 +385,7 @@ func (a *App) handleInviteUse(w http.ResponseWriter, r *http.Request, _ Params) 
 		u.EmbyUsername = firstNonEmpty(stringValue(payload, "emby_username"), u.Username)
 		u.PendingEmby = true
 		u.PendingEmbyDays = &effectiveDays
+		markRegistrationGrant(u, registrationSourceInvite, code)
 		u.ExpiredAt = boundedInviteExpiry(addDaysToExpiry(u.ExpiredAt, effectiveDays, time.Now()), inviter.ExpiredAt)
 		return nil
 	})

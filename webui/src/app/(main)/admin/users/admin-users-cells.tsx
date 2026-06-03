@@ -25,7 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { UserInfo } from "@/lib/api";
-import { formatDate } from "@/lib/utils";
+import { formatDate, isPermanentDateValue } from "@/lib/utils";
 
 /**
  * 角色徽章。
@@ -60,7 +60,7 @@ export function renderExpireCell(user: UserInfo) {
   if (isUnbound) {
     return <span className="text-muted-foreground italic">未绑定</span>;
   }
-  if (exp === -1 || exp === "-1" || exp == null) {
+  if (isPermanentDateValue(exp)) {
     return <span className="text-emerald-500">永久</span>;
   }
   const expMs = typeof exp === "number" && exp < 10000000000 ? exp * 1000 : Number(exp);
@@ -101,7 +101,7 @@ export function UserActionsMenu({
   handlers: UserActionsMenuHandlers;
 }) {
   const showCancelPermanent =
-    (user.expired_at === -1 || user.expired_at === "-1") &&
+    isPermanentDateValue(user.expired_at) &&
     user.role !== 0 &&
     Boolean(user.emby_id);
   return (

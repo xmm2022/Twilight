@@ -381,7 +381,10 @@ func (a *App) handleAdminBulkExpire(w http.ResponseWriter, r *http.Request, _ Pa
 			expiredAt = time.Now().AddDate(0, 0, days).Unix()
 		}
 	}
-	if expiredAt == 0 || (expiredAt < -1) || expiredAt > 253402214400 {
+	if expiryIsPermanent(expiredAt) {
+		expiredAt = permanentExpiryUnix
+	}
+	if expiredAt == 0 || (expiredAt < -1) {
 		failWithCode(w, http.StatusBadRequest, ErrAdminBulkExpireInvalid, "过期时间不合法")
 		return
 	}
@@ -400,7 +403,7 @@ func (a *App) handleAdminBulkExpire(w http.ResponseWriter, r *http.Request, _ Pa
 		if u.Role == store.RoleUnrecognized {
 			return false, "unrecognized"
 		}
-		if u.UID == current(r).User.UID && expiredAt != -1 {
+		if u.UID == current(r).User.UID && !expiryIsPermanent(expiredAt) {
 			return false, "current_admin"
 		}
 		if u.EmbyID == "" || u.PendingEmby {

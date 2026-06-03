@@ -320,31 +320,17 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request, _ Params) {
 			failWithCode(w, http.StatusBadRequest, ErrTGBindRequired, "需要先完成 Telegram 绑定")
 			return
 		}
-		if !telegramBindCodePattern.MatchString(telegramBindCode) {
-			failWithCode(w, http.StatusBadRequest, ErrTGBindCodeFormat, "Telegram 绑定码格式不正确")
-			return
-		}
-		bind, okBind := a.store().BindCode(telegramBindCode)
-		switch {
-		case !okBind || bind.ExpiresAt <= time.Now().Unix():
-			if okBind {
-				_ = a.store().DeleteBindCode(telegramBindCode)
+		bindState := a.registerTelegramBindCodeState(telegramBindCode, time.Now().Unix(), true)
+		if bindState.Status != "confirmed" {
+			status := bindState.HTTPStatus
+			if status == 0 {
+				status = http.StatusBadRequest
 			}
-			failWithCode(w, http.StatusBadRequest, ErrTGBindCodeExpired, "绑定码无效或已过期")
-			return
-		case bind.Scene != "register" || bind.UID != 0:
-			failWithCode(w, http.StatusBadRequest, ErrTGBindCodeSceneBad, "绑定码场景无效")
-			return
-		case !bind.Confirmed || bind.TelegramID == 0:
-			failWithCode(w, http.StatusBadRequest, ErrTGBindCodeNotConfirm, "绑定码尚未在 Telegram 中确认")
+			failWithCode(w, status, bindState.ErrorCode, bindState.Message)
 			return
 		}
-		if existing, okUser := a.store().FindUserByTelegramID(bind.TelegramID); okUser {
-			failWithCode(w, http.StatusConflict, ErrTGAlreadyBound, "该 Telegram 已绑定到账号 "+existing.Username)
-			return
-		}
-		telegramID = bind.TelegramID
-		telegramUsername = bind.TelegramUsername
+		telegramID = bindState.TelegramID
+		telegramUsername = bindState.TelegramUsername
 	}
 	if registerReg.Code != "" && regcodeTargetMismatchReason(registerReg, store.User{Username: username, TelegramID: telegramID, TelegramUsername: telegramUsername}) != "" {
 		failWithCode(w, http.StatusBadRequest, ErrRegcodeInvalid, "注册码无效、已用完或已过期")
@@ -371,6 +357,8 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request, _ Params) {
 		newUser.PendingEmby = true
 		newUser.PendingEmbyDays = &days
 		newUser.EmbyUsername = username
+		newUser.RegistrationSource = registrationSourceRegCode
+		newUser.RegistrationCode = registerReg.Code
 	}
 	var u store.User
 	if registerReg.Code != "" {

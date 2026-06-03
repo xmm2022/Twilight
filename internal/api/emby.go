@@ -352,7 +352,7 @@ func (a *App) embyShouldEnableUser(u store.User) bool {
 }
 
 func embyAccessExpired(u store.User) bool {
-	return u.EmbyID != "" && u.ExpiredAt > 0 && u.ExpiredAt < time.Now().Unix()
+	return u.EmbyID != "" && u.ExpiredAt > 0 && !expiryIsPermanent(u.ExpiredAt) && u.ExpiredAt < time.Now().Unix()
 }
 
 func validateStrongPassword(password, label string) (bool, string) {

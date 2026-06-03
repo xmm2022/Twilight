@@ -1272,30 +1272,33 @@ func (a *App) userFromPath(w http.ResponseWriter, params Params, key string) (st
 
 func publicUser(u store.User) map[string]any {
 	return map[string]any{
-		"uid":                     u.UID,
-		"username":                u.Username,
-		"email":                   u.Email,
-		"telegram_id":             nullableInt(u.TelegramID),
-		"telegram_username":       u.TelegramUsername,
-		"role":                    u.Role,
-		"role_name":               roleName(u.Role),
-		"active":                  u.Active,
-		"expire_status":           expireStatus(u.ExpiredAt),
-		"expired_at":              u.ExpiredAt,
-		"emby_id":                 u.EmbyID,
-		"emby_username":           u.EmbyUsername,
-		"emby_bound":              u.EmbyID != "",
-		"avatar":                  u.Avatar,
-		"background":              u.Background,
-		"bgm_mode":                u.BGMMode,
-		"bgm_token_set":           u.BGMToken != "",
-		"bgm_sync_ready":          u.BGMMode && u.BGMToken != "",
-		"created_at":              u.CreatedAt,
-		"register_time":           u.RegisterTime,
-		"is_pending":              u.Role == store.RoleUnrecognized,
-		"pending_emby":            u.PendingEmby,
-		"pending_emby_days":       u.PendingEmbyDays,
-		"emby_disabled_by_expiry": false,
+		"uid":                      u.UID,
+		"username":                 u.Username,
+		"email":                    u.Email,
+		"telegram_id":              nullableInt(u.TelegramID),
+		"telegram_username":        u.TelegramUsername,
+		"role":                     u.Role,
+		"role_name":                roleName(u.Role),
+		"active":                   u.Active,
+		"expire_status":            expireStatus(u.ExpiredAt),
+		"expired_at":               publicExpiryUnix(u.ExpiredAt),
+		"emby_id":                  u.EmbyID,
+		"emby_username":            u.EmbyUsername,
+		"emby_bound":               u.EmbyID != "",
+		"avatar":                   u.Avatar,
+		"background":               u.Background,
+		"bgm_mode":                 u.BGMMode,
+		"bgm_token_set":            u.BGMToken != "",
+		"bgm_sync_ready":           u.BGMMode && u.BGMToken != "",
+		"created_at":               u.CreatedAt,
+		"register_time":            u.RegisterTime,
+		"is_pending":               u.Role == store.RoleUnrecognized,
+		"pending_emby":             u.PendingEmby,
+		"pending_emby_days":        u.PendingEmbyDays,
+		"registration_source":      u.RegistrationSource,
+		"registration_source_name": registrationSourceLabel(u.RegistrationSource),
+		"registration_code":        u.RegistrationCode,
+		"emby_disabled_by_expiry":  false,
 	}
 }
 
@@ -1320,7 +1323,7 @@ func roleName(role int) string {
 }
 
 func expireStatus(expiredAt int64) string {
-	if expiredAt < 0 {
+	if expiryIsPermanent(expiredAt) {
 		return "永不过期"
 	}
 	if expiredAt == 0 {

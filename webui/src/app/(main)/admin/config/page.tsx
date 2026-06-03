@@ -476,6 +476,7 @@ function FieldRow({
   highlight?: string;
 }) {
   const labelRef = useRef<HTMLDivElement>(null);
+  const showFullDescription = field.key === "group_user_panel_template";
 
   // 高亮搜索匹配
   const highlightText = (text: string) => {
@@ -521,13 +522,13 @@ function FieldRow({
                 <TooltipTrigger asChild>
                   <Info className="h-3.5 w-3.5 text-muted-foreground/60 cursor-help" />
                 </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-xs">
+                <TooltipContent side="top" className={showFullDescription ? "max-w-2xl whitespace-pre-wrap" : "max-w-xs"}>
                   <p>{field.description}</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
           </div>
-          <p className="text-xs text-muted-foreground line-clamp-1">
+          <p className={showFullDescription ? "text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap break-words" : "text-xs text-muted-foreground line-clamp-1"}>
             {field.description}
           </p>
         </div>

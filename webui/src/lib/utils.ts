@@ -5,13 +5,27 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+const PERMANENT_EXPIRY_UNIX_SECONDS = 253402214400;
+
+export function isPermanentDateValue(date: string | Date | number | null | undefined): boolean {
+  if (date == null || date === undefined || date === -1 || date === "-1") return true;
+  if (typeof date === "number") return date >= PERMANENT_EXPIRY_UNIX_SECONDS;
+  if (typeof date === "string" && /^\d+$/.test(date.trim())) {
+    return Number.parseInt(date.trim(), 10) >= PERMANENT_EXPIRY_UNIX_SECONDS;
+  }
+  return false;
+}
+
 /**
  * 格式化日期/时间戳为中文日期字符串。
  * 支持 Unix 秒级/毫秒级时间戳、Date 对象、ISO 字符串。
  * 特殊值: -1 = 永久, 0 = 未开通
  */
 export function formatDate(date: string | Date | number | null | undefined): string {
-  if (date == null || date === undefined || date === -1 || date === "-1") {
+  if (isPermanentDateValue(date)) {
+    return "永久";
+  }
+  if (date == null || date === undefined) {
     return "永久";
   }
   // 0 是 "未开通 Emby" 的 sentinel，避免被格式化成 1970 年
@@ -52,7 +66,7 @@ export function formatNumber(num: number): string {
  * 特殊值: -1 = 永久, 0 = 未开通, >100年 = 永久
  */
 export function formatRelativeTime(date: string | Date | number): string {
-  if (!date || date === -1 || date === "-1") return "永久";
+  if (!date || isPermanentDateValue(date)) return "永久";
   if (date === 0 || date === "0") return "未开通";
 
   const now = new Date();

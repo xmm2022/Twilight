@@ -357,7 +357,7 @@ func (a *App) telegramApplyPanelAction(ctx context.Context, panel telegramPanelC
 			verb = "启用"
 		}
 		a.telegramEditPanelWithNotice(ctx, panel, target, "Emby 账号已"+verb+"。")
-	case "grant_register":
+	case "grant_register", "grant_register_7", "grant_register_30", "grant_register_365", "grant_register_perm":
 		if a.telegramProtectedTarget(target) {
 			a.telegramEditPanelWithNotice(ctx, panel, target, "管理员或受保护账号不需要通过群组面板授予注册资格。")
 			return
@@ -370,19 +370,11 @@ func (a *App) telegramApplyPanelAction(ctx context.Context, panel telegramPanelC
 			a.telegramEditPanelWithNotice(ctx, panel, target, fmt.Sprintf("Emby 名额已满: %d/%d。", current, limit))
 			return
 		}
-		days := a.cfg().InviteDefaultDays
-		if days == 0 {
-			days = a.cfg().EmbyDirectRegisterDays
-		}
-		if days == 0 {
-			days = 30
-		}
-		if days < -1 {
-			days = -1
-		}
+		days := a.telegramGrantRegisterDays(action)
 		updated, err := a.store().UpdateUser(target.UID, func(u *store.User) error {
 			u.PendingEmby = true
 			u.PendingEmbyDays = &days
+			markRegistrationGrant(u, registrationSourceTelegramGrant, "")
 			if u.Role == store.RoleUnrecognized {
 				u.Role = store.RoleNormal
 			}
@@ -392,7 +384,7 @@ func (a *App) telegramApplyPanelAction(ctx context.Context, panel telegramPanelC
 			a.telegramEditPanelWithNotice(ctx, panel, target, "授予注册资格失败: "+err.Error())
 			return
 		}
-		a.telegramEditPanelWithNotice(ctx, panel, updated, fmt.Sprintf("已授予 Emby 注册资格，有效天数: %d。", days))
+		a.telegramEditPanelWithNotice(ctx, panel, updated, "已授予 Emby 注册资格，有效天数: "+telegramGrantRegisterDaysLabel(days)+"。")
 	case "delete":
 		if a.telegramProtectedTarget(target) {
 			a.telegramEditPanelWithNotice(ctx, panel, target, "管理员账号禁止通过 Telegram 面板删除。")
@@ -422,6 +414,10 @@ func (a *App) telegramApplyPanelAction(ctx context.Context, panel telegramPanelC
 			a.telegramEditPanelWithNotice(ctx, panel, target, "受保护账号禁止通过 Telegram 面板删除 Emby 账号。")
 			return
 		}
+		if a.userHasEmbyGrantHistory(target) {
+			a.telegramEditPanelWithNotice(ctx, panel, target, "该账号的 Emby 注册资格来自注册码、邀请码或管理员授予，禁止通过 Telegram 面板删除 Emby 后重复注册。")
+			return
+		}
 		if target.EmbyID == "" {
 			a.telegramEditPanelWithNotice(ctx, panel, target, "目标用户未绑定 Emby 账号。")
 			return
@@ -436,6 +432,10 @@ func (a *App) telegramApplyPanelAction(ctx context.Context, panel telegramPanelC
 		}
 		if a.telegramProtectedTarget(target) {
 			a.telegramEditPanelWithNotice(ctx, panel, target, "受保护账号禁止通过 Telegram 面板删除 Emby 账号。")
+			return
+		}
+		if a.userHasEmbyGrantHistory(target) {
+			a.telegramEditPanelWithNotice(ctx, panel, target, "该账号的 Emby 注册资格来自注册码、邀请码或管理员授予，禁止通过 Telegram 面板删除 Emby 后重复注册。")
 			return
 		}
 		updated, err := a.telegramDeleteTargetEmby(ctx, target)
@@ -555,7 +555,12 @@ func (a *App) telegramGroupUserPanelPlaceholders(ctx context.Context, u store.Us
 		"telegram_status":      telegramTelegramBindingLabel(u),
 		"telegram_username":    telegramUsername,
 		"emby_status":          telegramLocalEmbyLabel(u),
+		"emby_bound_status":    telegramLocalEmbyBindingStatusLabel(u),
+		"emby_bound":           telegramYesNoLabel(u.EmbyID != ""),
 		"emby_username":        embyUsername,
+		"emby_unbind_allowed":  telegramYesNoLabel(a.userCanSelfUnbindEmby(u)),
+		"registration_source":  registrationSourceLabel(u.RegistrationSource),
+		"registration_code":    firstNonEmpty(u.RegistrationCode, "-"),
 		"pending_emby":         telegramYesNoLabel(u.PendingEmby),
 		"pending_emby_days":    telegramPendingEmbyDaysLabel(u.PendingEmbyDays),
 		"emby_remote_block":    remote.Block,
@@ -685,8 +690,15 @@ func (a *App) telegramGroupUserPanelMarkup(token string, u store.User, confirmAc
 			panelRows = append(panelRows, []telegramInlineButton{{Text: "删除 Emby", Data: "gadm:act:emby_delete:" + token}})
 		}
 	}
-	if u.EmbyID == "" && !u.PendingEmby {
-		panelRows = append(panelRows, []telegramInlineButton{{Text: "授予注册资格", Data: "gadm:act:grant_register:" + token}})
+	if u.EmbyID == "" {
+		panelRows = append(panelRows, []telegramInlineButton{
+			{Text: "授予 7 天", Data: "gadm:act:grant_register_7:" + token},
+			{Text: "授予 30 天", Data: "gadm:act:grant_register_30:" + token},
+		})
+		panelRows = append(panelRows, []telegramInlineButton{
+			{Text: "授予 365 天", Data: "gadm:act:grant_register_365:" + token},
+			{Text: "授予永久", Data: "gadm:act:grant_register_perm:" + token},
+		})
 	}
 	if confirmAction == "delete" {
 		panelRows = append(panelRows, []telegramInlineButton{{Text: "确认删除用户", Data: "gadm:act:delete_confirm:" + token}})
@@ -700,6 +712,37 @@ func (a *App) telegramGroupUserPanelMarkup(token string, u store.User, confirmAc
 		})
 	}
 	return telegramInlineKeyboard(panelRows)
+}
+
+func (a *App) telegramGrantRegisterDays(action string) int {
+	switch action {
+	case "grant_register_7":
+		return 7
+	case "grant_register_30":
+		return 30
+	case "grant_register_365":
+		return 365
+	case "grant_register_perm":
+		return -1
+	}
+	days := a.cfg().InviteDefaultDays
+	if days == 0 {
+		days = a.cfg().EmbyDirectRegisterDays
+	}
+	if days == 0 {
+		days = 30
+	}
+	if days < -1 {
+		return -1
+	}
+	return days
+}
+
+func telegramGrantRegisterDaysLabel(days int) string {
+	if days < 0 {
+		return "永久"
+	}
+	return fmt.Sprintf("%d 天", days)
 }
 
 func (a *App) telegramProtectedTarget(u store.User) bool {
@@ -755,6 +798,16 @@ func telegramLocalEmbyLabel(u store.User) string {
 	return "未绑定"
 }
 
+func telegramLocalEmbyBindingStatusLabel(u store.User) string {
+	if u.EmbyID != "" {
+		return "已绑定"
+	}
+	if u.PendingEmby {
+		return "待开通"
+	}
+	return "未绑定"
+}
+
 func telegramPendingEmbyDaysLabel(days *int) string {
 	if days == nil {
 		return "未设置"
@@ -780,7 +833,7 @@ func telegramUnixTimeLabel(ts int64) string {
 }
 
 func telegramExpiryTimeLabel(ts int64) string {
-	if ts < 0 || ts >= permanentExpiryUnix {
+	if expiryIsPermanent(ts) {
 		return "永久"
 	}
 	return telegramUnixTimeLabel(ts)

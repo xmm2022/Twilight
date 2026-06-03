@@ -51,6 +51,13 @@ func pages(total, perPage int) int {
 
 const permanentExpiryUnix int64 = 253402214400
 
+const (
+	registrationSourceRegCode       = "regcode"
+	registrationSourceInvite        = "invite"
+	registrationSourceAdminGrant    = "admin_grant"
+	registrationSourceTelegramGrant = "telegram_grant"
+)
+
 func (a *App) systemUserLimitReached() (bool, int, int) {
 	limit := a.cfg().UserLimit
 	current := a.store().UserCount()
@@ -143,6 +150,17 @@ func expiryFromDays(days int, base time.Time) int64 {
 	return base.AddDate(0, 0, days).Unix()
 }
 
+func expiryIsPermanent(expiredAt int64) bool {
+	return expiredAt < 0 || expiredAt >= permanentExpiryUnix
+}
+
+func publicExpiryUnix(expiredAt int64) int64 {
+	if expiryIsPermanent(expiredAt) {
+		return -1
+	}
+	return expiredAt
+}
+
 func addDaysToExpiry(current int64, days int, now time.Time) int64 {
 	if days < 0 {
 		return permanentExpiryUnix
@@ -176,6 +194,65 @@ func normalizeRegCodeDays(days int) int {
 	return days
 }
 
+func markRegistrationGrant(u *store.User, source, code string) {
+	source = strings.TrimSpace(source)
+	code = strings.TrimSpace(code)
+	if source != "" && u.RegistrationSource == "" {
+		u.RegistrationSource = source
+	}
+	if code != "" && u.RegistrationCode == "" {
+		u.RegistrationCode = code
+	}
+}
+
+func registrationSourceLabel(source string) string {
+	switch strings.TrimSpace(source) {
+	case registrationSourceRegCode:
+		return "注册码"
+	case registrationSourceInvite:
+		return "邀请码"
+	case registrationSourceAdminGrant:
+		return "后台授予"
+	case registrationSourceTelegramGrant:
+		return "Telegram 授予"
+	case "":
+		return "-"
+	default:
+		return source
+	}
+}
+
+func (a *App) userHasEmbyGrantHistory(u store.User) bool {
+	if strings.TrimSpace(u.RegistrationSource) != "" || strings.TrimSpace(u.RegistrationCode) != "" {
+		return true
+	}
+	if _, ok := a.store().ParentOf(u.UID); ok {
+		return true
+	}
+	for _, code := range a.store().ListRegCodes() {
+		if code.Type != 1 && code.Type != 3 {
+			continue
+		}
+		for _, uid := range regcodeUsedByUIDs(code) {
+			if uid == u.UID {
+				return true
+			}
+		}
+		if u.TelegramID != 0 {
+			for _, telegramID := range code.UsedByTelegramIDs {
+				if telegramID == u.TelegramID {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func (a *App) userCanSelfUnbindEmby(u store.User) bool {
+	return !a.userHasEmbyGrantHistory(u)
+}
+
 // userExpiredOnly 判定"Active=false 是否纯由 ExpiredAt 触发"。check_expired
 // 调度对非邀请用户的处理是"同时 Active=false + 落 ExpiredAt 在过去"，与
 // admin 手动禁用（Active=false 但 ExpiredAt 仍在未来 / 永久）形成两类截然
@@ -191,7 +268,7 @@ func normalizeRegCodeDays(days int) int {
 // 注意与 userEntitlementOK 的差异：那条同时收 Active 与 ExpiredAt，用于
 // "有 entitlement 才能消费"判定；本 helper 只负责在 !Active 路径下区分原因。
 func userExpiredOnly(user store.User) bool {
-	if user.ExpiredAt <= 0 || user.ExpiredAt >= permanentExpiryUnix {
+	if user.ExpiredAt == 0 || expiryIsPermanent(user.ExpiredAt) {
 		return false
 	}
 	return user.ExpiredAt <= time.Now().Unix()
@@ -218,7 +295,7 @@ func userExpiredOnly(user store.User) bool {
 // 调用约定：必须在 store().UpdateUser 的 mutator 闭包内传入指针，以保证锁内原子性。
 func renewExpiryAndReactivate(u *store.User, newExpiredAt int64) {
 	u.ExpiredAt = newExpiredAt
-	if newExpiredAt > time.Now().Unix() {
+	if expiryIsPermanent(newExpiredAt) || newExpiredAt > time.Now().Unix() {
 		u.Active = true
 	}
 }
@@ -950,7 +1027,7 @@ func userEntitlementOK(user store.User) bool {
 	if !user.Active {
 		return false
 	}
-	if user.ExpiredAt > 0 && user.ExpiredAt < permanentExpiryUnix && user.ExpiredAt <= time.Now().Unix() {
+	if user.ExpiredAt > 0 && !expiryIsPermanent(user.ExpiredAt) && user.ExpiredAt <= time.Now().Unix() {
 		return false
 	}
 	return true
@@ -961,7 +1038,7 @@ func (a *App) maxCodeDays(user store.User) (int, string) {
 	if permanentMaxDays <= 0 {
 		permanentMaxDays = 365
 	}
-	if user.ExpiredAt < 0 || user.ExpiredAt >= 253402214400 {
+	if expiryIsPermanent(user.ExpiredAt) {
 		return permanentMaxDays, ""
 	}
 	if user.ExpiredAt <= time.Now().Unix() {

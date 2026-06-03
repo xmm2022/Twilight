@@ -346,6 +346,10 @@ func (a *App) handleUnbindEmby(w http.ResponseWriter, r *http.Request, _ Params)
 	if a.requireNonEmbyAdmin(w, r, p.User) {
 		return
 	}
+	if !a.userCanSelfUnbindEmby(p.User) {
+		failWithCode(w, http.StatusForbidden, ErrEmbyUnbindForbidden, "当前账号的 Emby 注册资格来自注册码、邀请码或管理员授予，不能自助解绑后重复注册")
+		return
+	}
 	u, err := a.store().UpdateUser(p.User.UID, func(u *store.User) error { u.EmbyID = ""; u.EmbyUsername = ""; return nil })
 	if statusFromError(w, err) {
 		return
@@ -390,7 +394,7 @@ func (a *App) handleRenew(w http.ResponseWriter, r *http.Request, _ Params) {
 	if statusFromError(w, err) {
 		return
 	}
-	ok(w, "续期成功", map[string]any{"expire_status": expireStatus(u.ExpiredAt), "expired_at": u.ExpiredAt, "user": publicUser(u)})
+	ok(w, "续期成功", map[string]any{"expire_status": expireStatus(u.ExpiredAt), "expired_at": publicExpiryUnix(u.ExpiredAt), "user": publicUser(u)})
 }
 
 func (a *App) handleQueueStatus(w http.ResponseWriter, r *http.Request, _ Params) {
@@ -438,26 +442,14 @@ func (a *App) createBindCode(w http.ResponseWriter, uid int64, scene string) {
 
 func (a *App) handleBindCodeStatus(w http.ResponseWriter, r *http.Request, _ Params) {
 	code := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("code")))
-	if !telegramBindCodePattern.MatchString(code) {
-		ok(w, "OK", map[string]any{"code": code, "confirmed": false, "invalid": true, "terminal": true})
-		return
-	}
-
 	// Long-poll 支持：客户端传 wait=N（秒）表示愿意等待最多 N 秒。
 	// 在等待期间每 500ms 检查一次 bind code 状态，一旦变为终态立即返回。
 	// 不传 wait 或 wait<=0 时退化为即时响应（兼容旧客户端）。
 	waitSec := clamp(queryInt(r, "wait", 0), 0, 60)
 
 	respond := func() {
-		bind, okBind := a.store().BindCode(code)
-		if !okBind || bind.ExpiresAt < time.Now().Unix() {
-			if okBind {
-				_ = a.store().DeleteBindCode(code)
-			}
-			ok(w, "OK", map[string]any{"code": code, "confirmed": false, "invalid": true, "terminal": true})
-			return
-		}
-		ok(w, "OK", map[string]any{"code": code, "confirmed": bind.Confirmed, "expires_in": bind.ExpiresAt - time.Now().Unix(), "invalid": false, "terminal": bind.Confirmed})
+		state := a.registerTelegramBindCodeState(code, time.Now().Unix(), true)
+		ok(w, "OK", state.response())
 	}
 
 	// 即时模式
@@ -467,8 +459,8 @@ func (a *App) handleBindCodeStatus(w http.ResponseWriter, r *http.Request, _ Par
 	}
 
 	// Long-poll 模式：先检查一次，如果已经是终态直接返回
-	bind, okBind := a.store().BindCode(code)
-	if !okBind || bind.ExpiresAt < time.Now().Unix() || bind.Confirmed {
+	state := a.registerTelegramBindCodeState(code, time.Now().Unix(), true)
+	if state.Terminal {
 		respond()
 		return
 	}
@@ -488,8 +480,8 @@ func (a *App) handleBindCodeStatus(w http.ResponseWriter, r *http.Request, _ Par
 			respond()
 			return
 		case <-ticker.C:
-			bind, okBind = a.store().BindCode(code)
-			if !okBind || bind.ExpiresAt < time.Now().Unix() || bind.Confirmed {
+			state = a.registerTelegramBindCodeState(code, time.Now().Unix(), true)
+			if state.Terminal {
 				respond()
 				return
 			}
@@ -549,7 +541,7 @@ func (a *App) handleUserSettings(w http.ResponseWriter, r *http.Request, _ Param
 	ok(w, "OK", map[string]any{
 		"bgm_mode": u.BGMMode, "bgm_token_set": u.BGMToken != "", "api_key_enabled": u.LegacyAPIKeyStatus,
 		"telegram":      map[string]any{"bound": u.TelegramID != 0, "force_bind": a.cfg().ForceBindTelegram, "can_unbind": !a.cfg().ForceBindTelegram, "can_change": true, "pending_rebind_request": false, "rebind_request_status": nil, "rebind_request_id": nil},
-		"emby_status":   map[string]any{"is_synced": u.EmbyID != "", "is_active": u.Active, "active_sessions": 0, "message": "OK"},
+		"emby_status":   map[string]any{"is_synced": u.EmbyID != "", "is_active": u.Active, "can_unbind": a.userCanSelfUnbindEmby(u), "active_sessions": 0, "message": "OK"},
 		"system_config": map[string]any{"device_limit_enabled": a.cfg().DeviceLimitEnabled, "max_devices": a.cfg().MaxDevices, "max_streams": a.cfg().MaxStreams, "bangumi_sync_enabled": a.cfg().BangumiEnabled},
 	})
 }
@@ -1182,7 +1174,8 @@ func (a *App) handleEmbyStatus(w http.ResponseWriter, r *http.Request, _ Params)
 	if online {
 		_ = a.embyGet(r.Context(), "/Sessions", &sessions)
 	}
-	ok(w, "OK", map[string]any{"online": online, "server_name": firstNonEmpty(asString(info["ServerName"]), asString(info["Name"])), "version": firstNonEmpty(asString(info["Version"]), "unknown"), "operating_system": asString(info["OperatingSystem"]), "active_sessions": len(sessions), "total_sessions": len(sessions), "is_synced": current(r).User.EmbyID != "", "is_active": current(r).User.Active, "message": "OK"})
+	u := current(r).User
+	ok(w, "OK", map[string]any{"online": online, "server_name": firstNonEmpty(asString(info["ServerName"]), asString(info["Name"])), "version": firstNonEmpty(asString(info["Version"]), "unknown"), "operating_system": asString(info["OperatingSystem"]), "active_sessions": len(sessions), "total_sessions": len(sessions), "is_synced": u.EmbyID != "", "is_active": u.Active, "can_unbind": a.userCanSelfUnbindEmby(u), "message": "OK"})
 }
 
 func (a *App) handleDeprecatedEmbyURLs(w http.ResponseWriter, r *http.Request, _ Params) {
@@ -1578,6 +1571,7 @@ func (a *App) handleRegistrationEntitlement(w http.ResponseWriter, r *http.Reque
 		}
 		u.PendingEmby = true
 		u.PendingEmbyDays = &days
+		markRegistrationGrant(u, registrationSourceAdminGrant, "")
 		if u.Role == store.RoleUnrecognized {
 			u.Role = store.RoleNormal
 		}
@@ -1610,6 +1604,7 @@ func (a *App) handleRegistrationEntitlementBulk(w http.ResponseWriter, r *http.R
 		if _, err := a.store().UpdateUser(uid, func(u *store.User) error {
 			u.PendingEmby = true
 			u.PendingEmbyDays = &days
+			markRegistrationGrant(u, registrationSourceAdminGrant, "")
 			if u.Role == store.RoleUnrecognized {
 				u.Role = store.RoleNormal
 			}
@@ -1677,8 +1672,16 @@ func (a *App) handleKickUser(w http.ResponseWriter, r *http.Request, params Para
 
 func (a *App) handleAdminRenewUser(w http.ResponseWriter, r *http.Request, params Params) {
 	uid, _ := int64Param(params, "uid")
-	days := int64(intValue(decodeMap(r), "days", 30))
+	payload := decodeMap(r)
+	days := int64(intValue(payload, "days", 30))
+	if expiredAt := numeric(payload["expired_at"]); expiredAt < 0 || expiryIsPermanent(expiredAt) {
+		days = -1
+	}
 	u, err := a.store().UpdateUser(uid, func(u *store.User) error {
+		if days <= 0 {
+			renewExpiryAndReactivate(u, permanentExpiryUnix)
+			return nil
+		}
 		base := time.Now().Unix()
 		if u.ExpiredAt > base {
 			base = u.ExpiredAt

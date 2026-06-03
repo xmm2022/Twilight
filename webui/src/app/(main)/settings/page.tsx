@@ -92,6 +92,8 @@ export default function SettingsPage() {
     !user?.emby_id &&
     user?.pending_emby_days !== null &&
     user?.pending_emby_days !== undefined;
+  const canUnbindEmby =
+    embyStatus?.can_unbind ?? !(user?.registration_source || user?.registration_code);
 
   // Email dialog
   const [editEmailOpen, setEditEmailOpen] = useState(false);
@@ -872,7 +874,7 @@ export default function SettingsPage() {
                   <Button
                     variant="destructive"
                     onClick={handleUnbindEmby}
-                    disabled={isEmbyLoading}
+                    disabled={isEmbyLoading || !canUnbindEmby}
                     className="w-full sm:w-auto"
                   >
                     {isEmbyLoading ? (
@@ -890,6 +892,11 @@ export default function SettingsPage() {
                 {hasEmbyRegistrationEntitlement
                   ? "你已拥有 Emby 开通资格但尚未创建账号，可点击“继续开通”完成注册。"
                   : "如果您在 Emby 服务器中已有账号，可以在此绑定。绑定后即可使用该账号访问媒体内容。"}
+              </p>
+            )}
+            {user?.emby_id && !canUnbindEmby && (
+              <p className="text-sm text-muted-foreground">
+                该账号的 Emby 注册资格来自注册码、邀请码或管理员授予，不能自助解绑后重复注册。
               </p>
             )}
           </CardContent>

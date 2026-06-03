@@ -50,6 +50,7 @@ export type ErrCode =
   // === Emby ===
   | "EMBY_AUTH_FAILED"
   | "EMBY_ACCOUNT_UNLINKED"
+  | "EMBY_UNBIND_FORBIDDEN"
   | "EMBY_ACCOUNT_CONFLICT"
   | "EMBY_CAPACITY_REACHED"
   | "EMBY_MISSING_CREDENTIALS"
@@ -77,6 +78,7 @@ export type ErrCode =
   | "CODE_EMPTY"
   | "CODE_INVALID"
   | "CODE_ALREADY_EMBY_BOUND"
+  | "CODE_REGISTRATION_GRANT_ALREADY_USED"
   | "INVITE_NOT_FOUND"
   | "INVITE_SELF_GENERATE"
   | "INVITE_ALREADY_HAS_PARENT"
@@ -319,6 +321,7 @@ export const ErrCodes = {
   // Emby
   EmbyAuthFailed: "EMBY_AUTH_FAILED",
   EmbyAccountUnlinked: "EMBY_ACCOUNT_UNLINKED",
+  EmbyUnbindForbidden: "EMBY_UNBIND_FORBIDDEN",
   EmbyAccountConflict: "EMBY_ACCOUNT_CONFLICT",
   EmbyCapacityReached: "EMBY_CAPACITY_REACHED",
   EmbyMissingCreds: "EMBY_MISSING_CREDENTIALS",
@@ -346,6 +349,7 @@ export const ErrCodes = {
   CodeEmpty: "CODE_EMPTY",
   CodeInvalid: "CODE_INVALID",
   CodeAlreadyEmbyBound: "CODE_ALREADY_EMBY_BOUND",
+  CodeRegistrationGrantAlreadyUsed: "CODE_REGISTRATION_GRANT_ALREADY_USED",
   InviteNotFound: "INVITE_NOT_FOUND",
   InviteSelfGenerate: "INVITE_SELF_GENERATE",
   InviteAlreadyHasParent: "INVITE_ALREADY_HAS_PARENT",

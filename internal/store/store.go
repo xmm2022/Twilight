@@ -119,6 +119,8 @@ type User struct {
 	BGMToken           string   `json:"bgm_token,omitempty"`
 	CreatedAt          int64    `json:"created_at"`
 	RegisterTime       int64    `json:"register_time"`
+	RegistrationSource string   `json:"registration_source,omitempty"`
+	RegistrationCode   string   `json:"registration_code,omitempty"`
 	PendingEmby        bool     `json:"pending_emby"`
 	PendingEmbyDays    *int     `json:"pending_emby_days,omitempty"`
 	LegacyAPIKeyHash   string   `json:"legacy_api_key_hash,omitempty"`

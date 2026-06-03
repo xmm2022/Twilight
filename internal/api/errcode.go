@@ -54,6 +54,7 @@ const (
 	// === Emby ===
 	ErrEmbyAuthFailed      ErrCode = "EMBY_AUTH_FAILED"
 	ErrEmbyAccountUnlinked ErrCode = "EMBY_ACCOUNT_UNLINKED"
+	ErrEmbyUnbindForbidden ErrCode = "EMBY_UNBIND_FORBIDDEN"
 	ErrEmbyCapacityReached ErrCode = "EMBY_CAPACITY_REACHED"
 	ErrEmbyMissingCreds    ErrCode = "EMBY_MISSING_CREDENTIALS"
 	ErrEmbyInputTooLong    ErrCode = "EMBY_INPUT_TOO_LONG"
@@ -102,18 +103,19 @@ const (
 	// 这些错误在 code_use_handlers.go 高频出现，前端需基于稳定码做差异化
 	// UI 行为（"不能使用自己生成的邀请码"应跳"前往个人主页"，"邀请树人数
 	// 已达上限"应跳"申请提升上限"等），不能再依赖中文 message 正则。
-	ErrCodeEmpty              ErrCode = "CODE_EMPTY"
-	ErrCodeInvalid            ErrCode = "CODE_INVALID"
-	ErrCodeAlreadyEmbyBound   ErrCode = "CODE_ALREADY_EMBY_BOUND"
-	ErrInviteNotFound         ErrCode = "INVITE_NOT_FOUND"
-	ErrInviteSelfGenerate     ErrCode = "INVITE_SELF_GENERATE"
-	ErrInviteAlreadyHasParent ErrCode = "INVITE_ALREADY_HAS_PARENT"
-	ErrInviteTargetMismatch   ErrCode = "INVITE_TARGET_MISMATCH"
-	ErrInviterUnavailable     ErrCode = "INVITER_UNAVAILABLE"
-	ErrInviteDepthExceeded    ErrCode = "INVITE_DEPTH_EXCEEDED"
-	ErrInviteRootFull         ErrCode = "INVITE_ROOT_FULL"
-	ErrInviterDaysShort       ErrCode = "INVITER_DAYS_SHORT"
-	ErrRegcodeNotFound        ErrCode = "REGCODE_NOT_FOUND"
+	ErrCodeEmpty                        ErrCode = "CODE_EMPTY"
+	ErrCodeInvalid                      ErrCode = "CODE_INVALID"
+	ErrCodeAlreadyEmbyBound             ErrCode = "CODE_ALREADY_EMBY_BOUND"
+	ErrCodeRegistrationGrantAlreadyUsed ErrCode = "CODE_REGISTRATION_GRANT_ALREADY_USED"
+	ErrInviteNotFound                   ErrCode = "INVITE_NOT_FOUND"
+	ErrInviteSelfGenerate               ErrCode = "INVITE_SELF_GENERATE"
+	ErrInviteAlreadyHasParent           ErrCode = "INVITE_ALREADY_HAS_PARENT"
+	ErrInviteTargetMismatch             ErrCode = "INVITE_TARGET_MISMATCH"
+	ErrInviterUnavailable               ErrCode = "INVITER_UNAVAILABLE"
+	ErrInviteDepthExceeded              ErrCode = "INVITE_DEPTH_EXCEEDED"
+	ErrInviteRootFull                   ErrCode = "INVITE_ROOT_FULL"
+	ErrInviterDaysShort                 ErrCode = "INVITER_DAYS_SHORT"
+	ErrRegcodeNotFound                  ErrCode = "REGCODE_NOT_FOUND"
 
 	// === 邀请域补充（invite_handlers.go 的领域错误） ===
 	// 用于 invite 生成 / 续期码 / 断开下级 / 校验等流程，前端可据此实现

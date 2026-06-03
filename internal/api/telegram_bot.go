@@ -568,7 +568,7 @@ func (a *App) telegramAdminHelpText() string {
 	if text := strings.TrimSpace(a.cfg().TelegramBotAdminHelpText); text != "" {
 		return a.telegramRenderText(text)
 	}
-	return "管理员帮助\n\n/stats 服务统计\n/userinfo <用户名/UID/关键词> 查看用户详情\n/twfind <用户名/UID/关键词> 搜索用户\n/twguser <关键词> 群组用户管理面板\n/twguser 回复群成员消息时按 Telegram 绑定关系查询\n\n/twguser 面板支持启用/禁用 Web 账号、启用/禁用 Emby、删除 Emby、本地删除用户、移出/封禁群组和授予注册资格。删除类操作需要二次确认；每次按钮操作都会重新鉴权。群组匿名管理员使用 /twguser 时需要先通过 inline 按钮验证身份。"
+	return "管理员帮助\n\n/stats 服务统计\n/userinfo <用户名/UID/关键词> 查看用户详情\n/twfind <用户名/UID/关键词> 搜索用户\n/twguser <关键词> 群组用户管理面板\n/twguser 回复群成员消息时按 Telegram 绑定关系查询\n\n/twguser 面板支持启用/禁用 Web 账号、启用/禁用 Emby、删除 Emby、本地删除用户、移出/封禁群组和授予 7/30/365 天或永久 Emby 注册资格。删除类操作需要二次确认；每次按钮操作都会重新鉴权。群组匿名管理员使用 /twguser 时需要先通过 inline 按钮验证身份。"
 }
 
 func (a *App) telegramAboutText() string {

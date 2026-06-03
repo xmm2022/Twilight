@@ -42,6 +42,10 @@ func (a *App) handleUseCode(w http.ResponseWriter, r *http.Request, _ Params) {
 		failWithCode(w, http.StatusBadRequest, ErrCodeAlreadyEmbyBound, "当前账号已绑定 Emby，请使用续期码")
 		return
 	}
+	if grantsEmby && p.User.EmbyID == "" && !p.User.PendingEmby && a.userHasEmbyGrantHistory(p.User) {
+		failWithCode(w, http.StatusBadRequest, ErrCodeRegistrationGrantAlreadyUsed, "当前账号已经使用过 Emby 注册资格，不能重复使用注册码或邀请码")
+		return
+	}
 	if boolValue(payload, "check_only", false) {
 		ok(w, "OK", preview)
 		return
@@ -152,6 +156,11 @@ func (a *App) handleUseCode(w http.ResponseWriter, r *http.Request, _ Params) {
 			}
 		}
 		if source == "invite" {
+			markRegistrationGrant(u, registrationSourceInvite, code)
+		} else if source == "regcode" && (reg.Type == 1 || reg.Type == 3) {
+			markRegistrationGrant(u, registrationSourceRegCode, reg.Code)
+		}
+		if source == "invite" {
 			// invite 续期：上限 = 邀请人剩余天数。统一走 renewExpiryAndReactivate
 			// 让"过期 invitee 重新使用 invite 码"路径自动重新激活账号。
 			renewExpiryAndReactivate(u, boundedInviteExpiry(addDaysToExpiry(u.ExpiredAt, days, time.Now()), inviterForUse.ExpiredAt))
@@ -167,7 +176,7 @@ func (a *App) handleUseCode(w http.ResponseWriter, r *http.Request, _ Params) {
 	data["pending"] = u.PendingEmby && u.EmbyID == ""
 	data["user"] = publicUser(u)
 	data["expire_status"] = expireStatus(u.ExpiredAt)
-	data["expired_at"] = u.ExpiredAt
+	data["expired_at"] = publicExpiryUnix(u.ExpiredAt)
 	data["role"] = u.Role
 	data["role_name"] = roleName(u.Role)
 	ok(w, "使用成功", data)

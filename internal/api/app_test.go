@@ -3496,6 +3496,9 @@ func TestRegisterCodeLimitConsumesRegcodeAtomically(t *testing.T) {
 	if !ok || !user.PendingEmby || user.PendingEmbyDays == nil || *user.PendingEmbyDays != 7 {
 		t.Fatalf("registered user did not receive pending entitlement: %#v days=%#v", user, user.PendingEmbyDays)
 	}
+	if user.RegistrationSource != registrationSourceRegCode || user.RegistrationCode != "REGISTER-OK" {
+		t.Fatalf("register code source was not persisted on user: %#v", user)
+	}
 	reg, ok := app.store().RegCode("REGISTER-OK")
 	if !ok || reg.UseCount != 1 || reg.UsedBy != user.UID || reg.Active {
 		t.Fatalf("register code usage was not persisted: %#v", reg)
@@ -3516,6 +3519,77 @@ func TestRegisterCodeLimitConsumesRegcodeAtomically(t *testing.T) {
 	reg, _ = app.store().RegCode("RENEW-NOT-REGISTER")
 	if reg.UseCount != 0 {
 		t.Fatalf("wrong type code was consumed: %#v", reg)
+	}
+}
+
+func TestRegcodeGrantHistoryBlocksSelfUnbindAndRepeatRegistrationGrant(t *testing.T) {
+	app := newTestApp(t)
+	user, err := app.store().CreateUser(store.User{Username: "grant-user", Role: store.RoleNormal, Active: true, EmbyID: "emby-old", EmbyUsername: "grant-user", RegistrationSource: registrationSourceRegCode, RegistrationCode: "REG-OLD"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/emby/unbind", nil)
+	req = req.WithContext(context.WithValue(req.Context(), principalKey, principal{User: user}))
+	rr := httptest.NewRecorder()
+	app.handleUnbindEmby(rr, req, nil)
+	if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), `"error_code":"EMBY_UNBIND_FORBIDDEN"`) {
+		t.Fatalf("grant-backed user should not self-unbind Emby, status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	currentUser, _ := app.store().User(user.UID)
+	if currentUser.EmbyID == "" {
+		t.Fatalf("forbidden self-unbind cleared Emby binding: %#v", currentUser)
+	}
+
+	currentUser, err = app.store().UpdateUser(user.UID, func(u *store.User) error {
+		u.EmbyID = ""
+		u.EmbyUsername = ""
+		u.PendingEmby = false
+		u.PendingEmbyDays = nil
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.store().UpsertRegCode(store.RegCode{Code: "REG-NEW-GRANT", Type: 1, Days: 30, ValidityTime: -1, UseCountLimit: 1, Active: true}); err != nil {
+		t.Fatal(err)
+	}
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/users/me/use-code", strings.NewReader(`{"reg_code":"REG-NEW-GRANT"}`))
+	req = req.WithContext(context.WithValue(req.Context(), principalKey, principal{User: currentUser}))
+	rr = httptest.NewRecorder()
+	app.handleUseCode(rr, req, nil)
+	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), `"error_code":"CODE_REGISTRATION_GRANT_ALREADY_USED"`) {
+		t.Fatalf("grant-backed user should not use another register code, status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	reg, _ := app.store().RegCode("REG-NEW-GRANT")
+	if reg.UseCount != 0 || !reg.Active {
+		t.Fatalf("blocked repeat register code was consumed: %#v", reg)
+	}
+}
+
+func TestPermanentExpiryNormalizesForPublicAPIAndAdminRenew(t *testing.T) {
+	if got := expireStatus(permanentExpiryUnix); got != "永不过期" {
+		t.Fatalf("permanent expiry status = %q", got)
+	}
+	if got := numeric(publicUser(store.User{ExpiredAt: permanentExpiryUnix})["expired_at"]); got != -1 {
+		t.Fatalf("public permanent expired_at = %d, want -1", got)
+	}
+
+	app := newTestApp(t)
+	user, err := app.store().CreateUser(store.User{Username: "admin-renew-perm", Role: store.RoleNormal, Active: true, ExpiredAt: time.Now().AddDate(0, 0, 1).Unix(), EmbyID: "emby-renew"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/users/1/renew", strings.NewReader(`{"days":-1}`))
+	req = req.WithContext(context.WithValue(req.Context(), principalKey, principal{User: store.User{UID: 999, Role: store.RoleAdmin, Active: true}}))
+	rr := httptest.NewRecorder()
+	app.handleAdminRenewUser(rr, req, Params{"uid": strconv.FormatInt(user.UID, 10)})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("admin permanent renew status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	updated, _ := app.store().User(user.UID)
+	if updated.ExpiredAt != permanentExpiryUnix || !updated.Active {
+		t.Fatalf("admin permanent renew did not set permanent active expiry: %#v", updated)
 	}
 }
 

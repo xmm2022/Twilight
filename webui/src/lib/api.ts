@@ -250,10 +250,16 @@ class ApiClient {
     // 这一端点不会再为业务无效抛 HTTP 404——上面的字段是唯一可信信号。
     return apiRequest<{
       code?: string;
+      status?: string;
+      error_code?: string;
+      message?: string;
       confirmed?: boolean;
       expires_in?: number;
       invalid?: boolean;
       terminal?: boolean;
+      telegram_bound?: boolean;
+      telegram_id?: number;
+      telegram_username?: string;
     }>(
       `/users/telegram/register/bind-code/status?${q}`,
       { signal },
