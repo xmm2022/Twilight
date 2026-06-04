@@ -1533,7 +1533,8 @@ func (a *App) handleAdminUpdateUser(w http.ResponseWriter, r *http.Request, para
 		}
 	}
 	if hasActive {
-		if _, err := a.store().SetUserActiveAtomic(uid, desiredActive); err != nil {
+		updated, err := a.store().SetUserActiveAtomic(uid, desiredActive)
+		if err != nil {
 			if errors.Is(err, store.ErrLastAdmin) {
 				failWithCode(w, http.StatusConflict, ErrAdminLastAdminProtected, "无法禁用最后一个管理员，系统至少需要一个管理员")
 				return
@@ -1541,6 +1542,9 @@ func (a *App) handleAdminUpdateUser(w http.ResponseWriter, r *http.Request, para
 			if statusFromError(w, err) {
 				return
 			}
+		}
+		if !desiredActive {
+			_, _ = a.disableRemoteEmbyForWebState(r.Context(), updated)
 		}
 	}
 	u, err := a.store().UpdateUser(uid, func(u *store.User) error {
@@ -1686,8 +1690,8 @@ func (a *App) handleAdminToggleUser(w http.ResponseWriter, r *http.Request, para
 			failed = append(failed, map[string]any{"uid": targetUID, "reason": err.Error()})
 			continue
 		}
-		if updated.EmbyID != "" && a.cfg().EmbyURL != "" {
-			_ = a.embySetUserEnabled(r.Context(), updated.EmbyID, a.embyShouldEnableUser(updated))
+		if !enable {
+			_, _ = a.disableRemoteEmbyForWebState(r.Context(), updated)
 		}
 		affected = append(affected, targetUID)
 	}
@@ -1963,9 +1967,6 @@ func (a *App) handleAdminRenewUser(w http.ResponseWriter, r *http.Request, param
 	})
 	if statusFromError(w, err) {
 		return
-	}
-	if u.EmbyID != "" && a.cfg().EmbyURL != "" {
-		_ = a.embySetUserEnabled(r.Context(), u.EmbyID, a.embyShouldEnableUser(u))
 	}
 	ok(w, "续期成功", publicUser(u))
 }

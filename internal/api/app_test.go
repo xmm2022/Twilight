@@ -1653,8 +1653,8 @@ func TestSchedulerEmbySyncRepairsPlaceholderAndMissingIDs(t *testing.T) {
 // 502 不应让 emby_sync 把用户记成 failed_sync。第一次拉 /Users 返回 502，第二次
 // 才返回正常 JSON——重试 helper 必须把第一次失败吃掉，让 sync 像无错一样完成。
 //
-// 同时校验 4xx 不会被重试：Policy POST 一旦返回 400，调用立刻 fail，重试只会
-// 复读相同错误并刷日志。
+// 同时校验 Web 禁用态的 Emby 禁用写入只成功执行一次，证明 retry 包装没有让
+// 幂等写路径"重试地狱"地反复 POST。
 func TestSchedulerEmbySyncRetriesTransient5xx(t *testing.T) {
 	app := newTestApp(t)
 	app.cfg().EmbyToken = "token"
@@ -1700,6 +1700,7 @@ func TestSchedulerEmbySyncRetriesTransient5xx(t *testing.T) {
 	}
 	if _, err := app.store().UpdateUser(alpha.UID, func(u *store.User) error {
 		u.EmbyID = "real-alpha"
+		u.Active = false
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -1716,8 +1717,7 @@ func TestSchedulerEmbySyncRetriesTransient5xx(t *testing.T) {
 	if usersAttempts < 2 {
 		t.Fatalf("expected /Users to be retried at least once on 502, got attempts=%d", usersAttempts)
 	}
-	// 用户列表只有 1 条，policy 同步应当走通——证明 retry 包装没有让幂等
-	// 写路径"重试地狱"地反复 POST。
+	// 用户列表只有 1 条禁用账号，policy 禁用同步应当走通且只写一次。
 	if int(numeric(summary["synced_state"])) != 1 {
 		t.Fatalf("expected 1 user state synced after retry, summary=%#v", summary)
 	}
@@ -3935,6 +3935,184 @@ func TestSelfUnbindKeepsLocalBindingWhenRemoteDisableFails(t *testing.T) {
 	updated, _ := app.store().User(user.UID)
 	if updated.EmbyID != "emby-fail" || updated.EmbyUsername != "fail" {
 		t.Fatalf("failed remote disable cleared local binding: %#v", updated)
+	}
+}
+
+func TestWebDisableDisablesEmbyButEnableDoesNotRestore(t *testing.T) {
+	app := newTestApp(t)
+	var policyPosts int32
+	var lastDisabled int32
+	emby := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/Users/") && !strings.HasSuffix(r.URL.Path, "/Policy"):
+			id := strings.TrimPrefix(r.URL.Path, "/Users/")
+			_, _ = fmt.Fprintf(w, `{"Id":%q,"Name":%q,"Policy":{"IsDisabled":false}}`, id, id)
+		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/Users/") && strings.HasSuffix(r.URL.Path, "/Policy"):
+			var payload map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&payload)
+			atomic.AddInt32(&policyPosts, 1)
+			if boolish(payload["IsDisabled"]) {
+				atomic.StoreInt32(&lastDisabled, 1)
+			} else {
+				atomic.StoreInt32(&lastDisabled, 0)
+			}
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer emby.Close()
+	app.cfg().EmbyURL = emby.URL
+	app.cfg().EmbyToken = "token"
+
+	adminCookies := registerAndLogin(t, app, "admin", "Admin123456")
+	headers := map[string]string{"X-Twilight-Client": "webui"}
+	toggleUser, err := app.store().CreateUser(store.User{Username: "web-toggle", PasswordHash: "x", Role: store.RoleNormal, Active: true, EmbyID: "emby-toggle"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	patchUser, err := app.store().CreateUser(store.User{Username: "web-patch", PasswordHash: "x", Role: store.RoleNormal, Active: true, EmbyID: "emby-patch"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	batchUser, err := app.store().CreateUser(store.User{Username: "web-batch", PasswordHash: "x", Role: store.RoleNormal, Active: true, EmbyID: "emby-batch"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	apiUser, err := app.store().CreateUser(store.User{Username: "web-apikey", PasswordHash: "x", Role: store.RoleNormal, Active: true, EmbyID: "emby-apikey"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	disableToggle := doJSONWithHeaders(app, http.MethodPost, fmt.Sprintf("/api/v1/admin/users/%d/disable", toggleUser.UID), `{}`, adminCookies, headers)
+	if disableToggle.Code != http.StatusOK {
+		t.Fatalf("admin disable status=%d body=%s", disableToggle.Code, disableToggle.Body.String())
+	}
+	if got := atomic.LoadInt32(&policyPosts); got != 1 || atomic.LoadInt32(&lastDisabled) != 1 {
+		t.Fatalf("admin disable should disable Emby once, posts=%d last_disabled=%d", got, atomic.LoadInt32(&lastDisabled))
+	}
+	enableToggle := doJSONWithHeaders(app, http.MethodPost, fmt.Sprintf("/api/v1/admin/users/%d/enable", toggleUser.UID), `{}`, adminCookies, headers)
+	if enableToggle.Code != http.StatusOK {
+		t.Fatalf("admin enable status=%d body=%s", enableToggle.Code, enableToggle.Body.String())
+	}
+	if got := atomic.LoadInt32(&policyPosts); got != 1 {
+		t.Fatalf("admin enable should not restore Emby, policy posts=%d", got)
+	}
+
+	disablePatch := doJSONWithHeaders(app, http.MethodPut, fmt.Sprintf("/api/v1/admin/users/%d", patchUser.UID), `{"active":false}`, adminCookies, headers)
+	if disablePatch.Code != http.StatusOK {
+		t.Fatalf("admin patch disable status=%d body=%s", disablePatch.Code, disablePatch.Body.String())
+	}
+	if got := atomic.LoadInt32(&policyPosts); got != 2 || atomic.LoadInt32(&lastDisabled) != 1 {
+		t.Fatalf("admin patch active=false should disable Emby once, posts=%d last_disabled=%d", got, atomic.LoadInt32(&lastDisabled))
+	}
+	enablePatch := doJSONWithHeaders(app, http.MethodPut, fmt.Sprintf("/api/v1/admin/users/%d", patchUser.UID), `{"active":true}`, adminCookies, headers)
+	if enablePatch.Code != http.StatusOK {
+		t.Fatalf("admin patch enable status=%d body=%s", enablePatch.Code, enablePatch.Body.String())
+	}
+	if got := atomic.LoadInt32(&policyPosts); got != 2 {
+		t.Fatalf("admin patch active=true should not restore Emby, policy posts=%d", got)
+	}
+
+	disableBatch := doJSONWithHeaders(app, http.MethodPost, "/api/v1/batch/users/disable", fmt.Sprintf(`{"uids":[%d],"confirm":%q}`, batchUser.UID, confirmBatchDisableUsers), adminCookies, headers)
+	if disableBatch.Code != http.StatusOK {
+		t.Fatalf("batch disable status=%d body=%s", disableBatch.Code, disableBatch.Body.String())
+	}
+	if got := atomic.LoadInt32(&policyPosts); got != 3 || atomic.LoadInt32(&lastDisabled) != 1 {
+		t.Fatalf("batch disable should disable Emby once, posts=%d last_disabled=%d", got, atomic.LoadInt32(&lastDisabled))
+	}
+	enableBatch := doJSONWithHeaders(app, http.MethodPost, "/api/v1/batch/users/enable", fmt.Sprintf(`{"uids":[%d],"confirm":%q}`, batchUser.UID, confirmBatchEnableUsers), adminCookies, headers)
+	if enableBatch.Code != http.StatusOK {
+		t.Fatalf("batch enable status=%d body=%s", enableBatch.Code, enableBatch.Body.String())
+	}
+	if got := atomic.LoadInt32(&policyPosts); got != 3 {
+		t.Fatalf("batch enable should not restore Emby, policy posts=%d", got)
+	}
+
+	disableAPIKeyReq := httptest.NewRequest(http.MethodPost, "/api/v1/apikey/disable", nil)
+	disableAPIKeyReq = disableAPIKeyReq.WithContext(context.WithValue(disableAPIKeyReq.Context(), principalKey, principal{User: apiUser}))
+	disableAPIKey := httptest.NewRecorder()
+	app.handleAPIKeyDisableAccount(disableAPIKey, disableAPIKeyReq, nil)
+	if disableAPIKey.Code != http.StatusOK {
+		t.Fatalf("API key account disable status=%d body=%s", disableAPIKey.Code, disableAPIKey.Body.String())
+	}
+	if got := atomic.LoadInt32(&policyPosts); got != 4 || atomic.LoadInt32(&lastDisabled) != 1 {
+		t.Fatalf("API key disable should disable Emby once, posts=%d last_disabled=%d", got, atomic.LoadInt32(&lastDisabled))
+	}
+	enableAPIKeyReq := httptest.NewRequest(http.MethodPost, "/api/v1/apikey/enable", nil)
+	enableAPIKeyReq = enableAPIKeyReq.WithContext(context.WithValue(enableAPIKeyReq.Context(), principalKey, principal{User: apiUser}))
+	enableAPIKey := httptest.NewRecorder()
+	app.handleAPIKeyEnableAccount(enableAPIKey, enableAPIKeyReq, nil)
+	if enableAPIKey.Code != http.StatusOK {
+		t.Fatalf("API key account enable status=%d body=%s", enableAPIKey.Code, enableAPIKey.Body.String())
+	}
+	if got := atomic.LoadInt32(&policyPosts); got != 4 {
+		t.Fatalf("API key enable should not restore Emby, policy posts=%d", got)
+	}
+}
+
+func TestEmbySyncDoesNotRestoreRemoteWhenWebIsActive(t *testing.T) {
+	app := newTestApp(t)
+	const activeRemoteID = "emby-sync-active"
+	const disabledRemoteID = "emby-sync-disabled"
+	var activePolicyPosts int32
+	var disabledPolicyPosts int32
+	var disabledLastPolicy int32
+	emby := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/Users":
+			_, _ = w.Write([]byte(`[
+				{"Id":"emby-sync-active","Name":"sync-active","Policy":{"IsDisabled":true}},
+				{"Id":"emby-sync-disabled","Name":"sync-disabled","Policy":{"IsDisabled":false}}
+			]`))
+		case r.Method == http.MethodGet && r.URL.Path == "/Users/"+activeRemoteID:
+			_, _ = w.Write([]byte(`{"Id":"emby-sync-active","Name":"sync-active","Policy":{"IsDisabled":true}}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/Users/"+disabledRemoteID:
+			_, _ = w.Write([]byte(`{"Id":"emby-sync-disabled","Name":"sync-disabled","Policy":{"IsDisabled":false}}`))
+		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/Users/") && strings.HasSuffix(r.URL.Path, "/Policy"):
+			id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/Users/"), "/Policy")
+			var payload map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&payload)
+			disabled := boolish(payload["IsDisabled"])
+			switch id {
+			case activeRemoteID:
+				atomic.AddInt32(&activePolicyPosts, 1)
+			case disabledRemoteID:
+				atomic.AddInt32(&disabledPolicyPosts, 1)
+				if disabled {
+					atomic.StoreInt32(&disabledLastPolicy, 1)
+				}
+			}
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer emby.Close()
+	app.cfg().EmbyURL = emby.URL
+	app.cfg().EmbyToken = "token"
+	if _, err := app.store().CreateUser(store.User{Username: "sync-active", Role: store.RoleNormal, Active: true, EmbyID: activeRemoteID, EmbyUsername: "sync-active"}); err != nil {
+		t.Fatal(err)
+	}
+	disabledUser, err := app.store().CreateUser(store.User{Username: "sync-disabled", Role: store.RoleNormal, Active: true, EmbyID: disabledRemoteID, EmbyUsername: "sync-disabled"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.store().UpdateUser(disabledUser.UID, func(u *store.User) error { u.Active = false; return nil }); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/scheduler/internal", nil)
+	if _, _, err := app.runSchedulerJob(req, "emby_sync"); err != nil {
+		t.Fatalf("emby_sync: %v", err)
+	}
+	if got := atomic.LoadInt32(&activePolicyPosts); got != 0 {
+		t.Fatalf("emby_sync should not restore disabled remote for active Web user, active posts=%d", got)
+	}
+	if got := atomic.LoadInt32(&disabledPolicyPosts); got != 1 || atomic.LoadInt32(&disabledLastPolicy) != 1 {
+		t.Fatalf("emby_sync should disable remote for disabled Web user, posts=%d last_disabled=%d", got, atomic.LoadInt32(&disabledLastPolicy))
 	}
 }
 

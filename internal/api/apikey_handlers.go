@@ -154,6 +154,7 @@ func (a *App) handleAPIKeyDisableAccount(w http.ResponseWriter, r *http.Request,
 	}
 	// 用户主动禁用账号后，所有现存会话必须立即失效；否则除了发起本次请求的
 	// session，其它设备 / cookie 仍能访问受保护接口直到 SessionTTL 到期
+	_, _ = a.disableRemoteEmbyForWebState(r.Context(), u)
 	a.sessions().DeleteUser(r.Context(), u.UID)
 	ok(w, "account disabled", publicUser(u))
 }

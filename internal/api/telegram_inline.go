@@ -336,8 +336,8 @@ func (a *App) telegramApplyPanelAction(ctx context.Context, panel telegramPanelC
 		if !enabled {
 			a.sessions().DeleteUser(ctx, updated.UID)
 		}
-		if updated.EmbyID != "" && a.cfg().EmbyURL != "" {
-			_ = a.embySetUserEnabled(ctx, updated.EmbyID, a.embyShouldEnableUser(updated))
+		if !enabled {
+			_, _ = a.disableRemoteEmbyForWebState(ctx, updated)
 		}
 		a.telegramEditPanelWithNotice(ctx, panel, updated, "用户状态已更新。")
 	case "emby_disable", "emby_enable":

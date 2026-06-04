@@ -864,12 +864,14 @@ func (a *App) recordViolation(ctx context.Context, user store.User, code, codeTy
 	}
 	switch action {
 	case "disable_user":
-		if _, err := a.store().UpdateUser(user.UID, func(u *store.User) error {
+		updated, err := a.store().UpdateUser(user.UID, func(u *store.User) error {
 			u.Active = false
 			return nil
-		}); err != nil {
+		})
+		if err != nil {
 			zap.L().Warn("failed to disable violating user", zap.Int64("uid", user.UID), zap.Error(err))
 		} else {
+			_, _ = a.disableRemoteEmbyForWebState(context.WithoutCancel(ctx), updated)
 			// 违规自动禁用：会话立即失效，避免 stale token 在 SessionTTL 到期前
 			// 仍可访问。
 			a.sessions().DeleteUser(context.WithoutCancel(ctx), user.UID)

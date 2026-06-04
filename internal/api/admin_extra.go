@@ -744,9 +744,6 @@ func (a *App) handleTelegramRejoinedEnable(w http.ResponseWriter, r *http.Reques
 		}
 		updated, err := a.store().UpdateUser(u.UID, func(u *store.User) error { u.Active = true; return nil })
 		if err == nil {
-			if updated.EmbyID != "" {
-				_ = a.embySetUserEnabled(r.Context(), updated.EmbyID, a.embyShouldEnableUser(updated))
-			}
 			enabled = append(enabled, map[string]any{"uid": updated.UID, "username": updated.Username, "telegram_id": updated.TelegramID})
 		}
 	}

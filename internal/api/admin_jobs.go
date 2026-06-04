@@ -54,7 +54,7 @@ func (a *App) enforceTelegramMembership(ctx context.Context, autoEnableRejoined 
 			// 立即清除该用户所有 session（redis + memory + PG）。否则 stale token
 			// 在 SessionTTL 到期前都还能访问受保护接口。
 			sideCtx, sideCancel := schedulerSideEffectContext(ctx)
-			if updated.EmbyID != "" && a.embySetUserEnabled(sideCtx, updated.EmbyID, false) == nil {
+			if disabledRemote, err := a.disableRemoteEmbyForWebState(sideCtx, updated); err == nil && disabledRemote {
 				result["emby_disabled"] = int(numeric(result["emby_disabled"])) + 1
 			}
 			a.sessions().DeleteUser(sideCtx, updated.UID)
@@ -78,9 +78,6 @@ func (a *App) enforceTelegramMembership(ctx context.Context, autoEnableRejoined 
 				if err != nil {
 					result["failed"] = int(numeric(result["failed"])) + 1
 					continue
-				}
-				if updated.EmbyID != "" {
-					_ = a.embySetUserEnabled(ctx, updated.EmbyID, a.embyShouldEnableUser(updated))
 				}
 				result["rejoined_enabled"] = int(numeric(result["rejoined_enabled"])) + 1
 				if len(logs) < 50 {

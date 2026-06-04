@@ -138,7 +138,7 @@ func (a *App) runSchedulerJob(r *http.Request, jobID string) (map[string]any, []
 					sideCtx, sideCancel := schedulerSideEffectContext(r.Context())
 					// Only disable Emby, keep account active so the user
 					// can re-login (or the inviter can renew on their behalf)
-					if u.EmbyID != "" && a.embySetUserEnabled(sideCtx, u.EmbyID, false) == nil {
+					if disabledRemote, err := a.disableRemoteEmbyForWebState(sideCtx, u); err == nil && disabledRemote {
 						embyDisabled++
 					}
 					// 即便保留 Active=true 让用户能重新登录续期，已经过期的
@@ -154,7 +154,7 @@ func (a *App) runSchedulerJob(r *http.Request, jobID string) (map[string]any, []
 					updated, err := a.store().SetUserActiveAtomic(u.UID, false)
 					if err == nil {
 						sideCtx, sideCancel := schedulerSideEffectContext(r.Context())
-						if updated.EmbyID != "" && a.embySetUserEnabled(sideCtx, updated.EmbyID, false) == nil {
+						if disabledRemote, err := a.disableRemoteEmbyForWebState(sideCtx, updated); err == nil && disabledRemote {
 							embyDisabled++
 						}
 						// 立即清除该用户的所有会话。否则 stale
@@ -312,14 +312,20 @@ func (a *App) runSchedulerJob(r *http.Request, jobID string) (map[string]any, []
 					continue
 				}
 			}
-			desiredEnabled := a.embyShouldEnableUser(updatedUser)
-			if remoteDisabled, ok := embyRemoteDisabled(remoteUser); ok && remoteDisabled == !desiredEnabled {
+			shouldDisable := embyShouldDisableForWebState(updatedUser)
+			if !shouldDisable {
+				syncedState++
+				stateUnchanged++
+				continue
+			}
+			if remoteDisabled, ok := embyRemoteDisabled(remoteUser); ok && remoteDisabled {
 				syncedState++
 				stateUnchanged++
 				continue
 			}
 			if embyRetryOn5xx(syncCtx, func(ctx context.Context) error {
-				return a.embySetUserEnabled(ctx, updatedUser.EmbyID, desiredEnabled)
+				_, err := a.disableRemoteEmbyForWebState(ctx, updatedUser)
+				return err
 			}) == nil {
 				syncedState++
 			}

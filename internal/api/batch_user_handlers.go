@@ -43,9 +43,9 @@ func (a *App) handleBatchToggleUsers(w http.ResponseWriter, r *http.Request, ena
 			addBatchOutcomeWithCode(result, uid, ErrUserProtected, fmt.Errorf("cannot batch toggle protected account: %s", a.protectedUserReason(target)))
 			continue
 		}
-		updated, err := a.store().UpdateUser(uid, func(u *store.User) error { u.Active = enable; return nil })
-		if err == nil && updated.EmbyID != "" && a.cfg().EmbyURL != "" {
-			if syncErr := a.embySetUserEnabled(r.Context(), updated.EmbyID, a.embyShouldEnableUser(updated)); syncErr != nil {
+		updated, err := a.store().SetUserActiveAtomic(uid, enable)
+		if err == nil && !enable {
+			if _, syncErr := a.disableRemoteEmbyForWebState(r.Context(), updated); syncErr != nil {
 				err = syncErr
 			}
 		}

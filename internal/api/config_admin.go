@@ -778,7 +778,7 @@ func configSectionDefs() []configSectionDef {
 			{Key: "group_user_panel_template", Label: "/twguser 面板模板", Type: "textarea", Description: telegramGroupUserPanelTemplateDescription},
 			{Key: "require_group_membership", Label: "强制群成员", Type: "bool", Description: "巡检发现退群时禁用本地或 Emby"},
 			{Key: "ban_on_leave", Label: "退群封禁", Type: "bool", Description: "退群后在群组永久封禁"},
-			{Key: "auto_enable_rejoined", Label: "回群自动启用", Type: "bool", Description: "退群后重新加入且未过期时，巡检自动重新启用 Web 与 Emby；关闭时进入人工复核"},
+			{Key: "auto_enable_rejoined", Label: "回群自动启用", Type: "bool", Description: "退群后重新加入且未过期时，巡检自动重新启用 Web 账号；Emby 需单独启用，关闭时进入人工复核"},
 			{Key: "group_check_concurrency", Label: "巡检并发", Type: "int", Description: "getChatMember 并发数"},
 			{Key: "group_action_concurrency", Label: "写操作并发", Type: "int", Description: "踢出、封禁等动作并发数"},
 			{Key: "bot_start_text", Label: "Bot 开始文案", Type: "textarea", Description: "覆盖私聊 /start 文案，支持换行"},

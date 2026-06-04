@@ -222,9 +222,6 @@ func (a *App) handleForgotPassword(w http.ResponseWriter, r *http.Request, _ Par
 	if statusFromError(w, err) {
 		return
 	}
-	if u.EmbyID != "" && a.cfg().EmbyURL != "" {
-		_ = a.embySetUserEnabled(r.Context(), u.EmbyID, a.embyShouldEnableUser(u))
-	}
 	a.sessions().DeleteUser(r.Context(), u.UID)
 	ok(w, "密码已重置", map[string]any{"username": u.Username, "new_password": newPassword})
 }

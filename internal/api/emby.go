@@ -22,8 +22,8 @@ const embyAdminCacheMaxEntries = 10000
 // embyRetryOn5xx 把幂等的 emby 操作（GET/PUT policy/state 同步）包一层
 // "5xx + 网络抖动重试 2 次"。
 //
-// 为什么需要：emby_sync 调度对每个本地用户都会调 embySetUserEnabled，里面
-// 走 /Users/<id>/Policy GET + POST。Emby 反代偶发 502 / 503 / connection
+// 为什么需要：emby_sync 调度会对需要收回权限的本地用户调用 embySetUserEnabled，
+// 里面走 /Users/<id>/Policy GET + POST。Emby 反代偶发 502 / 503 / connection
 // reset 在生产环境很常见——一次失败就把该用户记成"failed sync"，下一轮还
 // 要再失败一次，admin 看到的 dashboard 永远有"差几条没同步"。
 //
@@ -345,6 +345,20 @@ func (a *App) embySetUserEnabled(ctx context.Context, userID string, enabled boo
 	return a.embyUpdatePolicy(ctx, userID, func(policy map[string]any) {
 		policy["IsDisabled"] = !enabled
 	})
+}
+
+func (a *App) disableRemoteEmbyForWebState(ctx context.Context, u store.User) (bool, error) {
+	if strings.TrimSpace(u.EmbyID) == "" || !embyShouldDisableForWebState(u) || strings.TrimSpace(a.cfg().EmbyURL) == "" {
+		return false, nil
+	}
+	if err := a.embySetUserEnabled(ctx, u.EmbyID, false); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func embyShouldDisableForWebState(u store.User) bool {
+	return !u.Active || embyAccessExpired(u)
 }
 
 func (a *App) embyDisableUserForUnbind(ctx context.Context, userID string) (bool, error) {
