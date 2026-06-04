@@ -695,6 +695,14 @@ func inviteCodeRandomAlgorithmOptions() []map[string]any {
 	return append(options, regCodeRandomAlgorithmOptions()...)
 }
 
+func regcodeDecoyActionOptions() []map[string]any {
+	return []map[string]any{
+		{"label": "仅记录违规审计", "value": "log_only"},
+		{"label": "禁用 Web 账号", "value": "disable_user"},
+		{"label": "禁用 Emby 账号", "value": "disable_emby"},
+	}
+}
+
 const telegramGroupUserPanelTemplateDescription = "自定义 /twguser 群组用户面板文本，支持换行；留空使用内置模板。安全限制：不会提供邮箱、Emby ID、密码、Token 或服务器线路占位符。" +
 	"占位符：{server_name}=站点名称；{username}=Web 用户名；{uid}=用户 UID；{role}=角色名称；{role_id}=角色数字；{is_admin}=是否管理员；{is_protected}=是否受保护；" +
 	"{web_status}=Web 账号启用/禁用；{web_active}=Web 是否启用；{expire_status}=到期状态摘要；{expired_at}=具体到期时间；{register_time}=注册时间；{created_at}=创建时间；" +
@@ -708,6 +716,7 @@ func configSectionDefs() []configSectionDef {
 	selectUpdate := []map[string]any{{"label": "按间隔", "value": "interval"}, {"label": "每日固定时间", "value": "daily"}, {"label": "手动", "value": "manual"}}
 	selectRegCodeRandom := regCodeRandomAlgorithmOptions()
 	selectInviteCodeRandom := inviteCodeRandomAlgorithmOptions()
+	selectRegcodeDecoyAction := regcodeDecoyActionOptions()
 	return []configSectionDef{
 		{Key: "Signin", Title: "签到", Description: "签到开关、每日随机奖励和连签奖励", Category: "policy", Fields: []configFieldDef{
 			{Key: "enabled", Label: "启用签到", Type: "bool", Description: "允许用户进入签到页面并领取每日积分"},
@@ -797,6 +806,7 @@ func configSectionDefs() []configSectionDef {
 			{Key: "invite_code_format", Label: "邀请码格式", Type: "string", Description: "邀请树邀请码使用；默认 INV{random} 兼容旧码风格，支持 {random}/{type}/{days}/{index}"},
 			{Key: "regcode_random_algorithm", Label: "默认注册码随机算法", Type: "select", Description: "创建注册码未指定算法时使用；包含易抄写、URL 安全和特殊字符预设", Options: selectRegCodeRandom},
 			{Key: "invite_code_random_algorithm", Label: "默认邀请码随机算法", Type: "select", Description: "生成邀请码时使用；独立于注册码随机算法，hex10 为旧默认", Options: selectInviteCodeRandom},
+			{Key: "regcode_decoy_action", Label: "诱饵/指名码误用动作", Type: "select", Description: "登录用户触碰诱饵注册码或误用指名码时执行的动作；所有选项都会写入违规审计", Options: selectRegcodeDecoyAction},
 			{Key: "emby_user_limit", Label: "Emby 用户上限", Type: "int", Description: "-1 表示不限"},
 			{Key: "media_request_enabled", Label: "启用求片", Type: "bool", Description: "允许用户提交媒体请求"},
 			{Key: "max_concurrent_requests_per_user", Label: "每用户并发求片", Type: "int", Description: "-1 表示不限"},
@@ -907,7 +917,7 @@ func configValues(cfg config.Config) map[string]map[string]any {
 		"SAR": {
 			"register_mode": cfg.RegisterEnabled, "register_code_limit": cfg.RegisterCodeLimit, "allow_pending_register": cfg.AllowPendingRegister,
 			"emby_direct_register_enabled": cfg.EmbyDirectRegisterEnabled, "emby_direct_register_days": cfg.EmbyDirectRegisterDays, "emby_user_limit": cfg.EmbyUserLimit,
-			"user_limit": cfg.UserLimit, "regcode_format": cfg.RegCodeFormat, "register_code_format": cfg.RegisterCodeFormat, "renew_code_format": cfg.RenewCodeFormat, "invite_code_format": cfg.InviteCodeFormat, "regcode_random_algorithm": cfg.RegCodeRandomAlgorithm, "invite_code_random_algorithm": cfg.InviteCodeRandomAlgorithm,
+			"user_limit": cfg.UserLimit, "regcode_format": cfg.RegCodeFormat, "register_code_format": cfg.RegisterCodeFormat, "renew_code_format": cfg.RenewCodeFormat, "invite_code_format": cfg.InviteCodeFormat, "regcode_random_algorithm": cfg.RegCodeRandomAlgorithm, "invite_code_random_algorithm": cfg.InviteCodeRandomAlgorithm, "regcode_decoy_action": firstNonEmpty(cfg.DecoyAction, "log_only"),
 			"media_request_enabled": cfg.MediaRequestEnabled, "max_concurrent_requests_per_user": cfg.MaxConcurrentRequestsPerUser, "max_concurrent_requests_global": cfg.MaxConcurrentRequestsGlobal, "invite_enabled": cfg.InviteEnabled,
 			"invite_limit": cfg.InviteLimit, "invite_root_user_limit": cfg.InviteRootUserLimit, "invite_max_depth": cfg.InviteMaxDepth, "invite_require_emby": cfg.InviteRequireEmby,
 			"invite_code_default_days": cfg.InviteDefaultDays, "permanent_invite_max_days": cfg.PermanentInviteMaxDays, "auto_cleanup_no_emby": cfg.AutoCleanupNoEmby,

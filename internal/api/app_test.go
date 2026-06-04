@@ -1401,6 +1401,56 @@ func TestConfigSchemaRendersTelegramNewlines(t *testing.T) {
 	}
 }
 
+func TestConfigSchemaExposesRegcodeDecoyAction(t *testing.T) {
+	found := false
+	for _, section := range configSectionDefs() {
+		if section.Key != "SAR" {
+			continue
+		}
+		for _, field := range section.Fields {
+			if field.Key != "regcode_decoy_action" {
+				continue
+			}
+			found = true
+			if field.Type != "select" {
+				t.Fatalf("regcode_decoy_action type=%q, want select", field.Type)
+			}
+			seen := map[string]bool{}
+			for _, option := range field.Options {
+				seen[fmt.Sprint(option["value"])] = true
+			}
+			for _, value := range []string{"log_only", "disable_user", "disable_emby"} {
+				if !seen[value] {
+					t.Fatalf("regcode_decoy_action option %q missing: %#v", value, field.Options)
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatal("regcode_decoy_action was not exposed in SAR config schema")
+	}
+
+	values := configValues(config.Config{DecoyAction: "disable_emby"})
+	if values["SAR"]["regcode_decoy_action"] != "disable_emby" {
+		t.Fatalf("configValues did not include decoy action: %#v", values["SAR"])
+	}
+	content := renderConfigTOML(values)
+	if !strings.Contains(content, `regcode_decoy_action = "disable_emby"`) {
+		t.Fatalf("rendered config missing regcode_decoy_action:\n%s", content)
+	}
+	cfgPath := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DecoyAction != "disable_emby" {
+		t.Fatalf("decoy action did not round-trip: %q", cfg.DecoyAction)
+	}
+}
+
 func TestSystemUpdateValidationHelpers(t *testing.T) {
 	if _, err := validateUpdateBranch("../main"); err == nil {
 		t.Fatal("expected traversal branch to be rejected")

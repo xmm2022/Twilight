@@ -452,6 +452,7 @@ func defaults() Config {
 		AllowPendingRegister:              false,
 		EmbyDirectRegisterDays:            30,
 		EmbyUserLimit:                     -1,
+		DecoyAction:                       "log_only",
 		RegCodeFormat:                     "TW-{type}-{random}",
 		InviteCodeFormat:                  "INV{random}",
 		RegCodeRandomAlgorithm:            "base32-20",
