@@ -32,6 +32,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useI18n } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import {
   Dialog,
@@ -102,6 +103,7 @@ interface EmbyUsersData {
 
 export default function AdminEmbyPage() {
   const { toast } = useToast();
+  const { t } = useI18n();
 
   // Connectivity test state
   const [testResult, setTestResult] = useState<ConnectivityResult | null>(null);
@@ -173,21 +175,21 @@ export default function AdminEmbyPage() {
         setBotRuntime(res.data.runtime || null);
         const allOk = res.data.results.every((r) => r.success);
         toast({
-          title: allOk ? "Bot 连通性测试成功" : "部分目标发送失败",
+          title: allOk ? t("adminEmby.botTestAllOk") : t("adminEmby.botTestPartialFail"),
           description: allOk
-            ? `成功向 ${res.data.results.length} 个目标发送测试消息`
-            : "请检查群组/频道配置是否正确",
+            ? t("adminEmby.botTestSentDesc", { count: res.data.results.length })
+            : t("adminEmby.botTestCheckConfig"),
           variant: allOk ? "success" : "destructive",
         });
       } else {
-        toast({ title: "Bot 测试失败", description: res.message, variant: "destructive" });
+        toast({ title: t("adminEmby.botTestFailed"), description: res.message, variant: "destructive" });
       }
     } catch (err: any) {
-      toast({ title: "Bot 测试出错", description: err.message, variant: "destructive" });
+      toast({ title: t("adminEmby.botTestError"), description: err.message, variant: "destructive" });
     } finally {
       setIsBotTesting(false);
     }
-  }, [toast]);
+  }, [toast, t]);
 
   // Connectivity test
   const handleTestConnectivity = useCallback(async () => {
@@ -197,21 +199,21 @@ export default function AdminEmbyPage() {
       if (res.success && res.data) {
         setTestResult(res.data);
         toast({
-          title: res.data.overall ? "连通性测试通过" : "部分测试失败",
+          title: res.data.overall ? t("adminEmby.connOk") : t("adminEmby.connPartialFail"),
           description: res.data.tests
-            .map((t) => `${t.name}: ${t.success ? "✓" : "✗"}`)
+            .map((tr) => `${tr.name}: ${tr.success ? "✓" : "✗"}`)
             .join(", "),
           variant: res.data.overall ? "success" : "destructive",
         });
       } else {
-        toast({ title: "测试失败", description: res.message, variant: "destructive" });
+        toast({ title: t("adminEmby.testFailed"), description: res.message, variant: "destructive" });
       }
     } catch (err: any) {
-      toast({ title: "测试出错", description: err.message, variant: "destructive" });
+      toast({ title: t("adminEmby.testError"), description: err.message, variant: "destructive" });
     } finally {
       setIsTesting(false);
     }
-  }, [toast]);
+  }, [toast, t]);
 
   // Load Emby users
   const handleLoadUsers = useCallback(async () => {
@@ -221,14 +223,14 @@ export default function AdminEmbyPage() {
       if (res.success && res.data) {
         setEmbyData(res.data);
       } else {
-        toast({ title: "加载失败", description: res.message, variant: "destructive" });
+        toast({ title: t("adminEmby.loadFailed"), description: res.message, variant: "destructive" });
       }
     } catch (err: any) {
-      toast({ title: "加载出错", description: err.message, variant: "destructive" });
+      toast({ title: t("adminEmby.loadError"), description: err.message, variant: "destructive" });
     } finally {
       setIsLoadingUsers(false);
     }
-  }, [toast]);
+  }, [toast, t]);
 
   // Sync all
   const handleSync = useCallback(async () => {
@@ -237,20 +239,20 @@ export default function AdminEmbyPage() {
       const res = await api.syncAllEmbyUsers();
       if (res.success && res.data) {
         toast({
-          title: "同步完成",
-          description: `成功 ${res.data.success} 个，失败 ${res.data.failed} 个`,
+          title: t("adminEmby.syncComplete"),
+          description: t("adminEmby.syncResult", { success: res.data.success, failed: res.data.failed }),
           variant: res.data.failed > 0 ? "destructive" : "success",
         });
         await handleLoadUsers();
       } else {
-        toast({ title: "同步失败", description: res.message, variant: "destructive" });
+        toast({ title: t("adminEmby.syncFailed"), description: res.message, variant: "destructive" });
       }
     } catch (err: any) {
-      toast({ title: "同步出错", description: err.message, variant: "destructive" });
+      toast({ title: t("adminEmby.syncError"), description: err.message, variant: "destructive" });
     } finally {
       setIsSyncing(false);
     }
-  }, [toast, handleLoadUsers]);
+  }, [toast, handleLoadUsers, t]);
 
   // Import unlinked users
   const handleImport = useCallback(async () => {
@@ -259,20 +261,20 @@ export default function AdminEmbyPage() {
       const res = await api.importEmbyUsers();
       if (res.success && res.data) {
         toast({
-          title: "扫描完成",
-          description: `发现 ${res.data.unlinked_count} 个未绑定用户，跳过 ${res.data.skipped_count} 个`,
+          title: t("adminEmby.scanComplete"),
+          description: t("adminEmby.scanResult", { unlinked: res.data.unlinked_count, skipped: res.data.skipped_count }),
           variant: "success",
         });
         await handleLoadUsers();
       } else {
-        toast({ title: "扫描失败", description: res.message, variant: "destructive" });
+        toast({ title: t("adminEmby.scanFailed"), description: res.message, variant: "destructive" });
       }
     } catch (err: any) {
-      toast({ title: "扫描出错", description: err.message, variant: "destructive" });
+      toast({ title: t("adminEmby.scanError"), description: err.message, variant: "destructive" });
     } finally {
       setIsImporting(false);
     }
-  }, [toast, handleLoadUsers]);
+  }, [toast, handleLoadUsers, t]);
 
   const handleDeleteUnlinked = useCallback(async () => {
     setIsDeletingUnlinked(true);
@@ -280,20 +282,20 @@ export default function AdminEmbyPage() {
       const res = await api.deleteUnlinkedEmbyUsers(false);
       if (res.success && res.data) {
         toast({
-          title: "删除完成",
-          description: `共 ${res.data.count} 个未绑定用户，成功删除 ${res.data.deleted.length} 个`,
+          title: t("adminEmby.deleteComplete"),
+          description: t("adminEmby.deleteResult", { count: res.data.count, deleted: res.data.deleted.length }),
           variant: res.data.failed.length > 0 ? "destructive" : "success",
         });
         await handleLoadUsers();
       } else {
-        toast({ title: "删除失败", description: res.message, variant: "destructive" });
+        toast({ title: t("adminEmby.deleteFailed"), description: res.message, variant: "destructive" });
       }
     } catch (err: any) {
-      toast({ title: "删除出错", description: err.message, variant: "destructive" });
+      toast({ title: t("adminEmby.deleteError"), description: err.message, variant: "destructive" });
     } finally {
       setIsDeletingUnlinked(false);
     }
-  }, [toast, handleLoadUsers]);
+  }, [toast, handleLoadUsers, t]);
 
   // Cleanup orphans
   const handleCleanup = useCallback(async () => {
@@ -302,20 +304,20 @@ export default function AdminEmbyPage() {
       const res = await api.cleanupOrphanEmbyIds();
       if (res.success && res.data) {
         toast({
-          title: "清理完成",
-          description: `已清理 ${res.data.count} 条孤儿记录`,
+          title: t("adminEmby.cleanupComplete"),
+          description: t("adminEmby.cleanupResult", { count: res.data.count }),
           variant: "success",
         });
         await handleLoadUsers();
       } else {
-        toast({ title: "清理失败", description: res.message, variant: "destructive" });
+        toast({ title: t("adminEmby.cleanupFailed"), description: res.message, variant: "destructive" });
       }
     } catch (err: any) {
-      toast({ title: "清理出错", description: err.message, variant: "destructive" });
+      toast({ title: t("adminEmby.cleanupError"), description: err.message, variant: "destructive" });
     } finally {
       setIsCleaning(false);
     }
-  }, [toast, handleLoadUsers]);
+  }, [toast, handleLoadUsers, t]);
 
   // Reset all bindings
   const handleResetBindings = useCallback(async () => {
@@ -324,34 +326,34 @@ export default function AdminEmbyPage() {
       const res = await api.resetAllEmbyBindings();
       if (res.success && res.data) {
         toast({
-          title: "重置完成",
-          description: `已重置 ${res.data.count} 个用户的 Emby 绑定`,
+          title: t("adminEmby.resetComplete"),
+          description: t("adminEmby.resetResult", { count: res.data.count }),
           variant: "success",
         });
         setResetDialogOpen(false);
         await handleLoadUsers();
       } else {
-        toast({ title: "重置失败", description: res.message, variant: "destructive" });
+        toast({ title: t("adminEmby.resetFailed"), description: res.message, variant: "destructive" });
       }
     } catch (err: any) {
-      toast({ title: "重置出错", description: err.message, variant: "destructive" });
+      toast({ title: t("adminEmby.resetError"), description: err.message, variant: "destructive" });
     } finally {
       setIsResetting(false);
     }
-  }, [toast, handleLoadUsers]);
+  }, [toast, handleLoadUsers, t]);
 
   const syncStatusBadge = (status: string) => {
     // 用户名一致与否不展示——本地与 Emby 用户名是允许不一致的，
     // 只要本地账户绑定到了对应 Emby ID 即视为已绑定。
     if (status === "unlinked") {
-      return <Badge variant="secondary">未绑定</Badge>;
+      return <Badge variant="secondary">{t("adminEmby.statusUnbound")}</Badge>;
     }
     return (
       <Badge
         variant="default"
         className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
       >
-        已绑定
+        {t("adminEmby.statusBound")}
       </Badge>
     );
   };
@@ -365,9 +367,9 @@ export default function AdminEmbyPage() {
     >
       {/* Page Header */}
       <div>
-        <h1 className="text-3xl font-bold">Emby 管理</h1>
+        <h1 className="text-3xl font-bold">{t("adminEmby.title")}</h1>
         <p className="text-muted-foreground">
-          管理 Emby 服务器连接、用户同步与数据清理
+          {t("adminEmby.description")}
         </p>
       </div>
 
@@ -379,10 +381,10 @@ export default function AdminEmbyPage() {
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <Wifi className="h-5 w-5" />
-                  连通性测试
+                  {t("adminEmby.connTitle")}
                 </CardTitle>
                 <CardDescription>
-                  一键测试 Emby 服务器的网络连通、API 认证、用户列表和媒体库
+                  {t("adminEmby.connDesc")}
                 </CardDescription>
               </div>
               <Button onClick={handleTestConnectivity} disabled={isTesting}>
@@ -391,7 +393,7 @@ export default function AdminEmbyPage() {
                 ) : (
                   <RefreshCw className="mr-2 h-4 w-4" />
                 )}
-                测试连通性
+                {t("adminEmby.connTest")}
               </Button>
             </div>
           </CardHeader>
@@ -402,23 +404,23 @@ export default function AdminEmbyPage() {
                 <div className="rounded-lg border p-3 bg-muted/50">
                   <div className="flex items-center gap-2 mb-2">
                     <Server className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">服务器信息</span>
+                    <span className="text-sm font-medium">{t("adminEmby.serverInfo")}</span>
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
                     <div>
-                      <span className="text-muted-foreground">名称：</span>
+                      <span className="text-muted-foreground">{t("adminEmby.nameLabel")}</span>
                       {testResult.server_info.name}
                     </div>
                     <div>
-                      <span className="text-muted-foreground">版本：</span>
+                      <span className="text-muted-foreground">{t("adminEmby.versionLabel")}</span>
                       {testResult.server_info.version}
                     </div>
                     <div>
-                      <span className="text-muted-foreground">系统：</span>
+                      <span className="text-muted-foreground">{t("adminEmby.systemLabel")}</span>
                       {testResult.server_info.os}
                     </div>
                     <div>
-                      <span className="text-muted-foreground">URL：</span>
+                      <span className="text-muted-foreground">{t("adminEmby.urlLabel")}</span>
                       <span className="break-all">{testResult.emby_url}</span>
                     </div>
                   </div>
@@ -453,14 +455,14 @@ export default function AdminEmbyPage() {
                   <>
                     <CheckCircle2 className="h-5 w-5 text-emerald-500" />
                     <span className="text-sm font-medium text-emerald-500">
-                      所有测试通过
+                      {t("adminEmby.allTestsPassed")}
                     </span>
                   </>
                 ) : (
                   <>
                     <WifiOff className="h-5 w-5 text-red-500" />
                     <span className="text-sm font-medium text-red-500">
-                      部分测试未通过，请检查 Emby 配置
+                      {t("adminEmby.partialTestsFailed")}
                     </span>
                   </>
                 )}
@@ -478,10 +480,10 @@ export default function AdminEmbyPage() {
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <MessageCircle className="h-5 w-5" />
-                  Telegram Bot 连通性测试
+                  {t("adminEmby.botTitle")}
                 </CardTitle>
                 <CardDescription>
-                  向所有已配置的群组和频道发送一条测试消息，验证 Bot 是否正常工作
+                  {t("adminEmby.botDesc")}
                 </CardDescription>
               </div>
               <Button onClick={handleTestBot} disabled={isBotTesting}>
@@ -490,7 +492,7 @@ export default function AdminEmbyPage() {
                 ) : (
                   <Send className="mr-2 h-4 w-4" />
                 )}
-                发送测试
+                {t("adminEmby.botSendTest")}
               </Button>
             </div>
           </CardHeader>
@@ -498,10 +500,10 @@ export default function AdminEmbyPage() {
             <CardContent className="space-y-3">
               {botRuntime && (
                 <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
-                  <div>轮询状态：{botRuntime.polling ? "运行中" : "未运行或等待配置"}</div>
-                  {botRuntime.last_ok_at ? <div>最近成功：{new Date(botRuntime.last_ok_at * 1000).toLocaleString()}</div> : null}
-                  {botRuntime.last_error_at ? <div>最近错误时间：{new Date(botRuntime.last_error_at * 1000).toLocaleString()}</div> : null}
-                  {botRuntime.last_error ? <div className="break-words text-red-500">最近错误：{botRuntime.last_error}</div> : null}
+                  <div>{t("adminEmby.pollingLabel")}{botRuntime.polling ? t("adminEmby.pollingRunning") : t("adminEmby.pollingStopped")}</div>
+                  {botRuntime.last_ok_at ? <div>{t("adminEmby.lastOk")}{new Date(botRuntime.last_ok_at * 1000).toLocaleString()}</div> : null}
+                  {botRuntime.last_error_at ? <div>{t("adminEmby.lastErrorAt")}{new Date(botRuntime.last_error_at * 1000).toLocaleString()}</div> : null}
+                  {botRuntime.last_error ? <div className="break-words text-red-500">{t("adminEmby.lastError")}{botRuntime.last_error}</div> : null}
                 </div>
               )}
               <div className="grid gap-2 sm:grid-cols-2">
@@ -527,11 +529,11 @@ export default function AdminEmbyPage() {
                     )}
                     {!r.error && (r.username || r.title || r.bot_status) && (
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {[r.username ? `@${r.username}` : "", r.title || "", r.bot_status ? `Bot 状态：${r.bot_status}` : ""].filter(Boolean).join(" · ")}
+                        {[r.username ? `@${r.username}` : "", r.title || "", r.bot_status ? `${t("adminEmby.botStatusPrefix")}${r.bot_status}` : ""].filter(Boolean).join(" · ")}
                       </p>
                     )}
                     {r.success && (
-                      <p className="text-xs text-muted-foreground">发送成功</p>
+                      <p className="text-xs text-muted-foreground">{t("adminEmby.sendSuccess")}</p>
                     )}
                   </div>
                 ))}
@@ -541,14 +543,14 @@ export default function AdminEmbyPage() {
                   <>
                     <CheckCircle2 className="h-5 w-5 text-emerald-500" />
                     <span className="text-sm font-medium text-emerald-500">
-                      所有目标发送成功
+                      {t("adminEmby.allTargetsOk")}
                     </span>
                   </>
                 ) : (
                   <>
                     <WifiOff className="h-5 w-5 text-red-500" />
                     <span className="text-sm font-medium text-red-500">
-                      部分目标发送失败，请检查群组/频道配置
+                      {t("adminEmby.partialTargetsFailed")}
                     </span>
                   </>
                 )}
@@ -566,10 +568,10 @@ export default function AdminEmbyPage() {
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <Users className="h-5 w-5" />
-                  用户数据管理
+                  {t("adminEmby.userMgmtTitle")}
                 </CardTitle>
                 <CardDescription>
-                  从 Emby 拉取用户列表，对比本地数据库，执行导入、同步与清理
+                  {t("adminEmby.userMgmtDesc")}
                 </CardDescription>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -579,7 +581,7 @@ export default function AdminEmbyPage() {
                   ) : (
                     <RefreshCw className="mr-2 h-4 w-4" />
                   )}
-                  拉取数据
+                  {t("adminEmby.fetchData")}
                 </Button>
                 <Button variant="outline" onClick={handleSync} disabled={isSyncing || !embyData}>
                   {isSyncing ? (
@@ -587,7 +589,7 @@ export default function AdminEmbyPage() {
                   ) : (
                     <Link2 className="mr-2 h-4 w-4" />
                   )}
-                  同步用户
+                  {t("adminEmby.syncUsers")}
                 </Button>
                 <Button variant="outline" onClick={handleImport} disabled={isImporting || !embyData}>
                   {isImporting ? (
@@ -595,7 +597,7 @@ export default function AdminEmbyPage() {
                   ) : (
                     <Download className="mr-2 h-4 w-4" />
                   )}
-                  扫描未绑定
+                  {t("adminEmby.scanUnlinked")}
                 </Button>
                 <Button variant="destructive" onClick={handleDeleteUnlinked} disabled={isDeletingUnlinked || !embyData}>
                   {isDeletingUnlinked ? (
@@ -603,7 +605,7 @@ export default function AdminEmbyPage() {
                   ) : (
                     <Trash2 className="mr-2 h-4 w-4" />
                   )}
-                  删除未绑定
+                  {t("adminEmby.deleteUnlinkedBtn")}
                 </Button>
               </div>
             </div>
@@ -614,61 +616,61 @@ export default function AdminEmbyPage() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="rounded-lg border p-3 text-center">
                   <div className="text-2xl font-bold">{embyData.total_emby}</div>
-                  <div className="text-xs text-muted-foreground">Emby 用户</div>
+                  <div className="text-xs text-muted-foreground">{t("adminEmby.statEmbyUsers")}</div>
                 </div>
                 <div className="rounded-lg border p-3 text-center">
                   <div className="text-2xl font-bold text-emerald-500">{embyData.total_linked}</div>
-                  <div className="text-xs text-muted-foreground">已关联</div>
+                  <div className="text-xs text-muted-foreground">{t("adminEmby.statLinked")}</div>
                 </div>
                 <div className="rounded-lg border p-3 text-center">
                   <div className="text-2xl font-bold text-blue-500">
                     {embyData.total_emby - embyData.total_linked}
                   </div>
-                  <div className="text-xs text-muted-foreground">未关联</div>
+                  <div className="text-xs text-muted-foreground">{t("adminEmby.statUnlinked")}</div>
                 </div>
                 <div className="rounded-lg border p-3 text-center">
                   <div className={`text-2xl font-bold ${embyData.total_orphans > 0 ? "text-amber-500" : ""}`}>
                     {embyData.total_orphans}
                   </div>
-                  <div className="text-xs text-muted-foreground">孤儿记录</div>
+                  <div className="text-xs text-muted-foreground">{t("adminEmby.statOrphans")}</div>
                 </div>
               </div>
 
               {/* Emby Users Table */}
               <div>
                 <div className="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                  <h3 className="text-sm font-medium">Emby 用户列表</h3>
+                  <h3 className="text-sm font-medium">{t("adminEmby.userListTitle")}</h3>
                   <Badge variant="outline" className="w-fit text-xs">
-                    当前展示 {filteredEmbyUsers.length} / {embyData.emby_users.length}
+                    {t("adminEmby.showingCount", { shown: filteredEmbyUsers.length, total: embyData.emby_users.length })}
                   </Badge>
                 </div>
 
                 <div className="mb-3 grid gap-2 md:grid-cols-3">
                   <Input
-                    placeholder="搜索 Emby 名称 / EmbyID / 本地用户名 / UID / Telegram ID"
+                    placeholder={t("adminEmby.searchPlaceholder")}
                     value={userSearch}
                     onChange={(event) => setUserSearch(event.target.value)}
                   />
                   <Select value={linkFilter} onValueChange={(value) => setLinkFilter(value as typeof linkFilter)}>
                     <SelectTrigger>
-                      <SelectValue placeholder="关联状态" />
+                      <SelectValue placeholder={t("adminEmby.linkFilterPlaceholder")} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">全部关联状态</SelectItem>
-                      <SelectItem value="linked">仅已绑定本地用户</SelectItem>
-                      <SelectItem value="unlinked">仅未绑定本地用户</SelectItem>
-                      <SelectItem value="name_mismatch">仅名称不一致</SelectItem>
+                      <SelectItem value="all">{t("adminEmby.linkAll")}</SelectItem>
+                      <SelectItem value="linked">{t("adminEmby.linkLinked")}</SelectItem>
+                      <SelectItem value="unlinked">{t("adminEmby.linkUnlinked")}</SelectItem>
+                      <SelectItem value="name_mismatch">{t("adminEmby.linkNameMismatch")}</SelectItem>
                     </SelectContent>
                   </Select>
                   <Select value={attrFilter} onValueChange={(value) => setAttrFilter(value as typeof attrFilter)}>
                     <SelectTrigger>
-                      <SelectValue placeholder="属性筛选" />
+                      <SelectValue placeholder={t("adminEmby.attrFilterPlaceholder")} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">全部属性</SelectItem>
-                      <SelectItem value="admin">仅管理员</SelectItem>
-                      <SelectItem value="disabled">仅已禁用</SelectItem>
-                      <SelectItem value="hidden">仅隐藏</SelectItem>
+                      <SelectItem value="all">{t("adminEmby.attrAll")}</SelectItem>
+                      <SelectItem value="admin">{t("adminEmby.attrAdmin")}</SelectItem>
+                      <SelectItem value="disabled">{t("adminEmby.attrDisabled")}</SelectItem>
+                      <SelectItem value="hidden">{t("adminEmby.attrHidden")}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -678,10 +680,10 @@ export default function AdminEmbyPage() {
                     <table className="w-full text-sm">
                       <thead className="bg-muted/50">
                         <tr>
-                          <th className="text-left p-3 font-medium">Emby 用户名</th>
-                          <th className="text-left p-3 font-medium">属性</th>
-                          <th className="text-left p-3 font-medium">本地用户</th>
-                          <th className="text-left p-3 font-medium">状态</th>
+                          <th className="text-left p-3 font-medium">{t("adminEmby.thEmbyUsername")}</th>
+                          <th className="text-left p-3 font-medium">{t("adminEmby.thAttr")}</th>
+                          <th className="text-left p-3 font-medium">{t("adminEmby.thLocalUser")}</th>
+                          <th className="text-left p-3 font-medium">{t("adminEmby.thStatus")}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y">
@@ -697,14 +699,14 @@ export default function AdminEmbyPage() {
                               <div className="flex flex-wrap gap-1">
                                 {eu.is_admin && (
                                   <Badge variant="default" className="bg-purple-500/10 text-purple-500 border-purple-500/20">
-                                    <Shield className="h-3 w-3 mr-1" />管理员
+                                    <Shield className="h-3 w-3 mr-1" />{t("adminEmby.badgeAdmin")}
                                   </Badge>
                                 )}
                                 {eu.is_disabled && (
-                                  <Badge variant="destructive" className="text-xs">已禁用</Badge>
+                                  <Badge variant="destructive" className="text-xs">{t("adminEmby.badgeDisabled")}</Badge>
                                 )}
                                 {eu.is_hidden && (
-                                  <Badge variant="secondary" className="text-xs">隐藏</Badge>
+                                  <Badge variant="secondary" className="text-xs">{t("adminEmby.badgeHidden")}</Badge>
                                 )}
                               </div>
                             </td>
@@ -726,7 +728,7 @@ export default function AdminEmbyPage() {
                         {filteredEmbyUsers.length === 0 && (
                           <tr>
                             <td colSpan={4} className="p-6 text-center text-muted-foreground">
-                              未匹配到筛选结果
+                              {t("adminEmby.noFilterMatch")}
                             </td>
                           </tr>
                         )}
@@ -741,9 +743,9 @@ export default function AdminEmbyPage() {
                 <div>
                   <h3 className="text-sm font-medium mb-2 flex items-center gap-2">
                     <AlertTriangle className="h-4 w-4 text-amber-500" />
-                    孤儿记录
+                    {t("adminEmby.orphansTitle")}
                     <span className="text-xs text-muted-foreground">
-                      （本地有 EMBYID 但 Emby 端已不存在）
+                      {t("adminEmby.orphansHint")}
                     </span>
                   </h3>
                   <div className="rounded-lg border overflow-hidden">
@@ -751,9 +753,9 @@ export default function AdminEmbyPage() {
                       <table className="w-full text-sm">
                         <thead className="bg-muted/50">
                           <tr>
-                            <th className="text-left p-3 font-medium">本地用户名</th>
+                            <th className="text-left p-3 font-medium">{t("adminEmby.thLocalUsername")}</th>
                             <th className="text-left p-3 font-medium">UID</th>
-                            <th className="text-left p-3 font-medium">已失效 EMBYID</th>
+                            <th className="text-left p-3 font-medium">{t("adminEmby.thInvalidEmbyId")}</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y">
@@ -776,7 +778,7 @@ export default function AdminEmbyPage() {
           ) : (
             <CardContent>
               <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                Emby 用户列表不会自动拉取。需要对比或清理时，点击“拉取数据”手动加载。
+                {t("adminEmby.usersNotAutoLoaded")}
               </div>
             </CardContent>
           )}
@@ -789,10 +791,10 @@ export default function AdminEmbyPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Trash2 className="h-5 w-5" />
-              数据清理
+              {t("adminEmby.cleanupTitle")}
             </CardTitle>
             <CardDescription>
-              清理失效数据，方便测试和防止数据库混乱
+              {t("adminEmby.cleanupCardDesc")}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -801,10 +803,10 @@ export default function AdminEmbyPage() {
               <div>
                 <div className="font-medium flex items-center gap-2">
                   <Link2Off className="h-4 w-4 text-amber-500" />
-                  清理孤儿记录
+                  {t("adminEmby.cleanOrphansTitle")}
                 </div>
                 <p className="text-sm text-muted-foreground mt-1">
-                  清除本地数据库中指向已不存在的 Emby 用户的 EMBYID，不会删除本地用户
+                  {t("adminEmby.cleanOrphansDesc")}
                 </p>
               </div>
               <Button
@@ -817,7 +819,7 @@ export default function AdminEmbyPage() {
                 ) : (
                   <Trash2 className="mr-2 h-4 w-4" />
                 )}
-                清理
+                {t("adminEmby.cleanBtn")}
               </Button>
             </div>
 
@@ -826,10 +828,10 @@ export default function AdminEmbyPage() {
               <div>
                 <div className="font-medium flex items-center gap-2 text-red-500">
                   <AlertTriangle className="h-4 w-4" />
-                  重置所有 Emby 绑定
+                  {t("adminEmby.resetBindingsTitle")}
                 </div>
                 <p className="text-sm text-muted-foreground mt-1">
-                  清空所有用户的 EMBYID 绑定，不会删除 Emby 端账户。适合测试环境重置
+                  {t("adminEmby.resetBindingsDesc")}
                 </p>
               </div>
               <Button
@@ -842,7 +844,7 @@ export default function AdminEmbyPage() {
                 ) : (
                   <Trash2 className="mr-2 h-4 w-4" />
                 )}
-                重置绑定
+                {t("adminEmby.resetBindingsBtn")}
               </Button>
             </div>
           </CardContent>
@@ -855,16 +857,15 @@ export default function AdminEmbyPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-red-500">
               <AlertTriangle className="h-5 w-5" />
-              确认重置所有 Emby 绑定
+              {t("adminEmby.resetDialogTitle")}
             </DialogTitle>
             <DialogDescription>
-              此操作将清空所有本地用户的 EMBYID 绑定关系。这是一个危险操作，
-              通常只在测试环境中使用。操作不可逆，需要重新同步才能恢复绑定。
+              {t("adminEmby.resetDialogDesc")}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setResetDialogOpen(false)}>
-              取消
+              {t("common.cancel")}
             </Button>
             <Button
               variant="destructive"
@@ -872,7 +873,7 @@ export default function AdminEmbyPage() {
               disabled={isResetting}
             >
               {isResetting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              确认重置
+              {t("adminEmby.resetConfirm")}
             </Button>
           </DialogFooter>
         </DialogContent>

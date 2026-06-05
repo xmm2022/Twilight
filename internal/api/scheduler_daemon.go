@@ -66,27 +66,51 @@ func (a *App) runSchedulerLoop(ctx context.Context) (err error) {
 }
 
 func (a *App) runDueSchedulerJobs(ctx context.Context) {
-	if !a.cfg().SchedulerEnabled {
+	cfg := a.cfg()
+	if !cfg.SchedulerEnabled {
 		return
 	}
 	now := time.Now()
+	// 先做不触碰 SchedulerRuns 的廉价过滤（manual_only / enabled / trigger
+	// 类型），收集仍需判定 due 的 (jobID, spec)，再一次性 batch 拉取 run
+	// snapshot。之前对每个 job 单独调用 schedulerJobDue → 每个 job 一次
+	// SchedulerRunSnapshot（独立 RLock + 全量扫描 ≤200 条 SchedulerRuns），
+	// 13 个 job 就是 13 次 RLock + 13 次全量扫描，O(N*M)，每 30s 一轮。
+	// 改为单次 RLock + 单次扫描按 jobID 分桶（与 handleSchedulerJobs 的
+	// BatchSchedulerRunSnapshots 路径对齐），降为 O(N)。
+	type dueCandidate struct {
+		jobID string
+		spec  map[string]any
+	}
+	candidates := make([]dueCandidate, 0, len(schedulerJobs))
 	for _, job := range schedulerJobs {
 		jobID := fmt.Sprint(job["id"])
-		if jobID == "" || boolish(job["manual_only"]) || !schedulerJobEnabledByConfig(a.cfg().SystemUpdateEnabled, job) {
+		if jobID == "" || boolish(job["manual_only"]) || !schedulerJobEnabledByConfig(cfg.SystemUpdateEnabled, job) {
 			continue
 		}
 		spec := a.schedulerTriggerSpec(jobID)
 		if strings.EqualFold(asString(spec["type"]), "manual") {
 			continue
 		}
-		if !a.schedulerJobDue(jobID, spec, now) {
+		candidates = append(candidates, dueCandidate{jobID: jobID, spec: spec})
+	}
+	if len(candidates) == 0 {
+		return
+	}
+	jobIDs := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		jobIDs = append(jobIDs, c.jobID)
+	}
+	snapshots := a.store().BatchSchedulerRunSnapshots(jobIDs, 20)
+	for _, c := range candidates {
+		if !schedulerJobDueFromSnapshot(c.spec, now, snapshots[c.jobID]) {
 			continue
 		}
 		// runScheduledJob 现在自己负责 fork 内部 goroutine：daemon 在拿到锁 +
-		// 落库 auto 记录之前不返回，下一轮 tick 调用 schedulerJobDue 时 PG 上
-		// 的 auto 记录已经可见——之前 `go a.runScheduledJob` 让 INSERT 还没
-		// 落地 ticker 就推进了 30s，慢 PG 上偶发同 job 二次起跑。
-		a.runScheduledJob(ctx, jobID)
+		// 落库 auto 记录之前不返回，下一轮 tick 判定 due 时 PG 上的 auto 记录
+		// 已经可见——之前 `go a.runScheduledJob` 让 INSERT 还没落地 ticker 就
+		// 推进了 30s，慢 PG 上偶发同 job 二次起跑。
+		a.runScheduledJob(ctx, c.jobID)
 	}
 }
 
@@ -101,6 +125,12 @@ func schedulerJobEnabledByConfig(systemUpdateEnabled bool, job map[string]any) b
 
 func (a *App) schedulerJobDue(jobID string, spec map[string]any, now time.Time) bool {
 	snapshot := a.store().SchedulerRunSnapshot(jobID, 20)
+	return schedulerJobDueFromSnapshot(spec, now, snapshot)
+}
+
+// schedulerJobDueFromSnapshot 仅基于已取得的 snapshot 做 due 判定，不再触碰
+// store，便于 daemon 单次 batch 拉取后对多个 job 复用。
+func schedulerJobDueFromSnapshot(spec map[string]any, now time.Time, snapshot store.SchedulerRunSnapshot) bool {
 	if schedulerSnapshotRecentlyRunning(snapshot, now) {
 		return false
 	}

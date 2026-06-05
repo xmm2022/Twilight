@@ -2975,6 +2975,48 @@ func (s *Store) ReviewRebindRequest(id, reviewerUID int64, status, note string) 
 	return updated, nil
 }
 
+// UserLatestRebindRequest returns the most recent rebind request for a user,
+// regardless of status. Returns (request, true) if found, or (zero, false) if
+// the user has never submitted a rebind request.
+func (s *Store) UserLatestRebindRequest(uid int64) (RebindRequest, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var (
+		best  RebindRequest
+		found bool
+	)
+	for _, req := range s.state.RebindRequests {
+		if req.UID != uid {
+			continue
+		}
+		if !found || req.CreatedAt > best.CreatedAt || (req.CreatedAt == best.CreatedAt && req.ID > best.ID) {
+			best = req
+			found = true
+		}
+	}
+	return best, found
+}
+
+// ConsumeRebindRequest marks an approved rebind request as "used" so it cannot
+// be reused to bypass force-bind policy again. Called after the user successfully
+// unbinds Telegram using the approved permission.
+func (s *Store) ConsumeRebindRequest(id int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mutateAndSaveLocked(func() error {
+		req, ok := s.state.RebindRequests[id]
+		if !ok {
+			return ErrNotFound
+		}
+		if req.Status != "approved" {
+			return nil // only consume approved requests
+		}
+		req.Status = "used"
+		s.state.RebindRequests[id] = req
+		return nil
+	})
+}
+
 func (s *Store) UpsertTelegramRoster(chatID string, telegramID int64, status string, isBot bool) error {
 	chatID = strings.TrimSpace(chatID)
 	if chatID == "" || telegramID <= 0 {

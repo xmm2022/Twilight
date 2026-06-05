@@ -279,16 +279,10 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request, _ Params) {
 		failWithCode(w, http.StatusConflict, ErrUsernameTaken, "用户名已被占用，请换一个用户名")
 		return
 	}
-	// 首注册时只有 username 可在创建前验证；UID 要等 CreateUser 后才知道。
-	// 因此这里仅用 AdminUsernames 做 bootstrap 预校验，AdminUIDs 仍在创建后
-	// 通过 configuredAdminMatch 按实际 UID 应用。否则只配置 admin_uids=[1]
-	// 的常见部署会在注册前因为 uid=0 无法匹配而被永久挡住。
-	configuredAdminNames := a.configuredAdminUsernameSet()
+	// bootstrapMode：空数据库首次注册。它只用来放宽"必须填注册码 / 必须已开放
+	// 注册"这类首启 UX 限制（见下方 RegisterCodeLimit 判断），不再授予任何管理员
+	// 身份——管理员只能由配置文件 admin_uids / admin_usernames 列表在创建后提升。
 	bootstrapMode := currentUsers == 0
-	if bootstrapMode && len(configuredAdminNames) > 0 && !configuredAdminMatchSets(nil, configuredAdminNames, 0, username) {
-		failWithCode(w, http.StatusForbidden, ErrRegisterDisabled, "系统初始管理员已通过配置指定，请使用配置的用户名注册")
-		return
-	}
 	if err := validate.ValidatePasswordStrength(password); err != nil {
 		failWithCode(w, http.StatusBadRequest, ErrPasswordWeak, err.Error())
 		return
@@ -348,10 +342,12 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request, _ Params) {
 		failWithCode(w, http.StatusInternalServerError, ErrPasswordHashFailed, "密码处理失败")
 		return
 	}
+	// 管理员身份只能来自配置文件的 admin_uids / admin_usernames 列表（见下方
+	// configuredAdminMatch）。已移除旧的"空数据库首注册者无条件成为 Admin"通道：
+	// 它是一个抢注风险——生产部署后、运维注册前的窗口内，任何访问者抢先 POST
+	// /register 即可拿到 Admin。现在首注册者只是普通用户，除非其 UID/用户名命中
+	// 配置列表才会在创建后被提升。默认不配置列表 = 无人是管理员。
 	role := store.RoleNormal
-	if a.store().UserCount() == 0 {
-		role = store.RoleAdmin
-	}
 	newUser := store.User{Username: username, Email: stringValue(payload, "email"), PasswordHash: passwordHash, Role: role, TelegramID: telegramID, TelegramUsername: telegramUsername}
 	var u store.User
 	if registerReg.Code != "" {

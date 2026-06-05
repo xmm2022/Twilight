@@ -769,42 +769,64 @@ export default function SettingsPage() {
                   </Button>
                 ) : (
                   <>
-                    {telegramStatus.can_unbind && (
+                    {telegramStatus.rebind_approved ? (
                       <Button
-                        variant="destructive"
+                        variant="default"
                         onClick={handleUnbindTelegram}
                         disabled={isTgLoading}
                       >
-                        <Unlink className="mr-2 h-4 w-4" />
-                        {t("settings.unbind")}
-                      </Button>
-                    )}
-                    {telegramStatus.can_change && (
-                      <Button
-                        variant="outline"
-                        onClick={() => setRebindDialogOpen(true)}
-                        disabled={isRebindLoading}
-                      >
-                        {isRebindLoading ? (
+                        {isTgLoading ? (
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         ) : (
-                          <LinkIcon className="mr-2 h-4 w-4" />
+                          <RefreshCw className="mr-2 h-4 w-4" />
                         )}
-                        {t("settings.submitRebindRequest")}
+                        {t("settings.rebindApprovedUnbind")}
                       </Button>
-                    )}
-                    {!telegramStatus.can_change && telegramStatus.pending_rebind_request && (
-                      <Badge variant="outline" className="self-center">
-                        {t("settings.rebindSubmitted")}
-                      </Badge>
+                    ) : (
+                      <>
+                        {telegramStatus.can_unbind && (
+                          <Button
+                            variant="destructive"
+                            onClick={handleUnbindTelegram}
+                            disabled={isTgLoading}
+                          >
+                            <Unlink className="mr-2 h-4 w-4" />
+                            {t("settings.unbind")}
+                          </Button>
+                        )}
+                        {telegramStatus.can_change && (
+                          <Button
+                            variant="outline"
+                            onClick={() => setRebindDialogOpen(true)}
+                            disabled={isRebindLoading}
+                          >
+                            {isRebindLoading ? (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : (
+                              <LinkIcon className="mr-2 h-4 w-4" />
+                            )}
+                            {t("settings.submitRebindRequest")}
+                          </Button>
+                        )}
+                        {!telegramStatus.can_change && telegramStatus.pending_rebind_request && (
+                          <Badge variant="outline" className="self-center">
+                            {t("settings.rebindSubmitted")}
+                          </Badge>
+                        )}
+                      </>
                     )}
                   </>
                 )}
               </div>
             </div>
-            {telegramStatus?.force_bind && (
+            {telegramStatus?.force_bind && !telegramStatus?.rebind_approved && (
               <p className="text-sm text-amber-500">
                 {t("settings.telegramRequired")}
+              </p>
+            )}
+            {telegramStatus?.rebind_approved && telegramStatus?.bound && (
+              <p className="text-sm text-emerald-600">
+                {t("settings.rebindApprovedHint")}
               </p>
             )}
             {bindCode && !telegramStatus?.bound && (

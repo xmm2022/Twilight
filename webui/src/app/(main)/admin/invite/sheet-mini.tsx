@@ -10,8 +10,10 @@
 import { ReactNode, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
 
 export function Sheet({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  const { t } = useI18n();
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -30,7 +32,8 @@ export function Sheet({ onClose, children }: { onClose: () => void; children: Re
       >
         <button
           type="button"
-          aria-label="关闭"
+          data-sheet-overlay
+          aria-label={t("common.close")}
           className="absolute inset-0 bg-background/60 backdrop-blur-[2px]"
           onClick={onClose}
         />
@@ -49,10 +52,12 @@ export function Sheet({ onClose, children }: { onClose: () => void; children: Re
 }
 
 export function SheetClose() {
+  const { t } = useI18n();
   // 由父级捕获 onClose；这里用一个小按钮触发 propagate up
-  // 实际上 Sheet 内的关闭逻辑由父级 onClose 完成，所以这里发一个 click 到背景遮罩
+  // 实际上 Sheet 内的关闭逻辑由父级 onClose 完成，所以这里发一个 click 到背景遮罩。
+  // 用稳定的 data-sheet-overlay 属性定位遮罩，避免与可本地化的 aria-label 文案耦合。
   const handler = useCallback(() => {
-    const overlay = document.querySelector('[aria-label="关闭"]') as HTMLButtonElement | null;
+    const overlay = document.querySelector("[data-sheet-overlay]") as HTMLButtonElement | null;
     overlay?.click();
   }, []);
   return (
@@ -60,7 +65,7 @@ export function SheetClose() {
       type="button"
       onClick={handler}
       className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
-      aria-label="关闭"
+      aria-label={t("common.close")}
     >
       <X className="h-4 w-4" />
     </button>

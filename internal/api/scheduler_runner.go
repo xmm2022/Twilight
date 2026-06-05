@@ -203,7 +203,7 @@ func (a *App) runSchedulerJob(r *http.Request, jobID string) (map[string]any, []
 		}
 		active := 0
 		for _, session := range sessions {
-			if asString(session["NowPlayingItem"]) != "" || session["NowPlayingItem"] != nil {
+			if session["NowPlayingItem"] != nil {
 				active++
 			}
 		}

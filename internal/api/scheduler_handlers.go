@@ -27,9 +27,19 @@ var schedulerJobs = []map[string]any{
 func (a *App) handleSchedulerJobs(w http.ResponseWriter, r *http.Request, _ Params) {
 	jobs := make([]map[string]any, 0, len(schedulerJobs))
 	now := time.Now()
+
+	// Batch-fetch all snapshots in a single lock acquisition instead of
+	// N separate SchedulerRunSnapshot calls (one per job). This reduces
+	// lock contention from ~26 RLock/RUnlock cycles to 1 per request.
+	jobIDs := make([]string, 0, len(schedulerJobs))
 	for _, job := range schedulerJobs {
+		jobIDs = append(jobIDs, fmt.Sprint(job["id"]))
+	}
+	snapshots := a.store().BatchSchedulerRunSnapshots(jobIDs, 20)
+
+	for i, job := range schedulerJobs {
 		item := cloneMap(job)
-		jobID := fmt.Sprint(job["id"])
+		jobID := jobIDs[i]
 		var spec map[string]any
 		if schedule, okSchedule := a.store().SchedulerSchedule(jobID); okSchedule {
 			spec = schedule.TriggerSpec
@@ -43,10 +53,11 @@ func (a *App) handleSchedulerJobs(w http.ResponseWriter, r *http.Request, _ Para
 		item["trigger_spec"] = spec
 		item["default_trigger_spec"] = a.schedulerDefaultTriggerSpec(jobID)
 		item["last_run"] = nil
-		snapshot := a.store().SchedulerRunSnapshot(jobID, 20)
+		snapshot := snapshots[jobID]
 		running := a.schedulerJobRunning(jobID) || schedulerSnapshotRecentlyRunning(snapshot, now)
 		a.reconcileSchedulerRunState(jobID, running, now)
 		if !running {
+			// After reconciliation marks interrupted runs, re-fetch only this one.
 			snapshot = a.store().SchedulerRunSnapshot(jobID, 20)
 		}
 		item["next_run_at"] = zeroNil(schedulerNextRunAtFromSnapshot(spec, now, snapshot))

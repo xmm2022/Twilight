@@ -65,6 +65,13 @@ func newTestApp(t *testing.T) *App {
 		PermanentInviteMaxDays:       365,
 		MaxDevices:                   5,
 		MaxStreams:                   2,
+		// 安全模型：管理员身份只来自配置文件的 admin_uids / admin_usernames。
+		// 旧的"空数据库首注册者自动成为 Admin"通道已移除。测试 harness 大量
+		// 依赖第一个注册的 "admin" 账户具备管理员权限，这里通过配置显式声明
+		// AdminUsernames=["admin"]。注意：不要配 AdminUIDs=[1]——很多测试直接用
+		// store.CreateUser 建首个用户（UID=1）并断言它是普通用户（清理/群成员
+		// 校验计数），按 UID 提升会污染这些用例。仅按用户名匹配最小侵入。
+		AdminUsernames: []string{"admin"},
 	}, st)
 	if err != nil {
 		t.Fatal(err)
@@ -761,14 +768,18 @@ func TestProtectedAdminConfigHiddenPreservedAndApplied(t *testing.T) {
 		"driver = \"json\"\n" +
 		"state_file = " + strconv.Quote(app.cfg().StateFile) + "\n" +
 		"backup_dir = " + strconv.Quote(app.cfg().DatabaseBackupDir) + "\n"
-	existing := "[Global]\nserver_name = \"old\"\n\n" + databaseConfig + "\nadmin_uids = \"2\"\nadmin_usernames = \"alice\"\n"
+	// register_mode = true 必须写进磁盘配置：saveConfigContent 会触发 reload，
+	// 从磁盘重新加载 cfg。新安全模型下首注册者不再自动成为 Admin，alice 要成为
+	// 管理员只能靠 admin_usernames 匹配；且 alice 是第二个注册用户，RegisterEnabled
+	// 必须为 true 才能注册成功（否则 currentUsers>0 时被 USER_REGISTER_DISABLED 挡住）。
+	existing := "[Global]\nserver_name = \"old\"\n\n" + databaseConfig + "\n[SAR]\nregister_mode = true\n\nadmin_uids = \"2\"\nadmin_usernames = \"alice\"\n"
 	if err := os.WriteFile(app.cfg().ConfigFile, []byte(existing), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if shown := stripProtectedAdminConfig(existing); strings.Contains(shown, "admin_uids") || strings.Contains(shown, "admin_usernames") {
 		t.Fatalf("protected admin config leaked: %s", shown)
 	}
-	info, status, message := app.saveConfigContent("[Global]\nserver_name = \"new\"\n\n" + databaseConfig + "\n[Admin]\nadmin_uids = \"999\"\nadmin_usernames = \"mallory\"\n")
+	info, status, message := app.saveConfigContent("[Global]\nserver_name = \"new\"\n\n" + databaseConfig + "\n[SAR]\nregister_mode = true\n\n[Admin]\nadmin_uids = \"999\"\nadmin_usernames = \"mallory\"\n")
 	if status != http.StatusOK {
 		t.Fatalf("saveConfigContent status=%d message=%s info=%v", status, message, info)
 	}
@@ -3402,7 +3413,11 @@ func TestDatabaseAdminBackupRestoreAndAuth(t *testing.T) {
 func TestConfigAdminBackupRestoreAndDelete(t *testing.T) {
 	app := newTestApp(t)
 	app.cfg().ConfigFile = filepath.Join(app.cfg().DatabaseDir, "config.toml")
-	original := "[Global]\ndatabases_dir = " + strconv.Quote(app.cfg().DatabaseDir) + "\n\n[Database]\ndriver = " + strconv.Quote(app.cfg().DatabaseDriver) + "\nbackup_dir = " + strconv.Quote(app.cfg().DatabaseBackupDir) + "\nstate_file = " + strconv.Quote(app.cfg().StateFile) + "\n\n[API]\nhost = \"127.0.0.1\"\nport = 5010\n"
+	// admin 身份只来自配置文件：reloadConfigIfChanged 会在首个请求时按文件
+	// signature 自动热重载，把内存里 harness 预置的 AdminUsernames 覆盖成磁盘
+	// 文件的值。因此磁盘 config 必须显式声明 [Admin] admin_usernames，"admin"
+	// 注册后才会被提升为管理员；同时带 register_mode 保证热重载后注册仍开放。
+	original := "[Global]\ndatabases_dir = " + strconv.Quote(app.cfg().DatabaseDir) + "\n\n[SAR]\nregister_mode = true\n\n[Admin]\nadmin_usernames = \"admin\"\n\n[Database]\ndriver = " + strconv.Quote(app.cfg().DatabaseDriver) + "\nbackup_dir = " + strconv.Quote(app.cfg().DatabaseBackupDir) + "\nstate_file = " + strconv.Quote(app.cfg().StateFile) + "\n\n[API]\nhost = \"127.0.0.1\"\nport = 5010\n"
 	changed := strings.Replace(original, "port = 5010", "port = 5011", 1)
 	if err := os.WriteFile(app.cfg().ConfigFile, []byte(original), 0o600); err != nil {
 		t.Fatal(err)
@@ -5913,4 +5928,102 @@ func TestUserNotFoundResponsesAreUniform(t *testing.T) {
 	expect(t, "POST admin password reset", doJSONWithHeaders(app, http.MethodPost, "/api/v1/admin/users/9999/reset-password", `{"scope":"system"}`, adminCookies, headers))
 	// kick session 走 handleKickUser → userFromPath helper
 	expect(t, "POST admin kick", doJSONWithHeaders(app, http.MethodPost, "/api/v1/admin/users/9999/kick", "", adminCookies, headers))
+}
+
+// TestForceBindUnbindConsumesApprovedRebindAndPreservesAudit 覆盖强制绑定下
+// "换绑"完整链路的两条关键不变量：
+//  1. 普通用户在 force_bind_telegram 开启时，只有持有 admin 批准的 rebind
+//     请求才能解绑——批准后解绑成功；
+//  2. 解绑成功后该 approved 请求被标记成 used 而非删除，且管理员审核元数据
+//     （reviewer_uid / admin_note / reviewed_at）必须保留——这是把
+//     handleUnbindTelegram 从 ReviewRebindRequest(…,0,"used",…) 改为
+//     ConsumeRebindRequest 的回归点：旧实现会把审核痕迹清空，且 used 请求
+//     不能再被复用绕过强制绑定。
+func TestForceBindUnbindConsumesApprovedRebindAndPreservesAudit(t *testing.T) {
+	app := newTestApp(t)
+
+	// 先在未开启强制绑定时注册（force_bind 会拦截无绑定码注册）；第一个
+	// 注册用户即 admin，普通用户随后注册。注册完成后再打开 ForceBindTelegram
+	// 模拟"运营中途启用强制绑定"。
+	_ = registerAndLogin(t, app, "admin", "Admin123456")
+	userCookies := registerAndLogin(t, app, "tguser", "User123456")
+	user, ok := app.store().FindUserByUsername("tguser")
+	if !ok {
+		t.Fatal("created user not found")
+	}
+	if _, err := app.store().UpdateUser(user.UID, func(u *store.User) error {
+		u.TelegramID = 555001
+		u.TelegramUsername = "tg_old"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	app.cfg().ForceBindTelegram = true
+
+	headers := map[string]string{"X-Twilight-Client": "webui"}
+
+	// 1. 未批准时强制绑定下解绑必须被拒。
+	blocked := doJSONWithHeaders(app, http.MethodPost, "/api/v1/users/me/telegram/unbind", "", userCookies, headers)
+	if blocked.Code != http.StatusForbidden {
+		t.Fatalf("unbind without approval status=%d body=%s", blocked.Code, blocked.Body.String())
+	}
+
+	// 2. 用户提交换绑请求。
+	reqResp := doJSONWithHeaders(app, http.MethodPost, "/api/v1/users/me/telegram/rebind-request", `{"reason":"old account lost"}`, userCookies, headers)
+	if reqResp.Code != http.StatusOK {
+		t.Fatalf("rebind-request status=%d body=%s", reqResp.Code, reqResp.Body.String())
+	}
+	pending := app.store().ListRebindRequests("pending")
+	if len(pending) != 1 {
+		t.Fatalf("expected 1 pending rebind request, got %d", len(pending))
+	}
+	reqID := pending[0].ID
+
+	// 3. admin 批准（带备注）。
+	adminCookies := loginCookies(t, app, "admin", "Admin123456")
+	admin, _ := app.store().FindUserByUsername("admin")
+	approve := doJSONWithHeaders(app, http.MethodPost, fmt.Sprintf("/api/v1/admin/telegram/rebind-requests/%d/approve", reqID), `{"admin_note":"verified by ticket #42"}`, adminCookies, headers)
+	if approve.Code != http.StatusOK {
+		t.Fatalf("approve status=%d body=%s", approve.Code, approve.Body.String())
+	}
+
+	// 4. 批准后用户可以解绑。
+	unbind := doJSONWithHeaders(app, http.MethodPost, "/api/v1/users/me/telegram/unbind", "", userCookies, headers)
+	if unbind.Code != http.StatusOK {
+		t.Fatalf("unbind after approval status=%d body=%s", unbind.Code, unbind.Body.String())
+	}
+	after, _ := app.store().User(user.UID)
+	if after.TelegramID != 0 || after.TelegramUsername != "" {
+		t.Fatalf("telegram binding not cleared after unbind: %#v", after)
+	}
+
+	// 5. 请求被消费成 used，且审核元数据保留（回归点）。
+	consumed, found := app.store().UserLatestRebindRequest(user.UID)
+	if !found {
+		t.Fatal("rebind request disappeared after consume")
+	}
+	if consumed.Status != "used" {
+		t.Fatalf("expected status=used after unbind, got %q", consumed.Status)
+	}
+	if consumed.ReviewerUID != admin.UID {
+		t.Fatalf("reviewer_uid not preserved: got %d want %d", consumed.ReviewerUID, admin.UID)
+	}
+	if consumed.AdminNote != "verified by ticket #42" {
+		t.Fatalf("admin_note not preserved: got %q", consumed.AdminNote)
+	}
+	if consumed.ReviewedAt == 0 {
+		t.Fatal("reviewed_at not preserved after consume")
+	}
+
+	// 6. used 请求不能被复用：再次解绑（用户已重新绑定旧号模拟）必须被拒。
+	if _, err := app.store().UpdateUser(user.UID, func(u *store.User) error {
+		u.TelegramID = 555002
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reblocked := doJSONWithHeaders(app, http.MethodPost, "/api/v1/users/me/telegram/unbind", "", userCookies, headers)
+	if reblocked.Code != http.StatusForbidden {
+		t.Fatalf("reusing used rebind request should be forbidden, status=%d body=%s", reblocked.Code, reblocked.Body.String())
+	}
 }

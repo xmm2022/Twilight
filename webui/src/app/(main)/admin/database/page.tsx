@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 import { useToast } from "@/hooks/use-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import type { DatabaseBackup, DatabaseBackupInspectResult, DatabaseMigrationResult, DatabaseRestoreResult, DatabaseStatus } from "@/lib/api-types";
@@ -79,6 +80,7 @@ function EndpointCard({
   disabled,
   onClick,
   children,
+  selectedLabel,
 }: {
   title: string;
   description: string;
@@ -87,6 +89,7 @@ function EndpointCard({
   disabled?: boolean;
   onClick: () => void;
   children: ReactNode;
+  selectedLabel: string;
 }) {
   return (
     <button
@@ -106,7 +109,7 @@ function EndpointCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
             <h3 className="font-semibold">{title}</h3>
-            {active && <Badge>已选择</Badge>}
+            {active && <Badge>{selectedLabel}</Badge>}
           </div>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{description}</p>
         </div>
@@ -117,6 +120,7 @@ function EndpointCard({
 }
 
 export default function AdminDatabaseMigrationPage() {
+  const { t } = useI18n();
   const { toast } = useToast();
   const { confirm } = useConfirm();
   const [dbStatus, setDbStatus] = useState<DatabaseStatus | null>(null);
@@ -147,11 +151,11 @@ export default function AdminDatabaseMigrationPage() {
         setDbBackups(backupsRes.data.backups || []);
       }
     } catch (error: any) {
-      toast({ title: "加载数据库状态失败", description: error.message || "请检查后端连接", variant: "destructive" });
+      toast({ title: t("adminDatabase.loadStatusFailed"), description: error.message || t("adminDatabase.checkBackend"), variant: "destructive" });
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [toast, t]);
 
   useEffect(() => {
     void loadDatabase();
@@ -168,14 +172,14 @@ export default function AdminDatabaseMigrationPage() {
     try {
       const res = await api.createDatabaseBackup(backupNote);
       if (res.success) {
-        toast({ title: "备份已创建", description: res.data?.backup?.name, variant: "success" });
+        toast({ title: t("adminDatabase.backupCreated"), description: res.data?.backup?.name, variant: "success" });
         setBackupNote("");
         await loadDatabase();
       } else {
-        toast({ title: "备份失败", description: res.message, variant: "destructive" });
+        toast({ title: t("adminDatabase.backupFailed"), description: res.message, variant: "destructive" });
       }
     } catch (error: any) {
-      toast({ title: "备份失败", description: error.message || "请检查后端日志", variant: "destructive" });
+      toast({ title: t("adminDatabase.backupFailed"), description: error.message || t("adminDatabase.checkBackendLogs"), variant: "destructive" });
     } finally {
       setBusy(false);
     }
@@ -189,10 +193,10 @@ export default function AdminDatabaseMigrationPage() {
         setBackupPreview(res.data);
         setBackupPreviewOpen(true);
       } else {
-        toast({ title: "读取备份失败", description: res.message, variant: "destructive" });
+        toast({ title: t("adminDatabase.inspectFailed"), description: res.message, variant: "destructive" });
       }
     } catch (error: any) {
-      toast({ title: "读取备份失败", description: error.message || "请检查后端日志", variant: "destructive" });
+      toast({ title: t("adminDatabase.inspectFailed"), description: error.message || t("adminDatabase.checkBackendLogs"), variant: "destructive" });
     } finally {
       setBusy(false);
     }
@@ -206,10 +210,10 @@ export default function AdminDatabaseMigrationPage() {
         setRestorePreview(res.data);
         setRestoreOpen(true);
       } else {
-        toast({ title: "恢复预览失败", description: res.message, variant: "destructive" });
+        toast({ title: t("adminDatabase.restorePreviewFailed"), description: res.message, variant: "destructive" });
       }
     } catch (error: any) {
-      toast({ title: "恢复预览失败", description: error.message || "请检查后端日志", variant: "destructive" });
+      toast({ title: t("adminDatabase.restorePreviewFailed"), description: error.message || t("adminDatabase.checkBackendLogs"), variant: "destructive" });
     } finally {
       setBusy(false);
     }
@@ -224,16 +228,16 @@ export default function AdminDatabaseMigrationPage() {
         setRestorePreview(res.data);
         setRestoreOpen(false);
         toast({
-          title: "数据库已恢复",
-          description: res.data.pre_operation_backup ? `保护性备份：${res.data.pre_operation_backup.name}` : "恢复前已创建保护性备份",
+          title: t("adminDatabase.dbRestored"),
+          description: res.data.pre_operation_backup ? t("adminDatabase.protectiveBackupDesc", { name: res.data.pre_operation_backup.name }) : t("adminDatabase.protectiveBackupCreated"),
           variant: "success",
         });
         await loadDatabase();
       } else {
-        toast({ title: "恢复失败", description: res.message, variant: "destructive" });
+        toast({ title: t("adminDatabase.restoreFailed"), description: res.message, variant: "destructive" });
       }
     } catch (error: any) {
-      toast({ title: "恢复失败", description: error.message || "请检查后端日志", variant: "destructive" });
+      toast({ title: t("adminDatabase.restoreFailed"), description: error.message || t("adminDatabase.checkBackendLogs"), variant: "destructive" });
     } finally {
       setBusy(false);
     }
@@ -241,10 +245,10 @@ export default function AdminDatabaseMigrationPage() {
 
   const deleteBackup = async (backup: DatabaseBackup) => {
     const accepted = await confirm({
-      title: "删除数据库备份",
-      description: `确认删除数据库备份 ${backup.name}？此操作不可恢复。`,
+      title: t("adminDatabase.deleteBackupTitle"),
+      description: t("adminDatabase.deleteBackupDesc", { name: backup.name }),
       tone: "danger",
-      confirmLabel: "删除备份",
+      confirmLabel: t("adminDatabase.deleteBackupConfirmLabel"),
       confirmVariant: "destructive",
     });
     if (!accepted) return;
@@ -252,13 +256,13 @@ export default function AdminDatabaseMigrationPage() {
     try {
       const res = await api.deleteDatabaseBackup(backup.name);
       if (res.success) {
-        toast({ title: "备份已删除", description: backup.name, variant: "success" });
+        toast({ title: t("adminDatabase.backupDeleted"), description: backup.name, variant: "success" });
         await loadDatabase();
       } else {
-        toast({ title: "删除失败", description: res.message, variant: "destructive" });
+        toast({ title: t("adminDatabase.deleteFailed"), description: res.message, variant: "destructive" });
       }
     } catch (error: any) {
-      toast({ title: "删除失败", description: error.message || "请检查后端日志", variant: "destructive" });
+      toast({ title: t("adminDatabase.deleteFailed"), description: error.message || t("adminDatabase.checkBackendLogs"), variant: "destructive" });
     } finally {
       setBusy(false);
     }
@@ -279,16 +283,16 @@ export default function AdminDatabaseMigrationPage() {
           setConfirmOpen(true);
         } else {
           toast({
-            title: "迁移预检通过",
-            description: `${res.data.users} 用户，${res.data.regcodes} 卡码，${res.data.invite_codes} 邀请码`,
+            title: t("adminDatabase.migratePreflightOk"),
+            description: t("adminDatabase.migratePreflightDesc", { users: res.data.users, regcodes: res.data.regcodes, inviteCodes: res.data.invite_codes }),
             variant: "success",
           });
         }
       } else {
-        toast({ title: "迁移预检失败", description: res.message, variant: "destructive" });
+        toast({ title: t("adminDatabase.migratePreflightFailed"), description: res.message, variant: "destructive" });
       }
     } catch (error: any) {
-      toast({ title: "迁移预检失败", description: error.message || "请检查连接信息", variant: "destructive" });
+      toast({ title: t("adminDatabase.migratePreflightFailed"), description: error.message || t("adminDatabase.checkConnInfo"), variant: "destructive" });
     } finally {
       setBusy(false);
     }
@@ -307,18 +311,18 @@ export default function AdminDatabaseMigrationPage() {
         setMigrationResult(res.data);
         setConfirmOpen(false);
         toast({
-          title: "迁移完成",
+          title: t("adminDatabase.migrateComplete"),
           description: res.data.pre_operation_backup
-            ? `已创建保护性备份 ${res.data.pre_operation_backup.name}`
-            : `${res.data.users} 用户已写入目标后端`,
+            ? t("adminDatabase.migrateCompleteBackup", { name: res.data.pre_operation_backup.name })
+            : t("adminDatabase.migrateCompleteWritten", { users: res.data.users }),
           variant: "success",
         });
         await loadDatabase();
       } else {
-        toast({ title: "迁移失败", description: res.message, variant: "destructive" });
+        toast({ title: t("adminDatabase.migrateFailed"), description: res.message, variant: "destructive" });
       }
     } catch (error: any) {
-      toast({ title: "迁移失败", description: error.message || "请检查后端日志", variant: "destructive" });
+      toast({ title: t("adminDatabase.migrateFailed"), description: error.message || t("adminDatabase.checkBackendLogs"), variant: "destructive" });
     } finally {
       setBusy(false);
     }
@@ -328,19 +332,19 @@ export default function AdminDatabaseMigrationPage() {
     <div className="space-y-6">
       <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold sm:text-3xl">数据库备份</h1>
+          <h1 className="text-2xl font-bold sm:text-3xl">{t("adminDatabase.title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            默认开放数据库快照备份、查看、恢复和删除；迁移功能需在配置文件中显式开启后才显示。
+            {t("adminDatabase.description")}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => void loadDatabase()} disabled={loading || busy}>
             {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-            刷新状态
+            {t("adminDatabase.refreshStatus")}
           </Button>
           <Button variant="outline" onClick={() => void createBackup()} disabled={busy}>
             {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Archive className="mr-2 h-4 w-4" />}
-            立即备份
+            {t("adminDatabase.backupNow")}
           </Button>
         </div>
       </div>
@@ -348,26 +352,26 @@ export default function AdminDatabaseMigrationPage() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">当前运行后端</p>
+            <p className="text-xs text-muted-foreground">{t("adminDatabase.activeBackend")}</p>
             <p className="mt-1 text-xl font-semibold">{dbStatus?.active_driver || "-"}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">配置后端</p>
+            <p className="text-xs text-muted-foreground">{t("adminDatabase.configuredBackend")}</p>
             <p className="mt-1 text-xl font-semibold">{dbStatus?.configured_driver || "-"}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">PostgreSQL</p>
-            <p className="mt-1 text-xl font-semibold">{dbStatus?.postgres_configured ? "已配置" : "未配置"}</p>
+            <p className="text-xs text-muted-foreground">{t("adminDatabase.postgres")}</p>
+            <p className="mt-1 text-xl font-semibold">{dbStatus?.postgres_configured ? t("adminDatabase.postgresConfigured") : t("adminDatabase.postgresNotConfigured")}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">迁移功能</p>
-            <p className="mt-1 text-xl font-semibold">{migrationEnabled ? "已开启" : "未开启"}</p>
+            <p className="text-xs text-muted-foreground">{t("adminDatabase.migrationFeature")}</p>
+            <p className="mt-1 text-xl font-semibold">{migrationEnabled ? t("adminDatabase.migrationOn") : t("adminDatabase.migrationOff")}</p>
           </CardContent>
         </Card>
       </div>
@@ -375,9 +379,9 @@ export default function AdminDatabaseMigrationPage() {
       {!migrationEnabled && (
         <Alert>
           <Info className="h-4 w-4" />
-          <AlertTitle>数据库迁移默认关闭</AlertTitle>
+          <AlertTitle>{t("adminDatabase.migrationOffTitle")}</AlertTitle>
           <AlertDescription>
-            需要迁移时请在 config.toml 的 [Database] 中设置 migration_panel_enabled = true 并保存配置；备份、查看和恢复功能不受影响。
+            {t("adminDatabase.migrationOffDesc")}
           </AlertDescription>
         </Alert>
       )}
@@ -385,9 +389,9 @@ export default function AdminDatabaseMigrationPage() {
       {migrationEnabled && !dbStatus?.postgres_configured && (
         <Alert className="border-amber-500/40 bg-amber-500/10">
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>PostgreSQL 尚未配置</AlertTitle>
+          <AlertTitle>{t("adminDatabase.postgresNotReadyTitle")}</AlertTitle>
           <AlertDescription>
-            目标选择 PostgreSQL 前，请先在配置管理中填写 PostgreSQL 连接信息并保存。预检会验证连接，正式执行会自动创建保护性备份。
+            {t("adminDatabase.postgresNotReadyDesc")}
           </AlertDescription>
         </Alert>
       )}
@@ -396,26 +400,26 @@ export default function AdminDatabaseMigrationPage() {
         <CardHeader>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <CardTitle className="flex items-center gap-2"><Archive className="h-5 w-5" />数据库备份管理</CardTitle>
-              <CardDescription>创建、查看、恢复和删除数据库状态快照。恢复前会自动创建保护性备份。</CardDescription>
+              <CardTitle className="flex items-center gap-2"><Archive className="h-5 w-5" />{t("adminDatabase.backupMgmtTitle")}</CardTitle>
+              <CardDescription>{t("adminDatabase.backupMgmtDesc")}</CardDescription>
             </div>
             <div className="flex w-full flex-col gap-2 sm:w-80">
               <Textarea
                 value={backupNote}
                 onChange={(event) => setBackupNote(event.target.value.slice(0, 200))}
-                placeholder="备注：例如升级前、迁移前、手动巡检后"
+                placeholder={t("adminDatabase.notePlaceholder")}
                 className="min-h-20 resize-none text-sm"
               />
               <Button variant="outline" onClick={() => void createBackup()} disabled={busy}>
                 {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Archive className="mr-2 h-4 w-4" />}
-                创建备份
+                {t("adminDatabase.createBackup")}
               </Button>
             </div>
           </div>
         </CardHeader>
         <CardContent>
           {dbBackups.length === 0 ? (
-            <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">暂无数据库备份</div>
+            <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">{t("adminDatabase.noBackups")}</div>
           ) : (
             <div className="divide-y rounded-xl border">
               {dbBackups.map((backup) => (
@@ -423,17 +427,17 @@ export default function AdminDatabaseMigrationPage() {
                   <div className="min-w-0">
                     <p className="break-all text-sm font-medium">{backup.name}</p>
                     <p className="text-xs text-muted-foreground">{formatBytes(backup.size)} · {formatUnixTime(backup.created_at)}</p>
-                    {backup.note && <p className="mt-1 break-words text-xs text-foreground/80">备注：{backup.note}</p>}
+                    {backup.note && <p className="mt-1 break-words text-xs text-foreground/80">{t("adminDatabase.notePrefix")}{backup.note}</p>}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Button variant="outline" size="sm" onClick={() => void inspectBackup(backup)} disabled={busy}>
-                      <Eye className="mr-2 h-4 w-4" />查看
+                      <Eye className="mr-2 h-4 w-4" />{t("adminDatabase.inspect")}
                     </Button>
                     <Button variant="outline" size="sm" onClick={() => void previewRestoreBackup(backup)} disabled={busy}>
-                      <RotateCcw className="mr-2 h-4 w-4" />恢复
+                      <RotateCcw className="mr-2 h-4 w-4" />{t("adminDatabase.restore")}
                     </Button>
                     <Button variant="outline" size="sm" onClick={() => void deleteBackup(backup)} disabled={busy} className="text-destructive hover:text-destructive">
-                      <Trash2 className="mr-2 h-4 w-4" />删除
+                      <Trash2 className="mr-2 h-4 w-4" />{t("adminDatabase.delete")}
                     </Button>
                   </div>
                 </div>
@@ -448,20 +452,21 @@ export default function AdminDatabaseMigrationPage() {
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
         <Card className="overflow-hidden">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><HardDrive className="h-5 w-5" />源数据库</CardTitle>
-            <CardDescription>选择要读取的数据来源。</CardDescription>
+            <CardTitle className="flex items-center gap-2"><HardDrive className="h-5 w-5" />{t("adminDatabase.sourceTitle")}</CardTitle>
+            <CardDescription>{t("adminDatabase.sourceDesc")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <EndpointCard
-              title="当前 Go 状态"
-              description="读取当前运行中的 JSON 或 PostgreSQL 状态快照。"
+              title={t("adminDatabase.currentGoState")}
+              description={t("adminDatabase.currentGoStateDesc")}
               icon={Database}
               active={source === "current"}
+              selectedLabel={t("adminDatabase.selected")}
               onClick={() => { setSource("current"); setMigrationResult(null); }}
             >
-              <div className="flex justify-between gap-3"><span className="text-muted-foreground">类型</span><strong>{dbStatus?.active_driver || "-"}</strong></div>
-              <div className="flex justify-between gap-3"><span className="text-muted-foreground">用户</span><strong>{dbStatus?.user_count ?? "-"}</strong></div>
-              <div className="break-all text-muted-foreground">状态文件：{dbStatus?.state_file || "-"}</div>
+              <div className="flex justify-between gap-3"><span className="text-muted-foreground">{t("adminDatabase.typeLabel")}</span><strong>{dbStatus?.active_driver || "-"}</strong></div>
+              <div className="flex justify-between gap-3"><span className="text-muted-foreground">{t("adminDatabase.userLabel")}</span><strong>{dbStatus?.user_count ?? "-"}</strong></div>
+              <div className="break-all text-muted-foreground">{t("adminDatabase.stateFilePrefix")}{dbStatus?.state_file || "-"}</div>
             </EndpointCard>
           </CardContent>
         </Card>
@@ -474,34 +479,36 @@ export default function AdminDatabaseMigrationPage() {
 
         <Card className="overflow-hidden">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><UploadCloud className="h-5 w-5" />迁移目标</CardTitle>
-            <CardDescription>选择写入目标；执行前只会写目标，不会自动切换运行后端。</CardDescription>
+            <CardTitle className="flex items-center gap-2"><UploadCloud className="h-5 w-5" />{t("adminDatabase.targetTitle")}</CardTitle>
+            <CardDescription>{t("adminDatabase.targetDesc")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <EndpointCard
               title="PostgreSQL"
-              description="将快照写入 PostgreSQL 的 twilight_state JSONB 表。"
+              description={t("adminDatabase.pgTargetDesc")}
               icon={Database}
               active={target === "postgres"}
               disabled={!dbStatus?.postgres_configured}
+              selectedLabel={t("adminDatabase.selected")}
               onClick={() => { setTarget("postgres"); setMigrationResult(null); }}
             >
               <div className="flex flex-wrap gap-2">
-                <StatusPill ok={Boolean(dbStatus?.postgres_configured)} label={dbStatus?.postgres_configured ? "连接已配置" : "未配置"} />
-                <StatusPill ok={dbStatus?.configured_driver === "postgres"} label={dbStatus?.configured_driver === "postgres" ? "配置目标一致" : "需重启切换"} />
+                <StatusPill ok={Boolean(dbStatus?.postgres_configured)} label={dbStatus?.postgres_configured ? t("adminDatabase.pgConnConfigured") : t("adminDatabase.pgNotConfigured")} />
+                <StatusPill ok={dbStatus?.configured_driver === "postgres"} label={dbStatus?.configured_driver === "postgres" ? t("adminDatabase.pgTargetMatch") : t("adminDatabase.pgNeedRestart")} />
               </div>
-              <div className="text-muted-foreground">预检会连接 PostgreSQL，并在目标库不存在且权限允许时自动建库和准备状态表。</div>
+              <div className="text-muted-foreground">{t("adminDatabase.pgPreflightHint")}</div>
             </EndpointCard>
 
             <EndpointCard
-              title="JSON 状态文件"
-              description="把源数据写回 Twilight JSON 状态文件，适合回退或离线校验。"
+              title={t("adminDatabase.jsonTarget")}
+              description={t("adminDatabase.jsonTargetDesc")}
               icon={FileJson}
               active={target === "json"}
+              selectedLabel={t("adminDatabase.selected")}
               onClick={() => { setTarget("json"); setMigrationResult(null); }}
             >
-              <div className="flex justify-between gap-3"><span className="text-muted-foreground">类型</span><strong>json</strong></div>
-              <div className="break-all text-muted-foreground">目标文件：{dbStatus?.state_file || "默认状态文件"}</div>
+              <div className="flex justify-between gap-3"><span className="text-muted-foreground">{t("adminDatabase.typeLabel")}</span><strong>json</strong></div>
+              <div className="break-all text-muted-foreground">{t("adminDatabase.targetFilePrefix")}{dbStatus?.state_file || t("adminDatabase.defaultStateFile")}</div>
             </EndpointCard>
           </CardContent>
         </Card>
@@ -510,42 +517,42 @@ export default function AdminDatabaseMigrationPage() {
       <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><ShieldCheck className="h-5 w-5" />安全检查</CardTitle>
-            <CardDescription>确认备份、映射和目标状态。</CardDescription>
+            <CardTitle className="flex items-center gap-2"><ShieldCheck className="h-5 w-5" />{t("adminDatabase.safetyTitle")}</CardTitle>
+            <CardDescription>{t("adminDatabase.safetyDesc")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <div className="rounded-xl border p-3">
               <div className="flex items-center justify-between gap-3">
-                <span className="font-medium">保护性备份</span>
-                <StatusPill ok label="执行时自动创建" />
+                <span className="font-medium">{t("adminDatabase.protectiveBackup")}</span>
+                <StatusPill ok label={t("adminDatabase.autoCreateOnRun")} />
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                正式迁移前后端会先备份当前运行状态；SQLite 数据源已禁用。
+                {t("adminDatabase.protectiveBackupHint")}
               </p>
               <p className="mt-2 break-all text-xs text-muted-foreground">
-                最近备份：{latestBackup ? `${latestBackup.name} · ${formatUnixTime(latestBackup.created_at)}` : "暂无"}
+                {t("adminDatabase.latestBackupPrefix")}{latestBackup ? `${latestBackup.name} · ${formatUnixTime(latestBackup.created_at)}` : t("adminDatabase.none")}
               </p>
             </div>
             <div className="rounded-xl border p-3">
               <div className="flex items-center justify-between gap-3">
-                <span className="font-medium">迁移来源</span>
-                <Badge variant="success">当前运行状态</Badge>
+                <span className="font-medium">{t("adminDatabase.migrationSource")}</span>
+                <Badge variant="success">{t("adminDatabase.currentRunningState")}</Badge>
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                预检只读取当前运行中的 JSON 或 PostgreSQL 状态快照，不再读取 SQLite 文件。
+                {t("adminDatabase.migrationSourceHint")}
               </p>
             </div>
             <div className="rounded-xl border p-3">
               <div className="flex items-center justify-between gap-3">
-                <span className="font-medium">目标状态</span>
-                <StatusPill ok={postgresReady && sourceReady} label={postgresReady && sourceReady ? "可预检" : "待配置"} />
+                <span className="font-medium">{t("adminDatabase.targetState")}</span>
+                <StatusPill ok={postgresReady && sourceReady} label={postgresReady && sourceReady ? t("adminDatabase.canPreflight") : t("adminDatabase.pendingConfig")} />
               </div>
               <p className="mt-2 break-all text-xs text-muted-foreground">
-                {migrationResult?.target_ready ? compactJSON(migrationResult.target_ready) : "生成预检后显示连接与目标路径。"}
+                {migrationResult?.target_ready ? compactJSON(migrationResult.target_ready) : t("adminDatabase.targetStateHint")}
               </p>
               {migrationResult?.target_ready?.database_created === true && (
                 <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-400">
-                  本次预检已自动创建 PostgreSQL 目标数据库。
+                  {t("adminDatabase.databaseCreatedHint")}
                 </p>
               )}
             </div>
@@ -557,17 +564,17 @@ export default function AdminDatabaseMigrationPage() {
         <CardHeader>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <CardTitle className="flex items-center gap-2"><Database className="h-5 w-5" />底部预览</CardTitle>
-              <CardDescription>预检只读取源数据并检查目标，不会写入目标数据库。</CardDescription>
+              <CardTitle className="flex items-center gap-2"><Database className="h-5 w-5" />{t("adminDatabase.bottomPreviewTitle")}</CardTitle>
+              <CardDescription>{t("adminDatabase.bottomPreviewDesc")}</CardDescription>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" onClick={() => void previewMigration(false)} disabled={!canPreview}>
                 {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
-                生成预览
+                {t("adminDatabase.generatePreview")}
               </Button>
               <Button onClick={() => void previewMigration(true)} disabled={!canPreview}>
                 {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
-                预览并执行
+                {t("adminDatabase.previewAndExecute")}
               </Button>
             </div>
           </div>
@@ -575,16 +582,16 @@ export default function AdminDatabaseMigrationPage() {
         <CardContent className="space-y-4">
           {!migrationResult ? (
             <div className="rounded-xl border border-dashed bg-background/60 p-8 text-center text-sm text-muted-foreground">
-              选择源端和目标后点击“生成预览”，这里会展示迁移规模、映射结果、备份策略和告警信息。
+              {t("adminDatabase.previewEmptyHint")}
             </div>
           ) : (
             <>
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-                <div className="rounded-xl border bg-background/80 p-3"><p className="text-xs text-muted-foreground">用户</p><p className="text-xl font-semibold">{migrationResult.users}</p></div>
-                <div className="rounded-xl border bg-background/80 p-3"><p className="text-xs text-muted-foreground">卡码</p><p className="text-xl font-semibold">{migrationResult.regcodes}</p></div>
-                <div className="rounded-xl border bg-background/80 p-3"><p className="text-xs text-muted-foreground">邀请码</p><p className="text-xl font-semibold">{migrationResult.invite_codes}</p></div>
-                <div className="rounded-xl border bg-background/80 p-3"><p className="text-xs text-muted-foreground">求片</p><p className="text-xl font-semibold">{migrationResult.media_requests}</p></div>
-                <div className="rounded-xl border bg-background/80 p-3"><p className="text-xs text-muted-foreground">快照</p><p className="text-xl font-semibold">{formatBytes(migrationResult.snapshot_bytes)}</p></div>
+                <div className="rounded-xl border bg-background/80 p-3"><p className="text-xs text-muted-foreground">{t("adminDatabase.metricUsers")}</p><p className="text-xl font-semibold">{migrationResult.users}</p></div>
+                <div className="rounded-xl border bg-background/80 p-3"><p className="text-xs text-muted-foreground">{t("adminDatabase.metricRegcodes")}</p><p className="text-xl font-semibold">{migrationResult.regcodes}</p></div>
+                <div className="rounded-xl border bg-background/80 p-3"><p className="text-xs text-muted-foreground">{t("adminDatabase.metricInviteCodes")}</p><p className="text-xl font-semibold">{migrationResult.invite_codes}</p></div>
+                <div className="rounded-xl border bg-background/80 p-3"><p className="text-xs text-muted-foreground">{t("adminDatabase.metricMediaRequests")}</p><p className="text-xl font-semibold">{migrationResult.media_requests}</p></div>
+                <div className="rounded-xl border bg-background/80 p-3"><p className="text-xs text-muted-foreground">{t("adminDatabase.metricSnapshot")}</p><p className="text-xl font-semibold">{formatBytes(migrationResult.snapshot_bytes)}</p></div>
               </div>
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 {Object.entries(migrationResult.counts || {}).filter(([, value]) => Number(value) > 0).map(([key, value]) => (
@@ -597,16 +604,16 @@ export default function AdminDatabaseMigrationPage() {
               {migrationResult.warnings?.length ? (
                 <Alert className="border-amber-500/40 bg-amber-500/10">
                   <AlertTriangle className="h-4 w-4" />
-                  <AlertTitle>需要注意</AlertTitle>
+                  <AlertTitle>{t("adminDatabase.warningsTitle")}</AlertTitle>
                   <AlertDescription>{migrationResult.warnings.join("；")}</AlertDescription>
                 </Alert>
               ) : null}
               {migrationResult.pre_operation_backup && (
                 <Alert className="border-emerald-500/40 bg-emerald-500/10">
                   <CheckCircle2 className="h-4 w-4" />
-                  <AlertTitle>迁移已执行</AlertTitle>
+                  <AlertTitle>{t("adminDatabase.migrationExecutedTitle")}</AlertTitle>
                   <AlertDescription>
-                    保护性备份：{migrationResult.pre_operation_backup.name}；目标：{migrationResult.target_driver}。
+                    {t("adminDatabase.migrationExecutedDesc", { backup: migrationResult.pre_operation_backup.name, target: migrationResult.target_driver })}
                   </AlertDescription>
                 </Alert>
               )}
@@ -620,30 +627,30 @@ export default function AdminDatabaseMigrationPage() {
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>确认执行数据库迁移</DialogTitle>
-            <DialogDescription>后端已完成预检。确认后会先创建保护性备份，再把快照写入目标后端。</DialogDescription>
+            <DialogTitle>{t("adminDatabase.confirmMigrateTitle")}</DialogTitle>
+            <DialogDescription>{t("adminDatabase.confirmMigrateDesc")}</DialogDescription>
           </DialogHeader>
           {migrationResult && (
             <div className="space-y-3 text-sm">
               <Alert>
                 <Info className="h-4 w-4" />
-                <AlertTitle>迁移只写入目标</AlertTitle>
-                <AlertDescription>如需正式切换运行后端，请确认 database.driver 已改为目标类型并重启服务。</AlertDescription>
+                <AlertTitle>{t("adminDatabase.writeTargetOnlyTitle")}</AlertTitle>
+                <AlertDescription>{t("adminDatabase.writeTargetOnlyDesc")}</AlertDescription>
               </Alert>
               <div className="grid gap-2 rounded-md border p-3 text-xs">
-                <div className="flex justify-between gap-3"><span className="text-muted-foreground">来源</span><strong>{migrationResult.source_driver}</strong></div>
-                <div className="flex justify-between gap-3"><span className="text-muted-foreground">目标</span><strong>{migrationResult.target_driver}</strong></div>
-                <div className="flex justify-between gap-3"><span className="text-muted-foreground">快照大小</span><strong>{formatBytes(migrationResult.snapshot_bytes)}</strong></div>
-                <div className="flex justify-between gap-3"><span className="text-muted-foreground">用户 / 卡码 / 邀请码</span><strong>{migrationResult.users} / {migrationResult.regcodes} / {migrationResult.invite_codes}</strong></div>
-                <div className="flex justify-between gap-3"><span className="text-muted-foreground">登录 / 播放 / 签到</span><strong>{countOf(migrationResult, "login_logs")} / {countOf(migrationResult, "playback_records")} / {countOf(migrationResult, "signin")}</strong></div>
+                <div className="flex justify-between gap-3"><span className="text-muted-foreground">{t("adminDatabase.sourceField")}</span><strong>{migrationResult.source_driver}</strong></div>
+                <div className="flex justify-between gap-3"><span className="text-muted-foreground">{t("adminDatabase.targetField")}</span><strong>{migrationResult.target_driver}</strong></div>
+                <div className="flex justify-between gap-3"><span className="text-muted-foreground">{t("adminDatabase.snapshotSize")}</span><strong>{formatBytes(migrationResult.snapshot_bytes)}</strong></div>
+                <div className="flex justify-between gap-3"><span className="text-muted-foreground">{t("adminDatabase.usersCodesInvites")}</span><strong>{migrationResult.users} / {migrationResult.regcodes} / {migrationResult.invite_codes}</strong></div>
+                <div className="flex justify-between gap-3"><span className="text-muted-foreground">{t("adminDatabase.loginsPlaybackSignin")}</span><strong>{countOf(migrationResult, "login_logs")} / {countOf(migrationResult, "playback_records")} / {countOf(migrationResult, "signin")}</strong></div>
               </div>
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={busy}>取消</Button>
+            <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={busy}>{t("common.cancel")}</Button>
             <Button onClick={() => void executeMigration()} disabled={busy || !migrationResult}>
               {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
-              确认迁移
+              {t("adminDatabase.confirmMigrate")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -652,15 +659,15 @@ export default function AdminDatabaseMigrationPage() {
       <Dialog open={backupPreviewOpen} onOpenChange={setBackupPreviewOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>数据库备份详情</DialogTitle>
-            <DialogDescription>查看备份大小、创建时间和快照数据量。</DialogDescription>
+            <DialogTitle>{t("adminDatabase.backupDetailTitle")}</DialogTitle>
+            <DialogDescription>{t("adminDatabase.backupDetailDesc")}</DialogDescription>
           </DialogHeader>
           {backupPreview && (
             <div className="space-y-3 text-sm">
               <div className="rounded-md border p-3 text-xs">
                 <div className="break-all font-medium">{backupPreview.backup.name}</div>
                 <div className="mt-1 text-muted-foreground">{formatBytes(backupPreview.backup.size)} · {formatUnixTime(backupPreview.backup.created_at)}</div>
-                {backupPreview.backup.note && <div className="mt-2 break-words">备注：{backupPreview.backup.note}</div>}
+                {backupPreview.backup.note && <div className="mt-2 break-words">{t("adminDatabase.notePrefix")}{backupPreview.backup.note}</div>}
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
                 {Object.entries(backupPreview.counts || {}).map(([key, value]) => (
@@ -673,7 +680,7 @@ export default function AdminDatabaseMigrationPage() {
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setBackupPreviewOpen(false)}>关闭</Button>
+            <Button variant="outline" onClick={() => setBackupPreviewOpen(false)}>{t("adminDatabase.close")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -681,29 +688,29 @@ export default function AdminDatabaseMigrationPage() {
       <Dialog open={restoreOpen} onOpenChange={setRestoreOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>确认恢复数据库备份</DialogTitle>
-            <DialogDescription>恢复会覆盖当前数据库状态；执行前会自动创建保护性备份。</DialogDescription>
+            <DialogTitle>{t("adminDatabase.confirmRestoreTitle")}</DialogTitle>
+            <DialogDescription>{t("adminDatabase.confirmRestoreDesc")}</DialogDescription>
           </DialogHeader>
           {restorePreview && (
             <div className="space-y-3 text-sm">
               <Alert className="border-amber-500/40 bg-amber-500/10">
                 <AlertTriangle className="h-4 w-4" />
-                <AlertTitle>高风险操作</AlertTitle>
-                <AlertDescription>请确认当前数据库已不再需要，或确认保护性备份可用于回退。</AlertDescription>
+                <AlertTitle>{t("adminDatabase.highRiskTitle")}</AlertTitle>
+                <AlertDescription>{t("adminDatabase.highRiskDesc")}</AlertDescription>
               </Alert>
               <div className="grid gap-2 rounded-md border p-3 text-xs">
-                <div className="flex justify-between gap-3"><span className="text-muted-foreground">目标备份</span><strong className="break-all text-right">{restorePreview.restored}</strong></div>
-                <div className="flex justify-between gap-3"><span className="text-muted-foreground">当前用户数</span><strong>{restorePreview.current_counts?.users ?? "-"}</strong></div>
-                <div className="flex justify-between gap-3"><span className="text-muted-foreground">恢复后用户数</span><strong>{restorePreview.counts?.users ?? restorePreview.users}</strong></div>
-                <div className="flex justify-between gap-3"><span className="text-muted-foreground">卡码 / 邀请码</span><strong>{restorePreview.regcodes} / {restorePreview.invite_codes}</strong></div>
+                <div className="flex justify-between gap-3"><span className="text-muted-foreground">{t("adminDatabase.targetBackupField")}</span><strong className="break-all text-right">{restorePreview.restored}</strong></div>
+                <div className="flex justify-between gap-3"><span className="text-muted-foreground">{t("adminDatabase.currentUserCount")}</span><strong>{restorePreview.current_counts?.users ?? "-"}</strong></div>
+                <div className="flex justify-between gap-3"><span className="text-muted-foreground">{t("adminDatabase.restoredUserCount")}</span><strong>{restorePreview.counts?.users ?? restorePreview.users}</strong></div>
+                <div className="flex justify-between gap-3"><span className="text-muted-foreground">{t("adminDatabase.codesInvites")}</span><strong>{restorePreview.regcodes} / {restorePreview.invite_codes}</strong></div>
               </div>
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRestoreOpen(false)} disabled={busy}>取消</Button>
+            <Button variant="outline" onClick={() => setRestoreOpen(false)} disabled={busy}>{t("common.cancel")}</Button>
             <Button onClick={() => void restoreBackup()} disabled={busy || !restorePreview}>
               {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-2 h-4 w-4" />}
-              确认恢复
+              {t("adminDatabase.confirmRestore")}
             </Button>
           </DialogFooter>
         </DialogContent>

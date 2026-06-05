@@ -391,6 +391,12 @@ func (a *App) saveConfigContent(content string) (map[string]any, int, string) {
 	existing, readErr := os.ReadFile(configFile)
 	hadExisting := readErr == nil
 	content = mergeProtectedAdminConfig(content, string(existing))
+	// repo_url 与 admin_uids/admin_usernames 同属"禁止网页改写"字段：git 自动更新
+	// 的来源仓库只能由运维在配置文件侧设定，防止被盗管理员会话改 origin 后触发
+	// 更新实现 RCE。这里在写盘前把提交内容中的 repo_url 就地还原为磁盘原值。
+	if hadExisting {
+		content = restoreProtectedRepoURL(content, string(existing))
+	}
 	if err := validateConfigContent(configFile, []byte(content)); err != nil {
 		return nil, http.StatusBadRequest, "配置校验失败: " + err.Error()
 	}
@@ -587,6 +593,61 @@ func protectedAdminConfigLine(trimmed string) bool {
 	default:
 		return false
 	}
+}
+
+// restoreProtectedRepoURL 把提交 TOML 里 [SystemUpdate].repo_url 的值就地还原为
+// 磁盘原值（existing），防止经网页配置接口改写 git 自动更新的来源仓库。
+//
+// 威胁模型：repo_url 决定 git 自动更新 pull 的 origin。若允许网页改写，被盗的
+// 管理员会话可把 origin 指向攻击者 fork，再触发更新即可在服务器上 RCE。该字段
+// 只能由运维在配置文件 / 环境变量侧设定。
+//
+// 为什么用"就地替换值"而非 [Admin] 那种"整段剥离 + 末尾追加"：repo_url 位于
+// [SystemUpdate] 段内，该段还有 branch / restart_services 等普通字段。若整段剥离
+// 再追加一个只含 repo_url 的 [SystemUpdate]，会产生重复 section 头——TOML 规范
+// 不允许同名 table 重复定义，直接解析失败。就地替换与 restoreTOMLSecrets 同构，
+// 不改变文档结构。
+//
+// 行为：仅当提交内容在 [SystemUpdate] 段内出现 repo_url 行时才替换其值为磁盘原值；
+// 提交侧删除该行（清空 repo_url、停用自动更新）属于合法操作，不阻止。
+func restoreProtectedRepoURL(content, existing string) string {
+	if content == "" {
+		return content
+	}
+	diskRepoURL, hasDisk := systemUpdateRepoURL(existing)
+	if !hasDisk {
+		return content
+	}
+	lines := strings.Split(content, "\n")
+	section := ""
+	for i, line := range lines {
+		nextSection, key, isAssign := tomlSectionFieldFromLine(line, section)
+		section = canonicalConfigSection(nextSection)
+		if !isAssign || !strings.EqualFold(section, "SystemUpdate") || !strings.EqualFold(key, "repo_url") {
+			continue
+		}
+		indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+		lines[i] = indent + key + " = " + strconv.Quote(diskRepoURL)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// systemUpdateRepoURL 从 TOML 文本里抽取 [SystemUpdate].repo_url 的字符串值。
+func systemUpdateRepoURL(content string) (string, bool) {
+	section := ""
+	for _, line := range strings.Split(content, "\n") {
+		nextSection, key, isAssign := tomlSectionFieldFromLine(line, section)
+		section = canonicalConfigSection(nextSection)
+		if !isAssign || !strings.EqualFold(section, "SystemUpdate") || !strings.EqualFold(key, "repo_url") {
+			continue
+		}
+		_, rawVal, _ := strings.Cut(line, "=")
+		if v, err := strconv.Unquote(strings.TrimSpace(rawVal)); err == nil {
+			return v, true
+		}
+		return strings.Trim(strings.TrimSpace(rawVal), `"`), true
+	}
+	return "", false
 }
 
 func writeConfigBackupBytes(configFile, backupDir string, content []byte) (store.BackupInfo, error) {

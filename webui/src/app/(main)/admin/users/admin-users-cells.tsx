@@ -26,6 +26,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { UserInfo } from "@/lib/api";
 import { formatDate, isPermanentDateValue } from "@/lib/utils";
+import type { MessageKey, MessageParams } from "@/lib/i18n";
+
+// 翻译函数类型：与 LocaleContextValue.t 同构。cells / helpers 是无状态渲染，
+// 不能直接用 useI18n（会破坏 renderXxx 的纯函数契约），由 page.tsx 注入 t。
+type TFunc = (key: MessageKey, params?: MessageParams) => string;
 
 /**
  * 角色徽章。
@@ -33,14 +38,14 @@ import { formatDate, isPermanentDateValue } from "@/lib/utils";
  * - 2 白名单 → 成功色
  * - 其余（含 -1 未识别 / 1 普通）→ 次级标签
  */
-export function renderRoleBadge(role: number) {
+export function renderRoleBadge(role: number, t: TFunc) {
   switch (role) {
     case 0:
-      return <Badge variant="gradient">管理员</Badge>;
+      return <Badge variant="gradient">{t("adminUsers.roleAdmin")}</Badge>;
     case 2:
-      return <Badge variant="success">白名单</Badge>;
+      return <Badge variant="success">{t("adminUsers.roleWhitelist")}</Badge>;
     default:
-      return <Badge variant="secondary">普通用户</Badge>;
+      return <Badge variant="secondary">{t("adminUsers.roleUser")}</Badge>;
   }
 }
 
@@ -50,7 +55,7 @@ export function renderRoleBadge(role: number) {
  * - -1 / "-1" → "永久"
  * - 真实时间戳 → 用 formatDate；已过期红字
  */
-export function renderExpireCell(user: UserInfo) {
+export function renderExpireCell(user: UserInfo, t: TFunc) {
   const exp = user.expired_at;
   const isUnbound =
     user.emby_bound === false ||
@@ -58,10 +63,10 @@ export function renderExpireCell(user: UserInfo) {
     exp === 0 ||
     exp === "0";
   if (isUnbound) {
-    return <span className="text-muted-foreground italic">未绑定</span>;
+    return <span className="text-muted-foreground italic">{t("adminUsers.cellUnbound")}</span>;
   }
   if (isPermanentDateValue(exp)) {
-    return <span className="text-emerald-500">永久</span>;
+    return <span className="text-emerald-500">{t("adminUsers.cellPermanent")}</span>;
   }
   const expMs = typeof exp === "number" && exp < 10000000000 ? exp * 1000 : Number(exp);
   const expired = !Number.isNaN(expMs) && expMs < Date.now();
@@ -96,9 +101,11 @@ export interface UserActionsMenuHandlers {
 export function UserActionsMenu({
   user,
   handlers,
+  t,
 }: {
   user: UserInfo;
   handlers: UserActionsMenuHandlers;
+  t: TFunc;
 }) {
   const showCancelPermanent =
     isPermanentDateValue(user.expired_at) &&
@@ -114,61 +121,61 @@ export function UserActionsMenu({
       <DropdownMenuContent align="end">
         <DropdownMenuItem onClick={() => handlers.onEdit(user)}>
           <Edit className="mr-2 h-4 w-4" />
-          编辑信息
+          {t("adminUsers.menuEdit")}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => handlers.onRenew(user)}>
           <RefreshCw className="mr-2 h-4 w-4" />
-          续期
+          {t("adminUsers.menuRenew")}
         </DropdownMenuItem>
         {showCancelPermanent && (
           <DropdownMenuItem onClick={() => handlers.onCancelPermanent(user)}>
             <CalendarClock className="mr-2 h-4 w-4" />
-            取消永久到期
+            {t("adminUsers.menuCancelPermanent")}
           </DropdownMenuItem>
         )}
         <DropdownMenuItem onClick={() => handlers.onResetPassword(user)}>
           <Key className="mr-2 h-4 w-4" />
-          重置密码
+          {t("adminUsers.menuResetPassword")}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => handlers.onBindEmby(user)}>
           <Link2 className="mr-2 h-4 w-4" />
-          绑定 Emby
+          {t("adminUsers.menuBindEmby")}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => handlers.onSyncBindings(user)}>
           <RefreshCw className="mr-2 h-4 w-4" />
-          同步绑定状态
+          {t("adminUsers.menuSyncBindings")}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => handlers.onForceUnbind(user)}>
           <Unlink className="mr-2 h-4 w-4" />
-          强制解绑
+          {t("adminUsers.menuForceUnbind")}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => handlers.onClearRegistrationQueue(user)}>
           <CalendarClock className="mr-2 h-4 w-4" />
-          清理注册队列用户
+          {t("adminUsers.menuClearQueue")}
         </DropdownMenuItem>
         <DropdownMenuItem
           onClick={() => handlers.onGrantRegistrationEntitlement(user)}
           disabled={Boolean(user.emby_id) || !user.active}
         >
           <UserPlus className="mr-2 h-4 w-4" />
-          给予队列用户注册权利
+          {t("adminUsers.menuGrantEntitlement")}
         </DropdownMenuItem>
         <DropdownMenuItem
           onClick={() => handlers.onGrantRegistrationEntitlementAndDequeue(user)}
           disabled={Boolean(user.emby_id) || !user.active}
         >
           <UserCheck className="mr-2 h-4 w-4" />
-          授权并移出未处理队列
+          {t("adminUsers.menuGrantDequeue")}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => handlers.onToggleActive(user)}>
           <Ban className="mr-2 h-4 w-4" />
-          {user.active ? "禁用" : "启用"}
+          {user.active ? t("adminUsers.menuDisable") : t("adminUsers.menuEnable")}
         </DropdownMenuItem>
         <DropdownMenuItem className="text-destructive" onClick={() => handlers.onDelete(user)}>
           <Trash2 className="mr-2 h-4 w-4" />
-          删除
+          {t("adminUsers.menuDelete")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

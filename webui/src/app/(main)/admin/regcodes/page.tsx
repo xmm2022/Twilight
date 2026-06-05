@@ -46,10 +46,12 @@ import { useAsyncResource } from "@/hooks/use-async-resource";
 import { PageError } from "@/components/layout/page-state";
 import { api, type InviteCodeItem, type Regcode, type UserInfo } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
+import { useI18n, type MessageKey } from "@/lib/i18n";
 
 export default function AdminRegcodesPage() {
   const { toast } = useToast();
   const { confirm } = useConfirm();
+  const { t } = useI18n();
   const [regcodes, setRegcodes] = useState<Regcode[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -97,7 +99,7 @@ export default function AdminRegcodesPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [createdCodes, setCreatedCodes] = useState<string[]>([]);
 
-  const formatRegcodeDays = (days: number) => (days < 0 ? "永久" : `${days || 30} 天`);
+  const formatRegcodeDays = (days: number) => (days < 0 ? t("adminRegcodes.permanent") : t("adminRegcodes.daysValue", { days: days || 30 }));
 
   const loadRegcodesResource = useCallback(async () => {
     const res = await api.getRegcodes(page, { type: filterType, status: filterStatus, search, sort, order });
@@ -148,7 +150,7 @@ export default function AdminRegcodesPage() {
   const handleCreate = async () => {
     const count = parseInt(createData.count, 10);
     if (Number.isNaN(count) || count < 1 || count > 100) {
-      toast({ title: "参数错误", description: "生成数量必须在 1-100 之间", variant: "destructive" });
+      toast({ title: t("adminRegcodes.paramError"), description: t("adminRegcodes.countRange"), variant: "destructive" });
       return;
     }
     const targetUsername = createData.targetUsername.trim();
@@ -156,12 +158,12 @@ export default function AdminRegcodesPage() {
     const targetTelegramIdText = createData.targetTelegramId.trim();
     const targetCount = [targetUsername, targetTelegramUsername, targetTelegramIdText].filter(Boolean).length;
     if (targetCount > 1) {
-      toast({ title: "指名目标冲突", description: "用户名、TG 用户名、TG ID 只能填写其中一个", variant: "destructive" });
+      toast({ title: t("adminRegcodes.targetConflict"), description: t("adminRegcodes.targetConflictDesc"), variant: "destructive" });
       return;
     }
     const targetTelegramId = targetTelegramIdText ? Number.parseInt(targetTelegramIdText, 10) : undefined;
     if (targetTelegramIdText && (!/^\d+$/.test(targetTelegramIdText) || !targetTelegramId || targetTelegramId <= 0)) {
-      toast({ title: "参数错误", description: "TG ID 必须为正整数", variant: "destructive" });
+      toast({ title: t("adminRegcodes.paramError"), description: t("adminRegcodes.tgIdMustBePositive"), variant: "destructive" });
       return;
     }
     setIsCreating(true);
@@ -184,14 +186,14 @@ export default function AdminRegcodesPage() {
       });
 
       if (res.success && res.data) {
-        toast({ title: "生成成功", variant: "success" });
+        toast({ title: t("adminRegcodes.generateSuccess"), variant: "success" });
         setCreatedCodes(res.data.codes || []);
         loadRegcodes();
       } else {
-        toast({ title: "生成失败", description: res.message, variant: "destructive" });
+        toast({ title: t("adminRegcodes.generateFailed"), description: res.message, variant: "destructive" });
       }
     } catch (error: any) {
-      toast({ title: "生成失败", description: error.message, variant: "destructive" });
+      toast({ title: t("adminRegcodes.generateFailed"), description: error.message, variant: "destructive" });
     } finally {
       setIsCreating(false);
     }
@@ -199,10 +201,10 @@ export default function AdminRegcodesPage() {
 
   const handleDelete = async (code: Regcode) => {
     const ok = await confirm({
-      title: "删除卡码？",
-      description: `卡码 ${code.code} 将被立即删除，包含已有使用记录的卡码也会从列表中移除，且无法恢复。`,
+      title: t("adminRegcodes.deleteCodeTitle"),
+      description: t("adminRegcodes.deleteCodeDesc", { code: code.code }),
       tone: "danger",
-      confirmLabel: "删除",
+      confirmLabel: t("adminRegcodes.deleteLabel"),
     });
     if (!ok) return;
 
@@ -210,7 +212,7 @@ export default function AdminRegcodesPage() {
     try {
       const res = await api.deleteRegcode(code.code);
       if (res.success && (!res.data || res.data.deleted > 0)) {
-        toast({ title: "删除成功", variant: "success" });
+        toast({ title: t("adminRegcodes.deleteSuccess"), variant: "success" });
         setSelectedCodes((prev) => {
           const next = new Set(prev);
           next.delete(code.code);
@@ -218,10 +220,10 @@ export default function AdminRegcodesPage() {
         });
         await loadRegcodes();
       } else {
-        toast({ title: "删除失败", description: res.data?.missing_codes?.length ? "卡码不存在或已被删除" : res.message, variant: "destructive" });
+        toast({ title: t("adminRegcodes.deleteFailed"), description: res.data?.missing_codes?.length ? t("adminRegcodes.codeNotFound") : res.message, variant: "destructive" });
       }
     } catch (error: any) {
-      toast({ title: "删除失败", description: error.message, variant: "destructive" });
+      toast({ title: t("adminRegcodes.deleteFailed"), description: error.message, variant: "destructive" });
     } finally {
       setDeletingCode(null);
     }
@@ -231,15 +233,15 @@ export default function AdminRegcodesPage() {
     const selectedItems = regcodes.filter((item) => selectedCodes.has(item.code));
     const codes = selectedItems.map((item) => item.code);
     if (codes.length === 0) {
-      toast({ title: "请先选择要删除的注册码", variant: "destructive" });
+      toast({ title: t("adminRegcodes.selectToDelete"), variant: "destructive" });
       return;
     }
     const preview = codes.slice(0, 6).join("\n");
     const ok = await confirm({
-      title: `批量删除 ${codes.length} 个注册码？`,
-      description: `${preview}${codes.length > 6 ? `\n... 另有 ${codes.length - 6} 个` : ""}\n\n选中的注册码会被直接删除，包含已有使用记录的卡码也会从列表中移除，且无法恢复。`,
+      title: t("adminRegcodes.batchDeleteTitle", { count: codes.length }),
+      description: t("adminRegcodes.batchDeleteDesc", { preview, more: codes.length > 6 ? t("adminRegcodes.batchDeleteMore", { count: codes.length - 6 }) : "" }),
       tone: "danger",
-      confirmLabel: "批量删除",
+      confirmLabel: t("adminRegcodes.batchDelete"),
     });
     if (!ok) return;
 
@@ -248,17 +250,17 @@ export default function AdminRegcodesPage() {
       const res = await api.batchDeleteRegcodes(codes);
       if (res.success && res.data) {
         toast({
-          title: "批量删除完成",
-          description: `已删除 ${res.data.deleted} 个，未找到 ${res.data.missing} 个`,
+          title: t("adminRegcodes.batchDeleteComplete"),
+          description: t("adminRegcodes.batchDeleteResult", { deleted: res.data.deleted, missing: res.data.missing }),
           variant: "success",
         });
         setSelectedCodes(new Set());
         await loadRegcodes();
       } else {
-        toast({ title: "批量删除失败", description: res.message, variant: "destructive" });
+        toast({ title: t("adminRegcodes.batchDeleteFailed"), description: res.message, variant: "destructive" });
       }
     } catch (error: any) {
-      toast({ title: "批量删除失败", description: error.message, variant: "destructive" });
+      toast({ title: t("adminRegcodes.batchDeleteFailed"), description: error.message, variant: "destructive" });
     } finally {
       setIsBatchDeleting(false);
     }
@@ -266,16 +268,16 @@ export default function AdminRegcodesPage() {
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    toast({ title: "已复制到剪贴板" });
+    toast({ title: t("common.copiedToClipboard") });
   };
 
-  const copyRegcodes = (items: Regcode[], emptyMessage = "没有可复制的卡码") => {
+  const copyRegcodes = (items: Regcode[], emptyMessage?: string) => {
     if (items.length === 0) {
-      toast({ title: emptyMessage, variant: "destructive" });
+      toast({ title: emptyMessage ?? t("adminRegcodes.noCodesToCopy"), variant: "destructive" });
       return;
     }
     navigator.clipboard.writeText(items.map((item) => item.code).join("\n"));
-    toast({ title: `已复制 ${items.length} 个卡码` });
+    toast({ title: t("adminRegcodes.copiedCount", { count: items.length }) });
   };
 
   const clearFilters = () => {
@@ -293,13 +295,13 @@ export default function AdminRegcodesPage() {
       const note = (noteDrafts[code] || "").trim();
       const res = await api.updateRegcode(code, { note });
       if (res.success) {
-        toast({ title: "备注已保存", variant: "success" });
+        toast({ title: t("adminRegcodes.noteSaved"), variant: "success" });
         setRegcodes((prev) => prev.map((item) => item.code === code ? { ...item, note } : item));
       } else {
-        toast({ title: "保存失败", description: res.message, variant: "destructive" });
+        toast({ title: t("adminRegcodes.saveFailed"), description: res.message, variant: "destructive" });
       }
     } catch (error: any) {
-      toast({ title: "保存失败", description: error.message, variant: "destructive" });
+      toast({ title: t("adminRegcodes.saveFailed"), description: error.message, variant: "destructive" });
     } finally {
       setSavingNote(null);
     }
@@ -317,10 +319,10 @@ export default function AdminRegcodesPage() {
         setUsageUsers(res.data.users || []);
         setUsageTelegramOnly(res.data.telegram_only || []);
       } else {
-        toast({ title: "加载使用者失败", description: res.message, variant: "destructive" });
+        toast({ title: t("adminRegcodes.loadUsersFailed"), description: res.message, variant: "destructive" });
       }
     } catch (error: any) {
-      toast({ title: "加载使用者失败", description: error.message, variant: "destructive" });
+      toast({ title: t("adminRegcodes.loadUsersFailed"), description: error.message, variant: "destructive" });
     } finally {
       setUsageLoading(false);
     }
@@ -328,24 +330,24 @@ export default function AdminRegcodesPage() {
 
   const handleClearUsage = async (code: string) => {
     const ok = await confirm({
-      title: "清理使用记录？",
-      description: `将清除卡码 ${code} 的所有使用记录（使用次数、使用者 UID、Telegram ID），卡码恢复为可用状态。已注册的用户账号不受影响。`,
+      title: t("adminRegcodes.clearUsageTitle"),
+      description: t("adminRegcodes.clearUsageDesc", { code }),
       tone: "danger",
-      confirmLabel: "确认清理",
+      confirmLabel: t("adminRegcodes.clearUsageConfirm"),
     });
     if (!ok) return;
     setClearingUsage(true);
     try {
       const res = await api.clearRegcodeUsage(code);
       if (res.success) {
-        toast({ title: "使用记录已清理", description: `已清除 ${res.data?.cleared_use_count || 0} 次使用记录`, variant: "success" });
+        toast({ title: t("adminRegcodes.usageCleared"), description: t("adminRegcodes.usageClearedDesc", { count: res.data?.cleared_use_count || 0 }), variant: "success" });
         setUsageOpen(false);
         loadRegcodes();
       } else {
-        toast({ title: "清理失败", description: res.message, variant: "destructive" });
+        toast({ title: t("adminRegcodes.clearFailed"), description: res.message, variant: "destructive" });
       }
     } catch (error: any) {
-      toast({ title: "清理失败", description: error.message, variant: "destructive" });
+      toast({ title: t("adminRegcodes.clearFailed"), description: error.message, variant: "destructive" });
     } finally {
       setClearingUsage(false);
     }
@@ -360,14 +362,14 @@ export default function AdminRegcodesPage() {
         setInviteCodesTotal(res.data.total || 0);
         setInviteCodesLoaded(true);
       } else {
-        toast({ title: "加载邀请码失败", description: res.message, variant: "destructive" });
+        toast({ title: t("adminRegcodes.loadInviteFailed"), description: res.message, variant: "destructive" });
       }
     } catch (error: any) {
-      toast({ title: "加载邀请码失败", description: error.message, variant: "destructive" });
+      toast({ title: t("adminRegcodes.loadInviteFailed"), description: error.message, variant: "destructive" });
     } finally {
       setInviteCodesLoading(false);
     }
-  }, [toast]);
+  }, [toast, t]);
 
   useEffect(() => {
     if (viewMode === "invitecodes" && !inviteCodesLoaded && !inviteCodesLoading) {
@@ -425,69 +427,34 @@ export default function AdminRegcodesPage() {
     // 改用语义令牌，方便统一主题切换。
     switch (type) {
       case 1:
-        return <Badge variant="secondary" className="bg-info/10 text-info border-info/20">注册码</Badge>;
+        return <Badge variant="secondary" className="bg-info/10 text-info border-info/20">{t("adminRegcodes.badgeRegcode")}</Badge>;
       case 2:
-        return <Badge variant="default" className="bg-warning/10 text-warning border-warning/20">续期码</Badge>;
+        return <Badge variant="default" className="bg-warning/10 text-warning border-warning/20">{t("adminRegcodes.badgeRenewcode")}</Badge>;
       case 3:
-        return <Badge variant="success" className="bg-success/10 text-success border-success/20">白名单</Badge>;
+        return <Badge variant="success" className="bg-success/10 text-success border-success/20">{t("adminRegcodes.badgeWhitelist")}</Badge>;
       default:
-        return <Badge variant="secondary">未知</Badge>;
+        return <Badge variant="secondary">{t("adminRegcodes.badgeUnknown")}</Badge>;
     }
   };
 
   const getStatusBadge = (code: Regcode) => {
     const status = code.status || (code.active === false ? "disabled" : "available");
-    if (code.is_decoy) return <Badge variant="destructive">诱饵码</Badge>;
-    if (status === "disabled") return <Badge variant="destructive">已禁用</Badge>;
-    if (status === "used_up") return <Badge variant="warning">已用完</Badge>;
-    if (status === "expired") return <Badge variant="secondary">已过期</Badge>;
-    return <Badge variant="success">可用</Badge>;
+    if (code.is_decoy) return <Badge variant="destructive">{t("adminRegcodes.badgeDecoy")}</Badge>;
+    if (status === "disabled") return <Badge variant="destructive">{t("adminRegcodes.statusDisabled")}</Badge>;
+    if (status === "used_up") return <Badge variant="warning">{t("adminRegcodes.badgeUsedUp")}</Badge>;
+    if (status === "expired") return <Badge variant="secondary">{t("adminRegcodes.badgeExpired")}</Badge>;
+    return <Badge variant="success">{t("adminRegcodes.badgeAvailable")}</Badge>;
   };
 
-  const typeDescriptions: Record<string, { title: string; description: string; defaults: string }> = {
-    "1": {
-      title: "注册码",
-      description: "用于新用户注册系统账号，并授予首次补建 Emby 账号的开通天数。旧版已生成注册码仍按数据库中的类型、天数和使用次数生效。",
-      defaults: "默认：账号 30 天、卡码永久有效、使用 1 次。",
-    },
-    "2": {
-      title: "续期码",
-      description: "仅已绑定 Emby 的用户可使用，用于延长账号有效期；永久天数会把到期设置为永久。",
-      defaults: "默认：增加 30 天、卡码 72 小时有效、使用 1 次。",
-    },
-    "3": {
-      title: "白名单码",
-      description: "将用户升级为白名单并设置永久有效；未绑定 Emby 时需同时填写 Emby 用户名和密码完成创建。",
-      defaults: "默认：永久账号、卡码永久有效、不限制使用次数。",
-    },
-  };
-
-  const activeTypeDescription = typeDescriptions[activeTab];
-
-  const randomAlgorithmDescriptions: Record<string, string> = {
-    "base32-20": "20 位易抄写大写 Base32 风格字符，去掉易混淆字符，默认推荐。",
-    "base32-24": "24 位易抄写大写 Base32 风格字符，更高强度，适合公开发放。",
-    "base32-32": "32 位易抄写大写 Base32 风格字符，适合高价值邀请码批量发放。",
-    hex32: "32 位十六进制随机串，约 128-bit 强度，适合系统间导入导出。",
-    hex40: "40 位十六进制随机串，长度较长，适合机器处理。",
-    hex20: "20 位十六进制随机串，旧默认格式，保留兼容。",
-    "base32-16": "16 位大写 Base32 风格字符，去掉易混淆字符，适合人工抄写。",
-    "alnum-24": "24 位大写字母 + 数字，更高强度，兼顾可读性和随机性。",
-    "alnum-16": "16 位大写字母 + 数字，兼顾可读性和随机性。",
-    "alnum-32": "32 位大写字母 + 数字，适合高强度随机码。",
-    "urlsafe-24": "24 位 URL 安全字符，包含大小写字母、数字、- 和 _。",
-    "urlsafe-32": "32 位 URL 安全字符，适合外部系统传递。",
-    "digits-16": "16 位纯数字，比 12 位更安全，但仍低于字母数字混合。",
-    "digits-12": "12 位纯数字，便于口头传递，但安全性低于字母数字混合。",
-    "symbols-16": "16 位混合字符，包含特殊字符，适合复制粘贴场景。",
-    "symbols-24": "24 位混合字符，包含特殊字符，随机性更高。",
-    uuid: "标准 UUID v4，长度较长，唯一性强，适合系统间导入导出。",
-    "legacy-sha1": "旧版 SHA1 截断格式，用于兼容历史卡码风格。",
+  const activeTypeDescription = {
+    title: t(`adminRegcodes.type${activeTab}Title` as MessageKey),
+    description: t(`adminRegcodes.type${activeTab}Desc` as MessageKey),
+    defaults: t(`adminRegcodes.type${activeTab}Defaults` as MessageKey),
   };
 
   const selectedAlgorithmDescription = createData.randomAlgorithm
-    ? randomAlgorithmDescriptions[createData.randomAlgorithm]
-    : "使用配置管理中的默认随机算法。";
+    ? t(`adminRegcodes.algoDesc_${createData.randomAlgorithm}` as MessageKey)
+    : t("adminRegcodes.algoDescDefault");
 
   const pages = Math.ceil(total / 20);
 
@@ -532,8 +499,8 @@ export default function AdminRegcodesPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold">卡码管理</h1>
-          <p className="text-sm text-muted-foreground">管理注册码、续期码、白名单码和邀请码</p>
+          <h1 className="text-2xl sm:text-3xl font-bold">{t("adminRegcodes.pageTitle")}</h1>
+          <p className="text-sm text-muted-foreground">{t("adminRegcodes.pageSubtitle")}</p>
         </div>
         <div className="flex gap-2">
           <div className="flex rounded-lg border bg-muted/30 p-0.5">
@@ -544,7 +511,7 @@ export default function AdminRegcodesPage() {
               onClick={() => setViewMode("regcodes")}
             >
               <FileText className="mr-1.5 h-3.5 w-3.5" />
-              注册码
+              {t("adminRegcodes.tabRegcodes")}
             </Button>
             <Button
               variant={viewMode === "invitecodes" ? "default" : "ghost"}
@@ -553,7 +520,7 @@ export default function AdminRegcodesPage() {
               onClick={() => setViewMode("invitecodes")}
             >
               <Link2 className="mr-1.5 h-3.5 w-3.5" />
-              邀请码
+              {t("adminRegcodes.tabInviteCodes")}
             </Button>
           </div>
           {viewMode === "regcodes" && (
@@ -566,20 +533,20 @@ export default function AdminRegcodesPage() {
               <DialogTrigger asChild>
                 <Button variant="default" className="rounded-xl shadow-lg shadow-primary/20">
                   <Plus className="mr-2 h-4 w-4" />
-                  生成卡码
+                  {t("adminRegcodes.generateCard")}
                 </Button>
               </DialogTrigger>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>生成注册码/续期码</DialogTitle>
-              <DialogDescription>请选择卡码类型并配置参数</DialogDescription>
+              <DialogTitle>{t("adminRegcodes.createTitle")}</DialogTitle>
+              <DialogDescription>{t("adminRegcodes.createDesc")}</DialogDescription>
             </DialogHeader>
             
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
               <TabsList className="grid w-full grid-cols-3 mb-4">
-                <TabsTrigger value="1">注册</TabsTrigger>
-                <TabsTrigger value="2">续期</TabsTrigger>
-                <TabsTrigger value="3">白名单</TabsTrigger>
+                <TabsTrigger value="1">{t("adminRegcodes.tabRegister")}</TabsTrigger>
+                <TabsTrigger value="2">{t("adminRegcodes.tabRenew")}</TabsTrigger>
+                <TabsTrigger value="3">{t("adminRegcodes.tabWhitelist")}</TabsTrigger>
               </TabsList>
 
                 <div className="space-y-4 py-2">
@@ -587,12 +554,12 @@ export default function AdminRegcodesPage() {
                   <div className="font-medium text-foreground">{activeTypeDescription.title}</div>
                   <p className="mt-1">{activeTypeDescription.description}</p>
                   <p className="mt-1">{activeTypeDescription.defaults}</p>
-                  <p className="mt-1">类型值：注册=1、续期=2、白名单=3；-1 天数表示永久，0 按 30 天处理。</p>
+                  <p className="mt-1">{t("adminRegcodes.typeValueHint")}</p>
                 </div>
                 <div className="space-y-2">
-                  <Label>{activeTab === "3" ? "白名单有效天数" : "账号天数"}</Label>
+                  <Label>{activeTab === "3" ? t("adminRegcodes.daysLabelWhitelist") : t("adminRegcodes.daysLabelAccount")}</Label>
                   <div className="flex items-center justify-between rounded-md border border-border/80 bg-muted/40 px-3 py-2">
-                    <span className="text-xs text-muted-foreground">设为永久（写入 -1）</span>
+                    <span className="text-xs text-muted-foreground">{t("adminRegcodes.permanentSwitchLabel")}</span>
                     <Switch
                       checked={isPermanentDays}
                       onCheckedChange={(checked) => {
@@ -610,36 +577,36 @@ export default function AdminRegcodesPage() {
                     disabled={isPermanentDays}
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    {activeTab === "3" ? "白名单用户的有效时长，-1 为永久，0 按 30 天处理" : "使用此码后账号增加的有效天数，-1 为永久，0 按 30 天处理"}
+                    {activeTab === "3" ? t("adminRegcodes.daysHelpWhitelist") : t("adminRegcodes.daysHelpAccount")}
                   </p>
                 </div>
                 
                 <div className="space-y-2">
-                  <Label>卡码本身的有效期 (小时)</Label>
+                  <Label>{t("adminRegcodes.validityLabel")}</Label>
                   <Input
                     type="number"
                     value={createData.validityTime}
                     onChange={(e) => setCreateData({ ...createData, validityTime: e.target.value })}
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    在此时间内不使用则卡码失效，-1 为永久有效
+                    {t("adminRegcodes.validityHelp")}
                   </p>
                 </div>
 
                 <div className="space-y-2">
-                  <Label>使用次数上限</Label>
+                  <Label>{t("adminRegcodes.useCountLimitLabel")}</Label>
                   <Input
                     type="number"
                     value={createData.useCountLimit}
                     onChange={(e) => setCreateData({ ...createData, useCountLimit: e.target.value })}
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    该卡码可以被使用的总次数，-1 为无限制
+                    {t("adminRegcodes.useCountLimitHelp")}
                   </p>
                 </div>
 
                 <div className="space-y-2">
-                  <Label>生成数量</Label>
+                  <Label>{t("adminRegcodes.countLabel")}</Label>
                   <Input
                     type="number"
                     value={createData.count}
@@ -649,45 +616,45 @@ export default function AdminRegcodesPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label>指定 Web 用户名</Label>
+                  <Label>{t("adminRegcodes.targetUsernameLabel")}</Label>
                   <Input
                     value={createData.targetUsername}
                     onChange={(e) => setCreateData({ ...createData, targetUsername: e.target.value })}
-                    placeholder="留空则不限制；仅该 Web 用户名可用"
+                    placeholder={t("adminRegcodes.targetUsernamePlaceholder")}
                   />
                   <p className="text-[11px] text-muted-foreground">
-                    与下面 TG 用户名 / TG ID 三选一；目标用户名比较时不区分大小写。
+                    {t("adminRegcodes.targetUsernameHelp")}
                   </p>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label>指定 TG 用户名</Label>
+                    <Label>{t("adminRegcodes.targetTgUsernameLabel")}</Label>
                     <Input
                       value={createData.targetTelegramUsername}
                       onChange={(e) => setCreateData({ ...createData, targetTelegramUsername: e.target.value })}
-                      placeholder="如 username，不需要 @"
+                      placeholder={t("adminRegcodes.targetTgUsernamePlaceholder")}
                     />
-                    <p className="text-[11px] text-muted-foreground">用户注册或兑换时绑定的 Telegram 用户名必须匹配。</p>
+                    <p className="text-[11px] text-muted-foreground">{t("adminRegcodes.targetTgUsernameHelp")}</p>
                   </div>
                   <div className="space-y-2">
-                    <Label>指定 TG ID</Label>
+                    <Label>{t("adminRegcodes.targetTgIdLabel")}</Label>
                     <Input
                       value={createData.targetTelegramId}
                       onChange={(e) => setCreateData({ ...createData, targetTelegramId: e.target.value })}
-                      placeholder="如 123456789"
+                      placeholder={t("adminRegcodes.targetTgIdPlaceholder")}
                       inputMode="numeric"
                     />
-                    <p className="text-[11px] text-muted-foreground">最稳定的指名方式；注册时需先完成 Telegram 绑定码验证。</p>
+                    <p className="text-[11px] text-muted-foreground">{t("adminRegcodes.targetTgIdHelp")}</p>
                   </div>
                 </div>
 
                 <div className="space-y-2 rounded-xl border border-border/80 bg-muted/30 p-3">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <Label>生成假卡码 / 诱饵码</Label>
+                      <Label>{t("adminRegcodes.decoyLabel")}</Label>
                       <p className="mt-1 text-[11px] text-muted-foreground">
-                        用户使用后会按 [SAR].regcode_decoy_action 执行安全动作。
+                        {t("adminRegcodes.decoyHelp")}
                       </p>
                     </div>
                     <Switch checked={createDecoy} onCheckedChange={setCreateDecoy} />
@@ -696,62 +663,61 @@ export default function AdminRegcodesPage() {
 
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label>随机算法</Label>
+                    <Label>{t("adminRegcodes.randomAlgoLabel")}</Label>
                     <Select value={createData.randomAlgorithm || "default"} onValueChange={(v) => setCreateData({ ...createData, randomAlgorithm: v === "default" ? "" : v })}>
-                      <SelectTrigger><SelectValue placeholder="使用配置默认" /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder={t("adminRegcodes.randomAlgoPlaceholder")} /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="default">使用配置默认</SelectItem>
-                        <SelectItem value="base32-20">base32-20 推荐</SelectItem>
-                        <SelectItem value="base32-24">base32-24 高强度</SelectItem>
-                        <SelectItem value="base32-32">base32-32 超高强度</SelectItem>
-                        <SelectItem value="hex32">hex32 128-bit</SelectItem>
-                        <SelectItem value="hex40">hex40 长码</SelectItem>
-                        <SelectItem value="hex20">hex20 旧默认</SelectItem>
-                        <SelectItem value="base32-16">base32-16 短码</SelectItem>
-                        <SelectItem value="alnum-24">alnum-24 高强度</SelectItem>
-                        <SelectItem value="alnum-16">alnum-16</SelectItem>
-                        <SelectItem value="alnum-32">alnum-32 超高强度</SelectItem>
-                        <SelectItem value="urlsafe-24">urlsafe-24</SelectItem>
-                        <SelectItem value="urlsafe-32">urlsafe-32</SelectItem>
-                        <SelectItem value="digits-16">digits-16</SelectItem>
-                        <SelectItem value="digits-12">digits-12</SelectItem>
-                        <SelectItem value="symbols-16">symbols-16 含特殊字符</SelectItem>
-                        <SelectItem value="symbols-24">symbols-24 含特殊字符</SelectItem>
-                        <SelectItem value="uuid">uuid</SelectItem>
-                        <SelectItem value="legacy-sha1">legacy-sha1</SelectItem>
+                        <SelectItem value="default">{t("adminRegcodes.algoDefault")}</SelectItem>
+                        <SelectItem value="base32-20">{t("adminRegcodes.algoBase32_20")}</SelectItem>
+                        <SelectItem value="base32-24">{t("adminRegcodes.algoBase32_24")}</SelectItem>
+                        <SelectItem value="base32-32">{t("adminRegcodes.algoBase32_32")}</SelectItem>
+                        <SelectItem value="hex32">{t("adminRegcodes.algoHex32")}</SelectItem>
+                        <SelectItem value="hex40">{t("adminRegcodes.algoHex40")}</SelectItem>
+                        <SelectItem value="hex20">{t("adminRegcodes.algoHex20")}</SelectItem>
+                        <SelectItem value="base32-16">{t("adminRegcodes.algoBase32_16")}</SelectItem>
+                        <SelectItem value="alnum-24">{t("adminRegcodes.algoAlnum24")}</SelectItem>
+                        <SelectItem value="alnum-16">{t("adminRegcodes.algoAlnum16")}</SelectItem>
+                        <SelectItem value="alnum-32">{t("adminRegcodes.algoAlnum32")}</SelectItem>
+                        <SelectItem value="urlsafe-24">{t("adminRegcodes.algoUrlsafe24")}</SelectItem>
+                        <SelectItem value="urlsafe-32">{t("adminRegcodes.algoUrlsafe32")}</SelectItem>
+                        <SelectItem value="digits-16">{t("adminRegcodes.algoDigits16")}</SelectItem>
+                        <SelectItem value="digits-12">{t("adminRegcodes.algoDigits12")}</SelectItem>
+                        <SelectItem value="symbols-16">{t("adminRegcodes.algoSymbols16")}</SelectItem>
+                        <SelectItem value="symbols-24">{t("adminRegcodes.algoSymbols24")}</SelectItem>
+                        <SelectItem value="uuid">{t("adminRegcodes.algoUuid")}</SelectItem>
+                        <SelectItem value="legacy-sha1">{t("adminRegcodes.algoLegacySha1")}</SelectItem>
                       </SelectContent>
                     </Select>
                     <p className="text-[11px] text-muted-foreground">{selectedAlgorithmDescription}</p>
                   </div>
                   <div className="space-y-2">
-                    <Label>自定义格式</Label>
+                    <Label>{t("adminRegcodes.customFormatLabel")}</Label>
                     <Input
                       value={createData.format}
                       onChange={(e) => setCreateData({ ...createData, format: e.target.value })}
-                      placeholder="如 TW-{type}-{random}"
+                      placeholder={t("adminRegcodes.customFormatPlaceholder")}
                     />
                   </div>
                 </div>
                 <div className="rounded-xl border bg-muted/30 p-3 text-[11px] text-muted-foreground">
-                  <p className="font-medium text-foreground">格式说明</p>
-                  <p className="mt-1">可直接写自定义文本，例如 <code>VIP-{'{random}'}</code>、<code>银河列车-{'{type}'}-{'{random}'}</code>。</p>
-                  <p><code>{'{random}'}</code>：按所选随机算法生成的随机部分。</p>
-                  <p><code>{'{type}'}</code>：卡码类型，REG / REN / VIP。</p>
-                  <p><code>{'{days}'}</code>：账号有效天数，-1 表示永久。</p>
-                  <p><code>{'{index}'}</code>：本次批量生成序号，从 1 开始。</p>
-                  <p><code>{'{validity}'}</code>：卡码自身有效期小时数；<code>{'{limit}'}</code>：使用次数上限。</p>
-                  <p className="mt-1">留空则使用配置管理中的默认格式。格式中没有 <code>{'{random}'}</code> 时，后端会自动追加随机部分。</p>
+                  <p className="font-medium text-foreground">{t("adminRegcodes.formatHintTitle")}</p>
+                  <p className="mt-1">{t("adminRegcodes.formatHintRandom")}</p>
+                  <p>{t("adminRegcodes.formatHintType")}</p>
+                  <p>{t("adminRegcodes.formatHintDays")}</p>
+                  <p>{t("adminRegcodes.formatHintIndex")}</p>
+                  <p>{t("adminRegcodes.formatHintValidityLimit")}</p>
+                  <p className="mt-1">{t("adminRegcodes.formatHintFallback")}</p>
                 </div>
 
                 {createdCodes.length > 0 && (
                   <div className="mt-4 space-y-2 p-3 bg-muted/50 rounded-xl border border-border">
                     <div className="flex items-center justify-between gap-2">
-                      <Label className="text-xs">已生成的代码</Label>
+                      <Label className="text-xs">{t("adminRegcodes.generatedCodesLabel")}</Label>
                       <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => {
                         navigator.clipboard.writeText(createdCodes.join("\n"));
-                        toast({ title: `已复制 ${createdCodes.length} 个卡码` });
+                        toast({ title: t("adminRegcodes.copiedCount", { count: createdCodes.length }) });
                       }}>
-                        <Copy className="mr-1 h-3.5 w-3.5" /> 复制全部
+                        <Copy className="mr-1 h-3.5 w-3.5" /> {t("adminRegcodes.copyAll")}
                       </Button>
                     </div>
                     <div className="max-h-40 overflow-y-auto space-y-2 pr-1">
@@ -773,10 +739,10 @@ export default function AdminRegcodesPage() {
 
             <DialogFooter className="mt-4">
               <Button variant="outline" onClick={() => setCreateOpen(false)}>
-                取消
+                {t("common.cancel")}
               </Button>
               <Button onClick={handleCreate} disabled={isCreating} className="min-w-[80px]">
-                {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : "立即生成"}
+                {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : t("adminRegcodes.generateNow")}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -788,12 +754,12 @@ export default function AdminRegcodesPage() {
       {viewMode === "invitecodes" ? (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
-            <CardTitle className="text-lg">邀请码列表</CardTitle>
+            <CardTitle className="text-lg">{t("adminRegcodes.inviteListTitle")}</CardTitle>
             <div className="flex items-center gap-2">
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  placeholder="搜索邀请码 / 用户名 / UID"
+                  placeholder={t("adminRegcodes.inviteSearchPlaceholder")}
                   value={inviteSearch}
                   onChange={(e) => setInviteSearch(e.target.value)}
                   className="h-8 w-48 pl-8 text-xs"
@@ -801,7 +767,7 @@ export default function AdminRegcodesPage() {
               </div>
               <Button variant="outline" size="sm" onClick={() => void loadInviteCodes()} disabled={inviteCodesLoading}>
                 {inviteCodesLoading ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
-                刷新
+                {t("adminRegcodes.refresh")}
               </Button>
             </div>
           </CardHeader>
@@ -812,7 +778,7 @@ export default function AdminRegcodesPage() {
               </div>
             ) : inviteCodes.length === 0 ? (
               <div className="flex h-64 items-center justify-center text-muted-foreground">
-                暂无邀请码
+                {t("adminRegcodes.noInviteCodes")}
               </div>
             ) : (() => {
               const lowerSearch = inviteSearch.toLowerCase().trim();
@@ -830,7 +796,7 @@ export default function AdminRegcodesPage() {
               if (filtered.length === 0) {
                 return (
                   <div className="flex h-40 items-center justify-center text-muted-foreground">
-                    没有匹配的邀请码
+                    {t("adminRegcodes.noMatchInviteCodes")}
                   </div>
                 );
               }
@@ -847,42 +813,42 @@ export default function AdminRegcodesPage() {
                       </div>
                       <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
                         <div>
-                          <p className="text-xs text-muted-foreground">邀请者</p>
+                          <p className="text-xs text-muted-foreground">{t("adminRegcodes.colInviter")}</p>
                           <p className="mt-1">{userLabel(code.inviter_username, code.inviter_uid)}</p>
                         </div>
                         <div>
-                          <p className="text-xs text-muted-foreground">天数</p>
+                          <p className="text-xs text-muted-foreground">{t("adminRegcodes.colDays")}</p>
                           <p className="mt-1">{formatRegcodeDays(code.days)}</p>
                         </div>
                         <div>
-                          <p className="text-xs text-muted-foreground">使用次数</p>
+                          <p className="text-xs text-muted-foreground">{t("adminRegcodes.colUseCount")}</p>
                           <p className="mt-1">{code.use_count} / {code.use_count_limit === -1 ? "∞" : code.use_count_limit}</p>
                         </div>
                         <div>
-                          <p className="text-xs text-muted-foreground">状态</p>
+                          <p className="text-xs text-muted-foreground">{t("adminRegcodes.colStatus")}</p>
                           <p className="mt-1">
-                            {code.active ? <Badge variant="success">可用</Badge> : <Badge variant="destructive">已禁用</Badge>}
+                            {code.active ? <Badge variant="success">{t("adminRegcodes.statusAvailable")}</Badge> : <Badge variant="destructive">{t("adminRegcodes.statusDisabled")}</Badge>}
                           </p>
                         </div>
                         {code.target_username && (
                           <div className="col-span-2">
-                            <p className="text-xs text-muted-foreground">指定用户</p>
+                            <p className="text-xs text-muted-foreground">{t("adminRegcodes.colTargetUser")}</p>
                             <p className="mt-1">{userLabel(code.target_username, code.target_uid)}</p>
                           </div>
                         )}
                         {code.used_by_uid && (
                           <div>
-                            <p className="text-xs text-muted-foreground">使用者</p>
+                            <p className="text-xs text-muted-foreground">{t("adminRegcodes.colUsedBy")}</p>
                             <p className="mt-1">{userLabel(code.used_by_username, code.used_by_uid)}</p>
                           </div>
                         )}
                         <div>
-                          <p className="text-xs text-muted-foreground">创建时间</p>
+                          <p className="text-xs text-muted-foreground">{t("adminRegcodes.createdAt")}</p>
                           <p className="mt-1">{formatDate(code.created_at)}</p>
                         </div>
                         {code.expires_at && (
                           <div>
-                            <p className="text-xs text-muted-foreground">过期时间</p>
+                            <p className="text-xs text-muted-foreground">{t("adminRegcodes.colExpiresAt")}</p>
                             <p className="mt-1">{formatDate(code.expires_at)}</p>
                           </div>
                         )}
@@ -894,15 +860,15 @@ export default function AdminRegcodesPage() {
                   <table className="w-full min-w-[900px]">
                     <thead>
                       <tr className="border-b bg-muted/50">
-                        <th className="px-4 py-3 text-left text-sm font-medium">邀请码</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium">邀请者</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium">天数</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium">使用次数</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium">指定用户</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium">使用者</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium">状态</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium">过期时间</th>
-                        <th className="px-4 py-3 text-left text-sm font-medium">创建时间</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium">{t("adminRegcodes.colInviteCode")}</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium">{t("adminRegcodes.colInviter")}</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium">{t("adminRegcodes.colDays")}</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium">{t("adminRegcodes.colUseCount")}</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium">{t("adminRegcodes.colTargetUser")}</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium">{t("adminRegcodes.colUsedBy")}</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium">{t("adminRegcodes.colStatus")}</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium">{t("adminRegcodes.colExpiresAt")}</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium">{t("adminRegcodes.colCreatedAt")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -922,9 +888,9 @@ export default function AdminRegcodesPage() {
                           <td className="px-4 py-3 text-sm">{userLabel(code.target_username, code.target_uid)}</td>
                           <td className="px-4 py-3 text-sm">{userLabel(code.used_by_username, code.used_by_uid)}</td>
                           <td className="px-4 py-3">
-                            {code.active ? <Badge variant="success">可用</Badge> : <Badge variant="destructive">已禁用</Badge>}
+                            {code.active ? <Badge variant="success">{t("adminRegcodes.statusAvailable")}</Badge> : <Badge variant="destructive">{t("adminRegcodes.statusDisabled")}</Badge>}
                           </td>
-                          <td className="px-4 py-3 text-sm text-muted-foreground">{code.expires_at ? formatDate(code.expires_at) : "永久"}</td>
+                          <td className="px-4 py-3 text-sm text-muted-foreground">{code.expires_at ? formatDate(code.expires_at) : t("adminRegcodes.permanent")}</td>
                           <td className="px-4 py-3 text-sm text-muted-foreground">{formatDate(code.created_at)}</td>
                         </tr>
                       ))}
@@ -932,7 +898,7 @@ export default function AdminRegcodesPage() {
                   </table>
                 </div>
                 <div className="p-3 text-center text-sm text-muted-foreground">
-                  {lowerSearch ? `匹配 ${filtered.length} / ${inviteCodesTotal} 个邀请码` : `共 ${inviteCodesTotal} 个邀请码`}
+                  {lowerSearch ? t("adminRegcodes.matchInviteCount", { count: filtered.length, total: inviteCodesTotal }) : t("adminRegcodes.totalInviteCount", { total: inviteCodesTotal })}
                 </div>
               </>
               );
@@ -943,17 +909,17 @@ export default function AdminRegcodesPage() {
       <>
       <div className="flex flex-col gap-2 rounded-xl border bg-muted/30 p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
         <span className="text-muted-foreground">
-          已选择 {selectedRegcodes.length} 个；未选择时导出当前页全部 {regcodes.length} 个。
+          {t("adminRegcodes.selectionSummary", { selected: selectedRegcodes.length, total: regcodes.length })}
         </span>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto">
           <Button className="flex-1 sm:flex-none" variant="outline" size="sm" onClick={() => copyRegcodes(selectedRegcodes.length > 0 ? selectedRegcodes : regcodes)} disabled={regcodes.length === 0}>
-            <Copy className="mr-2 h-4 w-4" /> 复制卡码
+            <Copy className="mr-2 h-4 w-4" /> {t("adminRegcodes.copyCodes")}
           </Button>
           <Button className="flex-1 sm:flex-none" variant="outline" size="sm" onClick={() => exportSelected("txt")} disabled={regcodes.length === 0}>
-            <Download className="mr-2 h-4 w-4" /> 导出 TXT
+            <Download className="mr-2 h-4 w-4" /> {t("adminRegcodes.exportTxt")}
           </Button>
           <Button className="flex-1 sm:flex-none" variant="outline" size="sm" onClick={() => exportSelected("json")} disabled={regcodes.length === 0}>
-            <Download className="mr-2 h-4 w-4" /> 导出 JSON
+            <Download className="mr-2 h-4 w-4" /> {t("adminRegcodes.exportJson")}
           </Button>
           <Button
             className="flex-1 sm:flex-none"
@@ -963,7 +929,7 @@ export default function AdminRegcodesPage() {
             disabled={selectedRegcodes.length === 0 || isBatchDeleting}
           >
             {isBatchDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-            批量删除
+            {t("adminRegcodes.batchDelete")}
           </Button>
         </div>
       </div>
@@ -971,52 +937,52 @@ export default function AdminRegcodesPage() {
       <Card>
         <CardContent className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(240px,1.2fr)_0.8fr_0.8fr_0.8fr_0.7fr_auto]">
           <Input
-            placeholder="搜索卡码 / 备注 / 使用 UID / 指名 TG"
+            placeholder={t("adminRegcodes.searchRegcodePlaceholder")}
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           />
           <Select value={filterType} onValueChange={(v) => { setFilterType(v); setPage(1); }}>
-            <SelectTrigger><SelectValue placeholder="类型" /></SelectTrigger>
+            <SelectTrigger><SelectValue placeholder={t("adminRegcodes.filterTypePlaceholder")} /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">全部类型</SelectItem>
-              <SelectItem value="1">注册码</SelectItem>
-              <SelectItem value="2">续期码</SelectItem>
-              <SelectItem value="3">白名单码</SelectItem>
+              <SelectItem value="all">{t("adminRegcodes.allTypes")}</SelectItem>
+              <SelectItem value="1">{t("adminRegcodes.typeRegcode")}</SelectItem>
+              <SelectItem value="2">{t("adminRegcodes.typeRenewcode")}</SelectItem>
+              <SelectItem value="3">{t("adminRegcodes.typeWhitelistcode")}</SelectItem>
             </SelectContent>
           </Select>
           <Select value={filterStatus} onValueChange={(v) => { setFilterStatus(v); setPage(1); }}>
-            <SelectTrigger><SelectValue placeholder="状态" /></SelectTrigger>
+            <SelectTrigger><SelectValue placeholder={t("adminRegcodes.filterStatusPlaceholder")} /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">全部状态</SelectItem>
-                <SelectItem value="available">可用</SelectItem>
-                <SelectItem value="active">启用中</SelectItem>
-                <SelectItem value="decoy">诱饵码</SelectItem>
-                <SelectItem value="used_up">已用完</SelectItem>
-              <SelectItem value="expired">已过期</SelectItem>
-              <SelectItem value="disabled">已禁用</SelectItem>
+                <SelectItem value="all">{t("adminRegcodes.allStatus")}</SelectItem>
+                <SelectItem value="available">{t("adminRegcodes.statusAvailable")}</SelectItem>
+                <SelectItem value="active">{t("adminRegcodes.statusActive")}</SelectItem>
+                <SelectItem value="decoy">{t("adminRegcodes.statusDecoy")}</SelectItem>
+                <SelectItem value="used_up">{t("adminRegcodes.statusUsedUp")}</SelectItem>
+              <SelectItem value="expired">{t("adminRegcodes.statusExpired")}</SelectItem>
+              <SelectItem value="disabled">{t("adminRegcodes.statusDisabled")}</SelectItem>
             </SelectContent>
           </Select>
           <Select value={sort} onValueChange={setSort}>
-            <SelectTrigger><SelectValue placeholder="排序" /></SelectTrigger>
+            <SelectTrigger><SelectValue placeholder={t("adminRegcodes.sortPlaceholder")} /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="created_time">创建时间</SelectItem>
-              <SelectItem value="code">卡码</SelectItem>
-              <SelectItem value="type">类型</SelectItem>
-              <SelectItem value="days">天数</SelectItem>
-              <SelectItem value="use_count">使用次数</SelectItem>
-              <SelectItem value="note">备注</SelectItem>
+              <SelectItem value="created_time">{t("adminRegcodes.sortCreatedTime")}</SelectItem>
+              <SelectItem value="code">{t("adminRegcodes.sortCode")}</SelectItem>
+              <SelectItem value="type">{t("adminRegcodes.sortType")}</SelectItem>
+              <SelectItem value="days">{t("adminRegcodes.sortDays")}</SelectItem>
+              <SelectItem value="use_count">{t("adminRegcodes.sortUseCount")}</SelectItem>
+              <SelectItem value="note">{t("adminRegcodes.sortNote")}</SelectItem>
             </SelectContent>
           </Select>
           <Select value={order} onValueChange={setOrder}>
-            <SelectTrigger><SelectValue placeholder="顺序" /></SelectTrigger>
+            <SelectTrigger><SelectValue placeholder={t("adminRegcodes.orderPlaceholder")} /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="desc">降序</SelectItem>
-              <SelectItem value="asc">升序</SelectItem>
+              <SelectItem value="desc">{t("adminRegcodes.orderDesc")}</SelectItem>
+              <SelectItem value="asc">{t("adminRegcodes.orderAsc")}</SelectItem>
             </SelectContent>
           </Select>
           <div className="flex gap-2 sm:col-span-2 lg:col-span-3 xl:col-span-1 xl:min-w-0">
-            <Button className="flex-1 md:flex-none" variant="outline" onClick={clearFilters}>重置</Button>
-            <Button className="flex-1 md:flex-none" variant="outline" onClick={() => void loadRegcodes()}>刷新</Button>
+            <Button className="flex-1 md:flex-none" variant="outline" onClick={clearFilters}>{t("adminRegcodes.reset")}</Button>
+            <Button className="flex-1 md:flex-none" variant="outline" onClick={() => void loadRegcodes()}>{t("adminRegcodes.refresh")}</Button>
           </div>
         </CardContent>
       </Card>
@@ -1029,7 +995,7 @@ export default function AdminRegcodesPage() {
             </div>
           ) : !regcodes || regcodes.length === 0 ? (
             <div className="flex h-64 items-center justify-center text-muted-foreground">
-              暂无注册码
+              {t("adminRegcodes.noRegcodes")}
             </div>
           ) : (
             <>
@@ -1051,8 +1017,8 @@ export default function AdminRegcodesPage() {
                         <span className="mt-2 flex flex-wrap gap-1">
                           {getTypeBadge(code.type)}
                           {getStatusBadge(code)}
-                          {regcodeTargetLabel(code) ? <Badge variant="secondary">仅 {regcodeTargetLabel(code)}</Badge> : null}
-                          {code.is_decoy ? <Badge variant="destructive">假卡码</Badge> : <Badge variant="outline">正常卡码</Badge>}
+                          {regcodeTargetLabel(code) ? <Badge variant="secondary">{t("adminRegcodes.onlyTargetPrefix")}{regcodeTargetLabel(code)}</Badge> : null}
+                          {code.is_decoy ? <Badge variant="destructive">{t("adminRegcodes.badgeFake")}</Badge> : <Badge variant="outline">{t("adminRegcodes.badgeNormal")}</Badge>}
                         </span>
                       </span>
                     </label>
@@ -1079,29 +1045,29 @@ export default function AdminRegcodesPage() {
 
                   <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
                     <div>
-                      <p className="text-xs text-muted-foreground">账号有效</p>
+                      <p className="text-xs text-muted-foreground">{t("adminRegcodes.accountValid")}</p>
                       <p className="mt-1">{formatRegcodeDays(code.days)}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground">卡码有效</p>
+                      <p className="text-xs text-muted-foreground">{t("adminRegcodes.codeValid")}</p>
                       <p className="mt-1">
                         {code.validity_time === -1 || code.validity_time === undefined
-                          ? "永久有效"
-                          : `${code.validity_time} 小时`}
+                          ? t("adminRegcodes.permanentValid")
+                          : t("adminRegcodes.hoursValue", { hours: code.validity_time })}
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground">使用次数</p>
+                      <p className="text-xs text-muted-foreground">{t("adminRegcodes.usageCount")}</p>
                       <p className="mt-1">{code.use_count || 0} / {code.use_count_limit === -1 ? "∞" : code.use_count_limit || "∞"}</p>
                     </div>
                     {regcodeUsedByLabel(code) && (
                       <div className="col-span-2">
-                        <p className="text-xs text-muted-foreground">使用者</p>
+                        <p className="text-xs text-muted-foreground">{t("adminRegcodes.usedByLabel")}</p>
                         <p className="mt-1 break-all">{regcodeUsedByLabel(code)}</p>
                       </div>
                     )}
                     <div>
-                      <p className="text-xs text-muted-foreground">创建时间</p>
+                      <p className="text-xs text-muted-foreground">{t("adminRegcodes.createdAt")}</p>
                       <p className="mt-1">{formatDate(code.created_time || code.created_at)}</p>
                     </div>
                   </div>
@@ -1110,7 +1076,7 @@ export default function AdminRegcodesPage() {
                     <Input
                       value={noteDrafts[code.code] ?? code.note ?? ""}
                       maxLength={120}
-                      placeholder="备注 / 名称"
+                      placeholder={t("adminRegcodes.notePlaceholder")}
                       className="h-9 min-w-0 text-xs"
                       onChange={(e) => setNoteDrafts((prev) => ({ ...prev, [code.code]: e.target.value }))}
                     />
@@ -1123,7 +1089,7 @@ export default function AdminRegcodesPage() {
                         size="icon"
                         className="h-9 w-9 shrink-0"
                         onClick={() => void openUsageDialog(code)}
-                        title={`${usedCount(code)} 人使用`}
+                        title={t("adminRegcodes.peopleUsed", { count: usedCount(code) })}
                       >
                         <Users className="h-4 w-4" />
                       </Button>
@@ -1155,14 +1121,14 @@ export default function AdminRegcodesPage() {
                         onChange={(e) => toggleSelectAll(e.target.checked)}
                       />
                     </th>
-                    <th className="px-4 py-3 text-left text-sm font-medium">注册码</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium">类型 / 备注</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium">账号有效天数</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium">注册码有效期</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium">使用次数</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium">状态 / 使用用户</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium">创建时间</th>
-                    <th className="px-4 py-3 text-right text-sm font-medium">操作</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">{t("adminRegcodes.colRegcode")}</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">{t("adminRegcodes.colTypeNote")}</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">{t("adminRegcodes.colAccountDays")}</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">{t("adminRegcodes.colCodeValidity")}</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">{t("adminRegcodes.colUseCount")}</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">{t("adminRegcodes.colStatusUser")}</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">{t("adminRegcodes.colCreatedAt")}</th>
+                    <th className="px-4 py-3 text-right text-sm font-medium">{t("adminRegcodes.colActions")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1194,14 +1160,14 @@ export default function AdminRegcodesPage() {
                         <div className="space-y-2">
                           <div className="flex flex-wrap gap-1">
                             {getTypeBadge(code.type)}
-                            {code.is_decoy ? <Badge variant="destructive">假卡码</Badge> : <Badge variant="outline">正常卡码</Badge>}
+                            {code.is_decoy ? <Badge variant="destructive">{t("adminRegcodes.badgeFake")}</Badge> : <Badge variant="outline">{t("adminRegcodes.badgeNormal")}</Badge>}
                           </div>
-                          {regcodeTargetLabel(code) ? <div className="truncate text-xs text-muted-foreground" title={regcodeTargetLabel(code)}>仅限：{regcodeTargetLabel(code)}</div> : null}
+                          {regcodeTargetLabel(code) ? <div className="truncate text-xs text-muted-foreground" title={regcodeTargetLabel(code)}>{t("adminRegcodes.onlyLimitPrefix")}{regcodeTargetLabel(code)}</div> : null}
                           <div className="flex gap-1">
                             <Input
                               value={noteDrafts[code.code] ?? code.note ?? ""}
                               maxLength={120}
-                              placeholder="备注 / 名称"
+                              placeholder={t("adminRegcodes.notePlaceholder")}
                               className="h-8 text-xs"
                               onChange={(e) => setNoteDrafts((prev) => ({ ...prev, [code.code]: e.target.value }))}
                             />
@@ -1214,8 +1180,8 @@ export default function AdminRegcodesPage() {
                       <td className="whitespace-nowrap px-4 py-3 align-top text-sm">{formatRegcodeDays(code.days)}</td>
                       <td className="whitespace-nowrap px-4 py-3 align-top text-sm">
                         {code.validity_time === -1 || code.validity_time === undefined 
-                          ? '永久有效' 
-                          : `${code.validity_time} 小时`}
+                          ? t("adminRegcodes.permanentValid") 
+                          : t("adminRegcodes.hoursValue", { hours: code.validity_time })}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 align-top text-sm">
                         {code.use_count || 0} / {code.use_count_limit === -1 ? '∞' : code.use_count_limit || '∞'}
@@ -1230,7 +1196,7 @@ export default function AdminRegcodesPage() {
                             onClick={() => void openUsageDialog(code)}
                           >
                             <Users className="mr-1 h-3.5 w-3.5" />
-                            {usedCount(code)} 人使用
+                            {t("adminRegcodes.peopleUsed", { count: usedCount(code) })}
                           </Button>
                         )}
                         {regcodeUsedByLabel(code) && (
@@ -1274,7 +1240,7 @@ export default function AdminRegcodesPage() {
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <span className="text-sm">
-            第 {page} 页，共 {pages} 页
+            {t("adminRegcodes.pageStatus", { page, pages })}
           </span>
           <Button
             variant="outline"
@@ -1292,7 +1258,7 @@ export default function AdminRegcodesPage() {
       <Dialog open={usageOpen} onOpenChange={setUsageOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>卡码使用者</DialogTitle>
+            <DialogTitle>{t("adminRegcodes.usageTitle")}</DialogTitle>
             <DialogDescription>
               {usageCode?.code}
             </DialogDescription>
@@ -1303,7 +1269,7 @@ export default function AdminRegcodesPage() {
             </div>
           ) : usageUsers.length === 0 && usageTelegramOnly.length === 0 ? (
             <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-              暂无使用者记录
+              {t("adminRegcodes.noUsageRecords")}
             </div>
           ) : (
             <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
@@ -1311,24 +1277,24 @@ export default function AdminRegcodesPage() {
                 <div key={`${user.uid || "missing"}-${index}`} className="rounded-xl border bg-muted/20 p-4">
                   {user.found ? (
                     <div className="grid gap-2 text-sm sm:grid-cols-2">
-                      <div className="font-medium">{user.username || "未知用户"}</div>
+                      <div className="font-medium">{user.username || t("adminRegcodes.unknownUser")}</div>
                       <div className="text-muted-foreground">UID: {user.uid}</div>
-                      <div>角色: {user.role_name || user.role}</div>
-                      <div>状态: {user.active ? "启用" : "禁用"}</div>
-                      <div>Telegram: {user.telegram_id ? "已绑定" : "未绑定"}</div>
-                      <div>Emby: {user.emby_id ? "已绑定" : user.pending_emby ? "待补建" : "未绑定"}</div>
-                      <div className="sm:col-span-2 text-muted-foreground">到期: {user.expire_status || "-"}</div>
+                      <div>{t("adminRegcodes.roleLabel")}{user.role_name || user.role}</div>
+                      <div>{t("adminRegcodes.statusLabelColon")}{user.active ? t("adminRegcodes.enabled") : t("adminRegcodes.disabled")}</div>
+                      <div>{t("adminRegcodes.telegramColon")}{user.telegram_id ? t("adminRegcodes.bound") : t("adminRegcodes.unbound")}</div>
+                      <div>{t("adminRegcodes.embyColon")}{user.emby_id ? t("adminRegcodes.bound") : user.pending_emby ? t("adminRegcodes.pendingEmby") : t("adminRegcodes.unbound")}</div>
+                      <div className="sm:col-span-2 text-muted-foreground">{t("adminRegcodes.expireColon")}{user.expire_status || "-"}</div>
                     </div>
                   ) : (
-                    <div className="text-sm text-muted-foreground">UID {user.uid} 的本地用户已不存在</div>
+                    <div className="text-sm text-muted-foreground">{t("adminRegcodes.localUserGone", { uid: user.uid })}</div>
                   )}
                 </div>
               ))}
               {usageTelegramOnly.map((item) => (
                 <div key={`tg-${item.telegram_id}`} className="rounded-xl border border-warning/30 bg-warning/10 p-4 text-sm">
-                  <div className="font-medium">仅记录到 Telegram 使用者</div>
+                  <div className="font-medium">{t("adminRegcodes.tgOnlyTitle")}</div>
                   <div className="mt-1 text-muted-foreground">TGID: {item.telegram_id}</div>
-                  <div className="mt-1 text-muted-foreground">当前没有本地用户绑定该 Telegram ID。</div>
+                  <div className="mt-1 text-muted-foreground">{t("adminRegcodes.tgOnlyHint")}</div>
                 </div>
               ))}
             </div>
@@ -1342,10 +1308,10 @@ export default function AdminRegcodesPage() {
                 disabled={clearingUsage}
               >
                 {clearingUsage ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="mr-2 h-3.5 w-3.5" />}
-                一键清理使用记录
+                {t("adminRegcodes.clearUsageBtn")}
               </Button>
             )}
-            <Button variant="outline" onClick={() => setUsageOpen(false)}>关闭</Button>
+            <Button variant="outline" onClick={() => setUsageOpen(false)}>{t("common.close")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -48,17 +48,19 @@ go run ./cmd/twilight api --host 0.0.0.0 --port 5000 --config config.toml
 
 systemd 部署对应三个服务单元：`twilight`、`twilight-bot`、`twilight-scheduler`（命名规则 `^twilight(-[a-z0-9]+)?$`，被 Git 更新后的自动重启逻辑复用）。具体部署步骤参见 [安装部署](../guides/install.md)。
 
-## 首个管理员引导
+## 管理员引导
 
-状态存储为空（用户数为 0）时，第一个通过 `POST /api/v1/users/register` 注册的用户会被引导为首个管理员。此「空库引导」通道即使在 `register_mode = false`（默认关闭注册）时也成立，因此不影响首次部署体验。
+管理员身份**只能**来自配置文件的 `Admin.uids` / `Admin.usernames` 列表。默认不配置时这两个列表为空，即系统中没有任何管理员，必须由运维显式指定。
 
-约束（`internal/api/auth_handlers.go`）：
+> 安全说明：旧版存在「空库引导」通道——状态存储为空时第一个注册的用户无条件成为管理员。该通道已被移除，因为它是一个抢注风险：生产部署后、运维注册前的窗口内，任何访问者抢先 `POST /api/v1/users/register` 即可拿到管理员权限。现在首个注册用户只是普通用户（`RoleNormal`），除非其 UID / 用户名命中配置列表才会在创建后被提升。
 
-- 若配置里通过 `Admin.usernames` 指定了初始管理员用户名，空库引导注册时必须使用其中之一，否则返回 403。
-- `Admin.uids` 在用户创建后按实际 UID 应用（因为注册前还不知道 UID）。
-- `cmd/twilight/main.go` 的 `applyConfiguredAdmins` 在启动时会遍历现有用户，把命中 `Admin.uids` 或 `Admin.usernames`（大小写不敏感）的账号强制设为 `RoleAdmin` 且 `Active=true`。这是把指定账号提权为管理员的稳定机制。
+机制（`internal/api/auth_handlers.go` + `internal/api/configured_admins.go`）：
 
-> 注意：旧文档描述的「从旧 Python `db/users.db` 只读导入 active 管理员做引导登录」「检测空 PostgreSQL + 已有 JSON 管理员时临时回退 JSON」等流程，当前代码中已不存在。引导管理员的唯一路径是上述空库注册 + 配置指定。
+- 注册成功后，`configuredAdminMatch` 按新用户的实际 UID / 用户名比对配置列表（大小写不敏感）；命中则在创建后提升为 `RoleAdmin` 且 `Active=true`。
+- `applyConfiguredAdmins` 在启动和配置热重载时遍历现有用户，把命中 `Admin.uids` / `Admin.usernames` 的账号强制设为 `RoleAdmin` 且 `Active=true`。这是把指定账号提权为管理员的稳定机制。
+- `Admin.uids` / `Admin.usernames` 以及 `[SystemUpdate].repo_url` 属于**受保护配置字段**：网页端配置接口（schema PUT / raw TOML PUT）无法改写它们，提交的新值会被剥离或就地还原为磁盘原值，只能由运维在配置文件 / 环境变量侧设定。这避免被盗管理员会话自行增删管理员或把 git 自动更新的来源仓库指向攻击者 fork。
+
+> 注意：旧文档描述的「从旧 Python `db/users.db` 只读导入 active 管理员做引导登录」「检测空 PostgreSQL + 已有 JSON 管理员时临时回退 JSON」「空库注册首用户成为管理员」等流程，当前代码中均已不存在。引导管理员的唯一路径是配置文件指定 `Admin.uids` / `Admin.usernames`。
 
 ## 配置解析规则
 

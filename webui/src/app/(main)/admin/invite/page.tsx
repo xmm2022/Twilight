@@ -312,15 +312,15 @@ export default function AdminInviteTreePage() {
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold">
             <GitBranch className="h-5 w-5" />
-            邀请森林
+            {t("adminInvite.title")}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            查看邀请关系、根节点和下级数量，并对指定分支执行级联操作。
+            {t("adminInvite.description")}
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => void reload()} disabled={loading}>
           {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-          刷新
+          {t("common.refresh")}
         </Button>
       </div>
 
@@ -329,14 +329,14 @@ export default function AdminInviteTreePage() {
           <div className="grid gap-2 sm:grid-cols-[minmax(220px,1fr)_220px]">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索用户名 / UID / Telegram ID" className="pl-9" />
+              <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("adminInvite.searchPlaceholder")} className="pl-9" />
             </div>
             <select
               value={rootFilter}
               onChange={(event) => setRootFilter(event.target.value === "all" ? "all" : Number(event.target.value))}
               className="h-10 rounded-md border bg-background px-3 text-sm"
             >
-              <option value="all">全部根节点</option>
+              <option value="all">{t("adminInvite.allRoots")}</option>
               {rootOptions.map(({ uid, node }) => (
                 <option key={uid} value={uid}>
                   #{uid} {node.username}
@@ -345,9 +345,9 @@ export default function AdminInviteTreePage() {
             </select>
           </div>
           <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-            <Badge variant="outline">{forest?.nodes.length ?? 0} 用户</Badge>
-            <Badge variant="outline">{forest?.edges.length ?? 0} 关系</Badge>
-            <Badge variant="outline">{forest?.roots.length ?? 0} 根节点</Badge>
+            <Badge variant="outline">{t("adminInvite.usersCount", { count: forest?.nodes.length ?? 0 })}</Badge>
+            <Badge variant="outline">{t("adminInvite.relationsCount", { count: forest?.edges.length ?? 0 })}</Badge>
+            <Badge variant="outline">{t("adminInvite.rootsCount", { count: forest?.roots.length ?? 0 })}</Badge>
           </div>
         </CardContent>
       </Card>
@@ -367,8 +367,8 @@ export default function AdminInviteTreePage() {
         <Card className="border-dashed">
           <CardContent className="space-y-2 p-10 text-center">
             <GitBranch className="mx-auto h-10 w-10 text-muted-foreground" />
-            <p className="font-medium">暂无邀请关系</p>
-            <p className="text-xs text-muted-foreground">邀请码被使用后，用户关系会显示在这里。</p>
+            <p className="font-medium">{t("adminInvite.empty")}</p>
+            <p className="text-xs text-muted-foreground">{t("adminInvite.emptyDescription")}</p>
           </CardContent>
         </Card>
       ) : (
@@ -378,13 +378,13 @@ export default function AdminInviteTreePage() {
               <table className="w-full min-w-[920px] text-sm">
                 <thead>
                   <tr className="border-b bg-muted/50">
-                    <th className="px-4 py-3 text-left font-medium">用户</th>
-                    <th className="px-4 py-3 text-left font-medium">角色</th>
-                    <th className="px-4 py-3 text-left font-medium">状态</th>
+                    <th className="px-4 py-3 text-left font-medium">{t("adminInvite.user")}</th>
+                    <th className="px-4 py-3 text-left font-medium">{t("adminInvite.role")}</th>
+                    <th className="px-4 py-3 text-left font-medium">{t("adminInvite.status")}</th>
                     <th className="px-4 py-3 text-left font-medium">Emby</th>
                     <th className="px-4 py-3 text-left font-medium">Telegram</th>
-                    <th className="px-4 py-3 text-left font-medium">下级</th>
-                    <th className="px-4 py-3 text-right font-medium">操作</th>
+                    <th className="px-4 py-3 text-left font-medium">{t("adminInvite.children")}</th>
+                    <th className="px-4 py-3 text-right font-medium">{t("adminInvite.actions")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -421,16 +421,16 @@ export default function AdminInviteTreePage() {
                         </td>
                         <td className="px-4 py-3">{t(roleLabelKey(node.role))}</td>
                         <td className="px-4 py-3">
-                          <Badge variant={node.active ? "success" : "destructive"}>{node.active ? "启用" : "禁用"}</Badge>
+                          <Badge variant={node.active ? "success" : "destructive"}>{node.active ? t("adminInvite.enable") : t("adminInvite.disable")}</Badge>
                         </td>
                         <td className="px-4 py-3">
-                          <Badge variant={node.emby_id ? "outline" : "secondary"}>{node.emby_id ? "已绑定" : "未绑定"}</Badge>
+                          <Badge variant={node.emby_id ? "outline" : "secondary"}>{node.emby_id ? t("adminInvite.bound") : t("adminInvite.unbound")}</Badge>
                         </td>
                         <td className="px-4 py-3">{node.telegram_id || "-"}</td>
-                        <td className="px-4 py-3">{childCount} 直属 / {descendants} 总计</td>
+                        <td className="px-4 py-3">{t("adminInvite.childSummary", { direct: childCount, total: descendants })}</td>
                         <td className="px-4 py-3 text-right">
                           <Button variant="outline" size="sm" onClick={() => setSelectedUid(node.uid)}>
-                            详情
+                            {t("adminInvite.details")}
                           </Button>
                         </td>
                       </tr>
@@ -440,7 +440,7 @@ export default function AdminInviteTreePage() {
               </table>
             </div>
             {rows.length === 0 && (
-              <div className="p-8 text-center text-sm text-muted-foreground">没有匹配当前筛选的用户。</div>
+              <div className="p-8 text-center text-sm text-muted-foreground">{t("adminInvite.noMatches")}</div>
             )}
           </CardContent>
         </Card>
@@ -455,48 +455,48 @@ export default function AdminInviteTreePage() {
           {selected && maps && (
             <div className="space-y-3 text-sm">
               <div className="flex flex-wrap gap-2">
-                <Badge variant={selected.active ? "success" : "secondary"}>{selected.active ? "启用" : "禁用"}</Badge>
-                <Badge variant={selected.emby_id ? "outline" : "secondary"}>{selected.emby_id ? "已绑定 Emby" : "无 Emby"}</Badge>
-                {selected.is_root && <Badge>根节点</Badge>}
+                <Badge variant={selected.active ? "success" : "secondary"}>{selected.active ? t("adminInvite.enable") : t("adminInvite.disable")}</Badge>
+                <Badge variant={selected.emby_id ? "outline" : "secondary"}>{selected.emby_id ? t("adminInvite.boundEmby") : t("adminInvite.noEmby")}</Badge>
+                {selected.is_root && <Badge>{t("adminInvite.root")}</Badge>}
               </div>
               <dl className="space-y-2">
                 <div className="flex justify-between gap-3">
-                  <dt className="text-muted-foreground">角色</dt>
+                  <dt className="text-muted-foreground">{t("adminInvite.role")}</dt>
                   <dd>{t(roleLabelKey(selected.role))}</dd>
                 </div>
                 <div className="flex justify-between gap-3">
-                  <dt className="text-muted-foreground">注册时间</dt>
+                  <dt className="text-muted-foreground">{t("adminInvite.registeredAt")}</dt>
                   <dd>{formatUnix(selected.register_time, locale, t("adminInvite.permanent"))}</dd>
                 </div>
                 <div className="flex justify-between gap-3">
-                  <dt className="text-muted-foreground">到期时间</dt>
+                  <dt className="text-muted-foreground">{t("adminInvite.expiresAt")}</dt>
                   <dd>{formatUnix(selected.expired_at, locale, t("adminInvite.permanent"))}</dd>
                 </div>
                 <div className="flex justify-between gap-3">
-                  <dt className="text-muted-foreground">根节点</dt>
+                  <dt className="text-muted-foreground">{t("adminInvite.root")}</dt>
                   <dd>{findRoot(selected.uid, maps.parent)}</dd>
                 </div>
                 <div className="flex justify-between gap-3">
-                  <dt className="text-muted-foreground">子树</dt>
-                  <dd>{subtreeSize(selected.uid, maps.children)} 个下级</dd>
+                  <dt className="text-muted-foreground">{t("adminInvite.subtree")}</dt>
+                  <dd>{t("adminInvite.subtreeChildren", { count: subtreeSize(selected.uid, maps.children) })}</dd>
                 </div>
               </dl>
               <div className="grid gap-2 pt-2">
                 <Button variant="outline" size="sm" onClick={() => void handleDetach()} disabled={selected.is_root}>
                   <Ban className="mr-2 h-4 w-4" />
-                  {selected.is_root ? "已是根节点" : "解除上级"}
+                  {selected.is_root ? t("adminInvite.alreadyRoot") : t("adminInvite.detach")}
                 </Button>
                 <Button variant="outline" size="sm" onClick={() => void handleCascadeToggle(false)}>
                   <Ban className="mr-2 h-4 w-4" />
-                  级联禁用
+                  {t("adminInvite.cascadeDisable")}
                 </Button>
                 <Button variant="outline" size="sm" onClick={() => void handleCascadeToggle(true)}>
                   <ShieldCheck className="mr-2 h-4 w-4" />
-                  级联启用
+                  {t("adminInvite.cascadeEnable")}
                 </Button>
                 <Button variant="destructive" size="sm" onClick={() => void handleCascadeDelete()}>
                   <Trash2 className="mr-2 h-4 w-4" />
-                  级联删除
+                  {t("adminInvite.cascadeDelete")}
                 </Button>
               </div>
             </div>
@@ -517,7 +517,7 @@ export default function AdminInviteTreePage() {
             onChange={(event) => setDepthPrompt((current) => current ? { ...current, value: event.target.value } : current)}
           />
           <DialogFooter>
-            <Button variant="outline" onClick={() => closeDepthPrompt(null)}>取消</Button>
+            <Button variant="outline" onClick={() => closeDepthPrompt(null)}>{t("common.cancel")}</Button>
             <Button onClick={() => closeDepthPrompt(depthPrompt?.value || "1")}>{depthPrompt?.confirmLabel || t("adminInvite.continue")}</Button>
           </DialogFooter>
         </DialogContent>

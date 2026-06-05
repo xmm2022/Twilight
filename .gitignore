@@ -163,3 +163,13 @@ __pycache__/
 *.pyc
 *.pyo
 
+# Python virtual environments（显式忽略，不依赖 venv 自带的 .gitignore）
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+

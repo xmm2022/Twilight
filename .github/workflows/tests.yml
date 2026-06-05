@@ -6,6 +6,16 @@ on:
   pull_request:
     branches: [ main, golang, develop ]
 
+# 最小权限：CI 只需读取仓库内容。显式收口避免默认的宽松 GITHUB_TOKEN 权限
+# （写 contents / packages / id-token 等）被某个被攻陷的第三方 action 滥用。
+permissions:
+  contents: read
+
+# 同一分支 / PR 的新推送取消仍在跑的旧运行，省 runner 配额也避免过期结果。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   go-test:
     runs-on: ${{ matrix.os }}
@@ -62,6 +72,17 @@ jobs:
 
     - name: Run govulncheck
       run: govulncheck ./...
+
+    - name: Check gofmt
+      # 仓库以 LF 存储 Go 源码（.gitattributes / autocrlf），ubuntu runner 检出即 LF，
+      # 因此这里的 gofmt 不会被 CRLF 噪声干扰。任何未格式化的文件都会被列出并 fail。
+      run: |
+        unformatted=$(gofmt -l .)
+        if [ -n "$unformatted" ]; then
+          echo "以下文件未通过 gofmt，请运行 gofmt -w 后重新提交："
+          echo "$unformatted"
+          exit 1
+        fi
 
     - name: Run go vet
       run: go vet ./...

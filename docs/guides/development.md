@@ -188,8 +188,9 @@ Twilight 不对 Cookie 鉴权的变更类请求做 CSRF 令牌校验，也不做
 ### 迁移与引导
 
 - 更换存储后端前，必须先调用 `/api/v1/system/admin/database/migrate` 并传入 `dry_run=true`。预检会返回实体数量、快照大小、目标连通性以及重启 / 配置告警。
-- 旧部署迁移应使用显式的一次性导入流程，不应在启动时隐式修改或猜测旧业务数据。唯一例外是后台入口保护：当 Go 状态中没有 active 管理员时，可只读读取旧 `db/users.db` 中的 active 管理员账号用于引导登录。
-- 启动时还会按 `config.toml` 的 `admin_uids` / `admin_usernames` 把匹配到的用户提升为管理员并置为 active（见 `applyConfiguredAdmins`）。
+- 旧部署迁移应使用显式的一次性导入流程，不应在启动时隐式修改或猜测旧业务数据。
+- 管理员身份只来自配置文件：启动时 `applyConfiguredAdmins` 会按 `config.toml` 的 `admin_uids` / `admin_usernames`（大小写不敏感）把匹配到的用户提升为管理员并置为 active；注册时命中同一配置列表的账号也会被提升。默认不配置时列表为空，没有任何账号是管理员。已移除「空库首注册者无条件成为管理员」通道，避免部署窗口期被陌生人抢注提权。
+- `admin_uids` / `admin_usernames` 以及 `[SystemUpdate].repo_url` 都禁止经网页配置接口（schema / 原始 TOML 保存）改写：保存时提交值会被剥离或就地还原为磁盘原值，只能由运维在配置文件 / 环境变量侧设定。
 
 ## 验证与发布
 

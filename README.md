@@ -4,7 +4,7 @@
 
 # Twilight 暮光
 
-Emby / Jellyfin 用户管理面板。
+一个轻量Emby/Jellyfin用户管理应用
 
 [![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js&logoColor=white)](https://nextjs.org/)

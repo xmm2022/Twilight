@@ -111,6 +111,8 @@
     "unbind": "解绑",
     "submitRebindRequest": "提交换绑请求",
     "rebindSubmitted": "换绑请求已提交，等待管理员处理",
+    "rebindApprovedHint": "管理员已批准换绑请求，请先解除当前 Telegram 绑定，再绑定新账号。",
+    "rebindApprovedUnbind": "解除绑定以换绑",
     "telegramRequired": "系统要求必须绑定 Telegram，无法解绑",
     "bindCodeGenerated": "绑定码已生成",
     "copyCommand": "复制命令",

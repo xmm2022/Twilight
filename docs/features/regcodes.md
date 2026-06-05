@@ -152,7 +152,9 @@
 
 ### 公开注册 `POST /api/v1/users/register`（鉴权：AuthPublic）
 
-当 `[SAR].register_code_limit` 开启且非首个管理员注册（`bootstrapMode`）时，注册必须带有效的 type=1 注册码：
+当 `[SAR].register_code_limit` 开启且非空库首次注册（`bootstrapMode`，即用户数已不为 0）时，注册必须带有效的 type=1 注册码：
+
+> 注意：`bootstrapMode`（空库首注册）仅用于豁免注册码要求，**不再**赋予管理员身份。管理员身份只来自配置文件的 `Admin.uids` / `Admin.usernames`（见 [后端架构 · 管理员引导](../reference/backend.md#首个管理员引导)）。
 
 - 注册整体按 IP 限流（`rate_limit_register_per_10m`）；带注册码时再叠加一道 `register:regcode:<ip>` 限流，每分钟 10 次。
 - 注册码校验同样排除诱饵码、`type!=1`、指名目标不匹配与不可用状态。若注册卡码指定了 TG 用户名或 TG ID，注册请求必须携带已确认的 `telegram_bind_code`，后端用绑定码中的 Telegram 身份做匹配。

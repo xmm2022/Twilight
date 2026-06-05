@@ -151,6 +151,7 @@ export interface UserSettings {
     force_bind: boolean;
     can_unbind: boolean;
     can_change: boolean;
+    rebind_approved?: boolean;
     pending_rebind_request?: boolean;
     rebind_request_status?: string | null;
     rebind_request_id?: number | null;
@@ -185,6 +186,7 @@ export interface TelegramStatus {
   force_bind: boolean;
   can_unbind: boolean;
   can_change: boolean;
+  rebind_approved?: boolean;
   pending_rebind_request?: boolean;
   rebind_request_status?: string | null;
   rebind_request_id?: number | null;

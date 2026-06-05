@@ -35,8 +35,15 @@ func (a *App) handleRoot(w http.ResponseWriter, r *http.Request, _ Params) {
 }
 
 func (a *App) handleOpenAPI(w http.ResponseWriter, r *http.Request, _ Params) {
+	// openapi.json 是 AuthPublic（无需登录即可读）。只输出 AuthPublic 路由，
+	// 不暴露 admin / 鉴权端点的 pattern——未鉴权枚举 admin/* 等于给攻击者一份
+	// 完整攻击面地图。admin 端点本身仍受 AuthAdmin 保护，这里仅去除信息披露。
+	// 需要完整路由清单的运维场景走 AuthAdmin 的 /system/admin/apis。
 	paths := map[string]map[string]any{}
 	for _, route := range a.routes {
+		if route.Auth != AuthPublic {
+			continue
+		}
 		pathItem := paths[route.Pattern]
 		if pathItem == nil {
 			pathItem = map[string]any{}
@@ -603,20 +610,6 @@ func bindStateExpiryWait(state registerTelegramBindCodeState) time.Duration {
 	return time.Duration(state.ExpiresIn)*time.Second + time.Second
 }
 
-func (a *App) handleBindConfirm(w http.ResponseWriter, r *http.Request, _ Params) {
-	payload := decodeMap(r)
-	code := strings.ToUpper(stringValue(payload, "code"))
-	bind, okBind := a.bindCode(code)
-	if !okBind {
-		failWithCode(w, http.StatusNotFound, ErrBindCodeNotFound, "绑定码不存在")
-		return
-	}
-	bind.Confirmed = true
-	bind.TelegramID = int64(intValue(payload, "telegram_id", 0))
-	_ = a.upsertBindCode(bind)
-	ok(w, "bind confirmed", map[string]any{"code": code, "confirmed": true})
-}
-
 func (a *App) handleTelegramStatus(w http.ResponseWriter, r *http.Request, _ Params) {
 	u := current(r).User
 	canUnbind := !a.cfg().ForceBindTelegram || u.Role == store.RoleAdmin
@@ -625,14 +618,28 @@ func (a *App) handleTelegramStatus(w http.ResponseWriter, r *http.Request, _ Par
 
 func (a *App) handleUnbindTelegram(w http.ResponseWriter, r *http.Request, _ Params) {
 	p := current(r)
-	// Enforce force-bind policy: non-admin users cannot unbind when force_bind_telegram is enabled
+	// Enforce force-bind policy: non-admin users cannot unbind when force_bind_telegram is enabled,
+	// UNLESS an approved rebind request exists (admin granted permission to rebind).
+	var consumeRebindID int64
 	if a.cfg().ForceBindTelegram && p.User.Role != store.RoleAdmin {
-		failWithCode(w, http.StatusForbidden, ErrTGUnbindForbidden, "当前系统要求强制绑定 Telegram，无法解绑")
-		return
+		latestReq, hasReq := a.store().UserLatestRebindRequest(p.User.UID)
+		if !hasReq || latestReq.Status != "approved" {
+			failWithCode(w, http.StatusForbidden, ErrTGUnbindForbidden, "当前系统要求强制绑定 Telegram，无法解绑")
+			return
+		}
+		consumeRebindID = latestReq.ID
 	}
 	u, err := a.store().UpdateUser(p.User.UID, func(u *store.User) error { u.TelegramID = 0; u.TelegramUsername = ""; return nil })
 	if statusFromError(w, err) {
 		return
+	}
+	// Mark approved rebind request as consumed so it cannot be reused.
+	// 走 ConsumeRebindRequest 而非 ReviewRebindRequest：后者会把 ReviewerUID
+	// 覆盖成 0、用 "auto-consumed" 抹掉管理员原始审核备注、并把 ReviewedAt
+	// 重置为 now，等于销毁了"哪位管理员、何时、为何批准"的审计痕迹。
+	// ConsumeRebindRequest 只把 Status 由 approved 翻成 used，保留审核元数据。
+	if consumeRebindID > 0 {
+		_ = a.store().ConsumeRebindRequest(consumeRebindID)
 	}
 	ok(w, "Telegram unbound", publicUser(u))
 }
@@ -652,9 +659,42 @@ func (a *App) handleTelegramRebindRequest(w http.ResponseWriter, r *http.Request
 
 func (a *App) handleUserSettings(w http.ResponseWriter, r *http.Request, _ Params) {
 	u := current(r).User
+
+	// Query user's latest rebind request from store to provide real status.
+	canUnbindTG := !a.cfg().ForceBindTelegram
+	canChange := true
+	pendingRebind := false
+	rebindApproved := false
+	var rebindStatus any
+	var rebindID any
+	if latestReq, hasReq := a.store().UserLatestRebindRequest(u.UID); hasReq {
+		rebindStatus = latestReq.Status
+		rebindID = latestReq.ID
+		switch latestReq.Status {
+		case "pending":
+			canChange = false
+			pendingRebind = true
+		case "approved":
+			// Admin approved the rebind: allow unbind even under force-bind policy
+			// so the user can unbind the old account and bind a new one.
+			rebindApproved = true
+			canUnbindTG = true
+		}
+		// "rejected" → user can submit a new request (canChange stays true)
+	}
+
 	ok(w, "OK", map[string]any{
 		"bgm_mode": u.BGMMode, "bgm_token_set": u.BGMToken != "", "api_key_enabled": u.LegacyAPIKeyStatus,
-		"telegram":      map[string]any{"bound": u.TelegramID != 0, "force_bind": a.cfg().ForceBindTelegram, "can_unbind": !a.cfg().ForceBindTelegram, "can_change": true, "pending_rebind_request": false, "rebind_request_status": nil, "rebind_request_id": nil},
+		"telegram": map[string]any{
+			"bound":                  u.TelegramID != 0,
+			"force_bind":             a.cfg().ForceBindTelegram,
+			"can_unbind":             canUnbindTG,
+			"can_change":             canChange,
+			"rebind_approved":        rebindApproved,
+			"pending_rebind_request": pendingRebind,
+			"rebind_request_status":  rebindStatus,
+			"rebind_request_id":      rebindID,
+		},
 		"emby_status":   map[string]any{"is_synced": u.EmbyID != "", "is_active": u.Active, "can_unbind": a.userCanSelfUnbindEmby(u), "active_sessions": 0, "message": "OK"},
 		"system_config": map[string]any{"device_limit_enabled": a.cfg().DeviceLimitEnabled, "max_devices": a.cfg().MaxDevices, "max_streams": a.cfg().MaxStreams, "bangumi_sync_enabled": a.cfg().BangumiEnabled},
 	})
@@ -689,7 +729,12 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request, _ Params) {
 	adminView := strings.Contains(r.URL.Path, "/admin/")
 	items := []map[string]any{}
 	for _, session := range remote {
-		if !adminView && user.EmbyID != "" && asString(session["UserId"]) != user.EmbyID {
+		// 非 admin 视图只能看到自己 Emby 账号的会话。注意必须用「EmbyID 不匹配」
+		// 直接过滤，而不能加 `user.EmbyID != ""` 短路：未绑定 Emby 的普通用户
+		// EmbyID 为空，一旦短路成立整段过滤失效，会把全站正在播放的用户名册和
+		// telegram_id（敏感信息）泄露给任意登录用户。EmbyID 为空时下面的相等判断
+		// 永不成立，自然返回空列表，正是期望行为。
+		if !adminView && asString(session["UserId"]) != user.EmbyID {
 			continue
 		}
 		nowPlaying := any(nil)
@@ -2219,13 +2264,29 @@ func (a *App) handleTelegramRosterStats(w http.ResponseWriter, r *http.Request, 
 	ok(w, "OK", stats)
 }
 
+// csvSafe 中和 CSV 公式注入：Excel / WPS / LibreOffice 会把以 = + - @ 开头
+// （或以 Tab / CR / LF 起始）的单元格当作公式求值，恶意用户名 / 媒体标题
+// 形如 "=HYPERLINK(...)"、"=1+2"、"+cmd" 在管理员打开导出文件时会被执行或
+// 用于钓鱼。前置一个单引号 ' 让电子表格按文本处理，不影响 CSV 数据语义。
+// 空串与普通文本原样返回。
+func csvSafe(value string) string {
+	if value == "" {
+		return value
+	}
+	switch value[0] {
+	case '=', '+', '-', '@', '\t', '\r', '\n':
+		return "'" + value
+	}
+	return value
+}
+
 func (a *App) handleExportUsers(w http.ResponseWriter, r *http.Request, _ Params) {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", "attachment; filename=users.csv")
 	cw := csv.NewWriter(w)
 	_ = cw.Write([]string{"uid", "username", "email", "role", "active"})
 	for _, u := range a.store().ListUsers() {
-		_ = cw.Write([]string{strconv.FormatInt(u.UID, 10), u.Username, u.Email, strconv.Itoa(u.Role), strconv.FormatBool(u.Active)})
+		_ = cw.Write([]string{strconv.FormatInt(u.UID, 10), csvSafe(u.Username), csvSafe(u.Email), strconv.Itoa(u.Role), strconv.FormatBool(u.Active)})
 	}
 	cw.Flush()
 }
@@ -2248,10 +2309,10 @@ func (a *App) handleExportPlayback(w http.ResponseWriter, r *http.Request, _ Par
 	for _, record := range records {
 		_ = cw.Write([]string{
 			strconv.FormatInt(record.UID, 10),
-			usernameByUID[record.UID],
-			record.ItemID,
-			record.Title,
-			record.MediaType,
+			csvSafe(usernameByUID[record.UID]),
+			csvSafe(record.ItemID),
+			csvSafe(record.Title),
+			csvSafe(record.MediaType),
 			strconv.FormatInt(record.Duration, 10),
 			strconv.FormatInt(record.PlayedAt, 10),
 		})

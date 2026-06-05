@@ -119,6 +119,51 @@ func (s *Store) SchedulerRunSnapshot(jobID string, limit int) SchedulerRunSnapsh
 	return snapshot
 }
 
+// BatchSchedulerRunSnapshots 一次性获取多个 jobID 的 snapshot，只加一次读锁。
+// handleSchedulerJobs 之前对每个 job 单独调用 SchedulerRunSnapshot → 13 个 job
+// 就要 13 次 RLock/RUnlock + 13 次全量遍历 SchedulerRuns 切片。改为单次遍历
+// 同时按 jobID 分桶，O(N) 代替 O(N*M)。
+func (s *Store) BatchSchedulerRunSnapshots(jobIDs []string, limit int) map[string]SchedulerRunSnapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	result := make(map[string]SchedulerRunSnapshot, len(jobIDs))
+	needed := make(map[string]bool, len(jobIDs))
+	for _, id := range jobIDs {
+		needed[id] = true
+		result[id] = SchedulerRunSnapshot{Runs: make([]SchedulerRun, 0, limit)}
+	}
+	for _, run := range s.state.SchedulerRuns {
+		if !needed[run.JobID] {
+			continue
+		}
+		snap := result[run.JobID]
+		if len(snap.Runs) < limit {
+			snap.Runs = append(snap.Runs, run)
+		}
+		switch run.Type {
+		case "auto":
+			if !snap.HasLatestAuto || run.StartedAt > snap.LatestAuto.StartedAt {
+				snap.LatestAuto = run
+				snap.HasLatestAuto = true
+			}
+		case "manual":
+			if !snap.HasLatestManual || run.StartedAt > snap.LatestManual.StartedAt {
+				snap.LatestManual = run
+				snap.HasLatestManual = true
+			}
+		}
+		if run.Status == "running" && (!snap.HasLatestRunning || run.StartedAt > snap.LatestRunning.StartedAt) {
+			snap.LatestRunning = run
+			snap.HasLatestRunning = true
+		}
+		result[run.JobID] = snap
+	}
+	return result
+}
+
 // LastSchedulerRunByType 返回 (jobID, runType) 命中的最新一条 SchedulerRun（按
 // StartedAt 取大者，处理乱序记录）。该方法**不**走 SchedulerRuns 的 20 条窗
 // 口——cron_daily 任务的"今天是否已经自动跑过"判定必须基于完整历史，否则

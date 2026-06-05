@@ -26,7 +26,11 @@ func (a *App) handleInviteMe(w http.ResponseWriter, r *http.Request, _ Params) {
 	parent := any(nil)
 	if rel, okRel := a.store().ParentOf(user.UID); okRel {
 		if u, okUser := a.store().User(rel.ParentUID); okUser {
-			parent = publicUser(u)
+			// 仅暴露展示邀请关系所需的最小字段。不要复用 publicUser：它包含
+			// email / telegram_id / telegram_username / emby_id 等敏感字段，会把
+			// 上级的私密信息泄露给下级（反之亦然）。前端 InviteMyStatus.parent
+			// 类型只消费 { uid, username }。
+			parent = map[string]any{"uid": u.UID, "username": u.Username}
 		}
 	}
 	children := []map[string]any{}
@@ -34,12 +38,19 @@ func (a *App) handleInviteMe(w http.ResponseWriter, r *http.Request, _ Params) {
 	now := time.Now().Unix()
 	for _, rel := range a.store().ChildrenOf(user.UID) {
 		if u, okUser := a.store().User(rel.ChildUID); okUser {
-			item := publicUser(u)
-			item["has_emby"] = u.EmbyID != ""
-			item["emby_expired"] = inviteChildEmbyExpired(u, now)
-			item["can_generate_renew_code"] = a.canGenerateInviteRenewCodeForChild(user, u, maxDays)
-			item["can_delete_emby_and_detach"] = inviteChildCanDeleteEmbyAndDetach(u, now)
-			children = append(children, item)
+			// 同 parent：用精简 DTO，避免把下级的 email / telegram / emby 绑定
+			// 等敏感字段暴露给上级。字段集与前端 InviteMyStatus.children 对齐。
+			children = append(children, map[string]any{
+				"uid":                        u.UID,
+				"username":                   u.Username,
+				"active":                     u.Active,
+				"expire_status":              expireStatus(u.ExpiredAt),
+				"expired_at":                 publicExpiryUnix(u.ExpiredAt),
+				"has_emby":                   u.EmbyID != "",
+				"emby_expired":               inviteChildEmbyExpired(u, now),
+				"can_generate_renew_code":    a.canGenerateInviteRenewCodeForChild(user, u, maxDays),
+				"can_delete_emby_and_detach": inviteChildCanDeleteEmbyAndDetach(u, now),
+			})
 		}
 	}
 	canInvite, reason := a.canInvite(user)

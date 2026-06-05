@@ -1,5 +1,10 @@
 import type { ConfirmOptions } from "@/components/ui/confirm-dialog";
 import type { AdminUserListParams } from "@/lib/api-types";
+import type { MessageKey, MessageParams } from "@/lib/i18n";
+
+// 翻译函数类型：与 LocaleContextValue.t 同构。这些 confirm 配置构造器是纯函数，
+// 由 page.tsx 注入 useI18n() 的 t，保持无状态、可单测。
+type TFunc = (key: MessageKey, params?: MessageParams) => string;
 
 export type BatchDeleteAction = "local_only" | "with_emby";
 
@@ -58,35 +63,35 @@ export function toggleSetMember<T>(values: Set<T>, value: T): Set<T> {
   return next;
 }
 
-export function batchToggleConfirmConfig(enable: boolean, count: number): ConfirmOptions {
+export function batchToggleConfirmConfig(enable: boolean, count: number, t: TFunc): ConfirmOptions {
   return {
-    title: enable ? "启用所选用户？" : "禁用所选用户？",
-    description: `将作用于 ${count} 个已选用户。管理员账号由后端保护，会自动跳过。`,
+    title: enable ? t("adminUsers.batchEnableTitle") : t("adminUsers.batchDisableTitle"),
+    description: t("adminUsers.batchToggleDescription", { count }),
     tone: enable ? "warning" : "danger",
-    confirmLabel: enable ? "启用所选" : "禁用所选",
+    confirmLabel: enable ? t("adminUsers.batchEnableConfirm") : t("adminUsers.batchDisableConfirm"),
   };
 }
 
-export function batchLockEmbyUnbindConfirmConfig(count: number): ConfirmOptions {
+export function batchLockEmbyUnbindConfirmConfig(count: number, t: TFunc): ConfirmOptions {
   return {
-    title: "禁止所选用户自助解绑 Emby？",
-    description: `将为 ${count} 个已选目标中已绑定 Emby 的用户写入 Emby 授权锁；未绑定 Emby 的用户会自动跳过。之后用户不能自助解绑 Emby，管理员仍可强制解绑。管理员账号由后端保护。`,
+    title: t("adminUsers.batchLockEmbyTitle"),
+    description: t("adminUsers.batchLockEmbyDescription", { count }),
     tone: "warning",
-    confirmLabel: "禁止解绑",
+    confirmLabel: t("adminUsers.batchLockEmbyConfirm"),
   };
 }
 
-export function batchDeleteConfirmConfig(count: number, embyCount?: number): ConfirmOptions {
+export function batchDeleteConfirmConfig(count: number, t: TFunc, embyCount?: number): ConfirmOptions {
   const embyLabel = typeof embyCount === "number"
-    ? `同时删除 Emby 账号（${embyCount} 个）`
-    : "同时删除已绑定的 Emby 账号";
+    ? t("adminUsers.batchDeleteEmbyWithCount", { count: embyCount })
+    : t("adminUsers.batchDeleteEmbyGeneric");
   return {
-    title: "删除所选用户？",
-    description: `将删除 ${count} 个已选用户。管理员账号和当前管理员由后端保护，会自动跳过。`,
+    title: t("adminUsers.batchDeleteTitle"),
+    description: t("adminUsers.batchDeleteDescription", { count }),
     tone: "danger",
-    cancelLabel: "取消",
+    cancelLabel: t("adminUsers.cancel"),
     actions: [
-      { label: "仅删除本地账号", value: "local_only" as BatchDeleteAction, variant: "destructive" },
+      { label: t("adminUsers.batchDeleteLocalOnly"), value: "local_only" as BatchDeleteAction, variant: "destructive" },
       { label: embyLabel, value: "with_emby" as BatchDeleteAction, variant: "destructive" },
     ],
   };

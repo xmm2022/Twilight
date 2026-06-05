@@ -922,7 +922,7 @@ export default function AdminUsersPage() {
 
   const handleSelectedToggleActive = async (enable: boolean) => {
     if (selectedCount === 0) return;
-    const ok = await confirmAction(batchToggleConfirmConfig(enable, selectedCount));
+    const ok = await confirmAction(batchToggleConfirmConfig(enable, selectedCount, t));
     if (!ok) return;
     setBatchUserLoading(true);
     try {
@@ -946,7 +946,7 @@ export default function AdminUsersPage() {
 
   const handleSelectedLockEmbyUnbind = async () => {
     if (selectedCount === 0) return;
-    const ok = await confirmAction(batchLockEmbyUnbindConfirmConfig(selectedCount));
+    const ok = await confirmAction(batchLockEmbyUnbindConfirmConfig(selectedCount, t));
     if (!ok) return;
     setBatchUserLoading(true);
     try {
@@ -973,6 +973,7 @@ export default function AdminUsersPage() {
     if (selectedCount === 0) return;
     const action = await confirmAction(batchDeleteConfirmConfig(
       selectedCount,
+      t,
       selectionScope === "emby" ? selectedCount : selectionScope === "manual" ? selectedEmbyCount : undefined,
     ));
     if (!action) return;
@@ -1426,11 +1427,12 @@ export default function AdminUsersPage() {
     return <PageError message={error} onRetry={() => void loadUsers()} />;
   }
 
-  const getRoleBadge = renderRoleBadge;
+  const getRoleBadge = (role: number) => renderRoleBadge(role, t);
 
   const renderUserActions = (user: UserInfo) => (
     <UserActionsMenu
       user={user}
+      t={t}
       handlers={{
         onEdit: handleOpenEdit,
         onRenew: (u) => {
@@ -1906,7 +1908,7 @@ export default function AdminUsersPage() {
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">到期时间</p>
-                      <p className="mt-1">{renderExpireCell(user)}</p>
+                      <p className="mt-1">{renderExpireCell(user, t)}</p>
                     </div>
                   </div>
 
@@ -2014,7 +2016,7 @@ export default function AdminUsersPage() {
                           </Badge>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-sm">{renderExpireCell(user)}</td>
+                      <td className="px-4 py-3 text-sm">{renderExpireCell(user, t)}</td>
                       <td className="px-4 py-3 text-right">
                         {renderUserActions(user)}
                       </td>
