@@ -192,13 +192,9 @@ allow_no_emby_view = true
 
 # —— Emby 自由注册（队列）
 emby_direct_register_enabled = false
+# 自助注册默认有效期（天），-1 = 永久。已统一为单值，旧的
+# day_options / allow_custom_days / custom_days_min/max 字段已废弃且不再读取。
 emby_direct_register_days = 30
-# 可选套餐天数，-1 = 永久；前端会按顺序展示
-emby_direct_register_day_options = [3, 7, 30, -1]
-# 是否允许用户自己输入开通天数（在下面 min/max 范围内）
-emby_direct_register_allow_custom_days = false
-emby_direct_register_custom_days_min = 1
-emby_direct_register_custom_days_max = 365
 emby_direct_register_workers = 8
 emby_direct_register_max_queue = 1000
 emby_direct_register_status_ttl = 1800

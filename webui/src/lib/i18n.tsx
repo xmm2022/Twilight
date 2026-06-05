@@ -104,22 +104,43 @@ function formatMessage(template: string, params?: MessageParams): string {
   });
 }
 
+// 模块级"当前语言"，由 LocaleProvider 保持同步。用于 React 组件树之外（lib/*、
+// hooks、store 等无法调用 useI18n 的纯函数）做本地化。初始值是默认 locale，
+// Provider 挂载后会立即用 localStorage / 浏览器偏好覆盖。
+let activeLocale: Locale = defaultLocale;
+
+export function getActiveLocale(): Locale {
+  return activeLocale;
+}
+
+/**
+ * 非 React 上下文的翻译函数。语义与 useI18n().t 相同：按当前 activeLocale 查
+ * 字典，缺失回退到 basic.json，再缺失返回 key 原文。
+ */
+export function translate(key: MessageKey, params?: MessageParams): string {
+  return formatMessage(lookupMessage(activeLocale, key), params);
+}
+
 export function LocaleProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>(defaultLocale);
   const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
     const stored = normalizeLocale(window.localStorage.getItem(localeStorageKey));
-    setLocaleState(stored || preferredBrowserLocale());
+    const next = stored || preferredBrowserLocale();
+    activeLocale = next;
+    setLocaleState(next);
     setInitialized(true);
   }, []);
 
   const setLocale = (nextLocale: Locale) => {
+    activeLocale = nextLocale;
     setLocaleState(nextLocale);
   };
 
   useEffect(() => {
     if (!initialized) return;
+    activeLocale = locale;
     document.documentElement.lang = locale;
     window.localStorage.setItem(localeStorageKey, locale);
   }, [initialized, locale]);

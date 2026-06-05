@@ -242,7 +242,6 @@ const SECTION_ICONS: Record<string, React.ElementType> = {
   Global: Globe,
   Emby: Tv,
   Telegram: Send,
-  Signin: Coins,
   SAR: Coins,
   DeviceLimit: Monitor,
   RateLimit: Shield,

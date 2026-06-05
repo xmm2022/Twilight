@@ -779,19 +779,6 @@ func configSectionDefs() []configSectionDef {
 	selectInviteCodeRandom := inviteCodeRandomAlgorithmOptions()
 	selectRegcodeDecoyAction := regcodeDecoyActionOptions()
 	return []configSectionDef{
-		{Key: "Signin", Title: "签到", Description: "签到开关、每日随机奖励和连签奖励", Category: "policy", Fields: []configFieldDef{
-			{Key: "enabled", Label: "启用签到", Type: "bool", Description: "允许用户进入签到页面并领取每日积分"},
-			{Key: "currency_name", Label: "积分名称", Type: "string", Description: "签到积分在前端展示的名称"},
-			{Key: "daily_min", Label: "每日最少积分", Type: "int", Description: "单次签到可获得的最少积分"},
-			{Key: "daily_max", Label: "每日最多积分", Type: "int", Description: "单次签到可获得的最多积分"},
-			{Key: "streak_bonus_enabled", Label: "启用连签奖励", Type: "bool", Description: "按连续签到天数发放额外奖励"},
-			{Key: "streak_bonus_days", Label: "连签奖励天数", Type: "list", Description: "数字列表，与连签奖励积分一一对应"},
-			{Key: "streak_bonus_points", Label: "连签奖励积分", Type: "list", Description: "数字列表，与连签奖励天数一一对应"},
-			{Key: "reset_after_miss", Label: "漏签重置连签", Type: "bool", Description: "漏签后是否从 1 天重新计算连续签到"},
-			{Key: "renewal_enabled", Label: "启用积分续期", Type: "bool", Description: "允许用户用签到积分兑换账号续期；关闭时前端不显示兑换入口"},
-			{Key: "renewal_cost", Label: "续期消耗积分", Type: "int", Description: "每次积分续期需要消耗的积分数，必须大于 0"},
-			{Key: "renewal_days", Label: "续期天数", Type: "int", Description: "每次积分续期增加的天数，必须大于 0"},
-		}},
 		{Key: "Global", Title: "全局", Description: "基础运行参数", Category: "runtime", Fields: []configFieldDef{
 			{Key: "server_name", Label: "服务器名称", Type: "string", Description: "前端展示的站点或服务器名称"},
 			{Key: "server_icon", Label: "服务器图标", Type: "string", Description: "HTTPS 图片 URL 或本地图片路径；留空使用内置图标"},
@@ -886,6 +873,17 @@ func configSectionDefs() []configSectionDef {
 			{Key: "auto_cleanup_no_emby_days", Label: "无 Emby 清理天数", Type: "int", Description: "超过该天数后可清理"},
 			{Key: "auto_cleanup_pending_emby", Label: "清理 Emby 开通资格", Type: "bool", Description: "定期收回长期未使用的 Emby 开通资格，不删除 Web 账号"},
 			{Key: "auto_cleanup_pending_emby_days", Label: "资格清理天数", Type: "int", Description: "超过该天数仍未创建 Emby 时收回资格"},
+			{Key: "signin_enabled", Label: "启用签到", Type: "bool", Description: "允许用户进入签到页面并领取每日积分"},
+			{Key: "currency_name", Label: "积分名称", Type: "string", Description: "签到积分在前端展示的名称"},
+			{Key: "daily_min", Label: "每日最少积分", Type: "int", Description: "单次签到可获得的最少积分"},
+			{Key: "daily_max", Label: "每日最多积分", Type: "int", Description: "单次签到可获得的最多积分"},
+			{Key: "streak_bonus_enabled", Label: "启用连签奖励", Type: "bool", Description: "按连续签到天数发放额外奖励"},
+			{Key: "streak_bonus_days", Label: "连签奖励天数", Type: "list", Description: "数字列表，与连签奖励积分一一对应"},
+			{Key: "streak_bonus_points", Label: "连签奖励积分", Type: "list", Description: "数字列表，与连签奖励天数一一对应"},
+			{Key: "reset_after_miss", Label: "漏签重置连签", Type: "bool", Description: "漏签后是否从 1 天重新计算连续签到"},
+			{Key: "signin_renewal_enabled", Label: "启用积分续期", Type: "bool", Description: "允许用户用签到积分兑换账号续期；关闭时前端不显示兑换入口"},
+			{Key: "signin_renewal_cost", Label: "续期消耗积分", Type: "int", Description: "每次积分续期需要消耗的积分数，必须大于 0"},
+			{Key: "signin_renewal_days", Label: "续期天数", Type: "int", Description: "每次积分续期增加的天数，必须大于 0"},
 		}},
 		{Key: "DeviceLimit", Title: "设备限制", Description: "设备和并发播放限制", Category: "policy", Fields: []configFieldDef{
 			{Key: "device_limit_enabled", Label: "启用设备限制", Type: "bool", Description: "限制设备数量"},
@@ -896,6 +894,7 @@ func configSectionDefs() []configSectionDef {
 			{Key: "enabled", Label: "启用后端限流", Type: "bool", Description: "关闭后不执行 Go 后端限流"},
 			{Key: "global_per_minute", Label: "全局每分钟", Type: "int", Description: "同一 IP 每分钟总请求数"},
 			{Key: "login_per_minute", Label: "登录每分钟", Type: "int", Description: "同一 IP 登录请求数"},
+			{Key: "login_user_per_5m", Label: "单账号登录每 5 分钟", Type: "int", Description: "同一账号（用户名或 API Key）登录请求数"},
 			{Key: "register_per_10m", Label: "注册每 10 分钟", Type: "int", Description: "同一 IP 注册请求数"},
 			{Key: "forgot_password_ip_per_10m", Label: "找回密码 IP 每 10 分钟", Type: "int", Description: "同一 IP 找回密码请求数"},
 			{Key: "forgot_password_user_per_30m", Label: "找回密码账号每 30 分钟", Type: "int", Description: "同一 Emby 用户名找回密码请求数"},
@@ -973,11 +972,6 @@ func configValues(cfg config.Config) map[string]map[string]any {
 			"bot_admin_help_text": cfg.TelegramBotAdminHelpText, "bot_help_header": cfg.TelegramBotHelpHeader, "bot_help_footer": cfg.TelegramBotHelpFooter,
 			"bot_about": cfg.TelegramBotAbout, "bot_custom_commands": commandRepliesToAny(cfg.TelegramCustomCommands),
 		},
-		"Signin": {
-			"enabled": cfg.SigninEnabled, "currency_name": cfg.SigninCurrencyName, "daily_min": cfg.SigninDailyMin, "daily_max": cfg.SigninDailyMax,
-			"streak_bonus_enabled": cfg.SigninStreakBonusEnabled, "streak_bonus_days": intsToAny(cfg.SigninStreakBonusDays), "streak_bonus_points": intsToAny(cfg.SigninStreakBonusPoints),
-			"reset_after_miss": cfg.SigninResetAfterMiss, "renewal_enabled": cfg.SigninRenewalEnabled, "renewal_cost": cfg.SigninRenewalCost, "renewal_days": cfg.SigninRenewalDays,
-		},
 		"SAR": {
 			"register_mode": cfg.RegisterEnabled, "register_code_limit": cfg.RegisterCodeLimit, "allow_pending_register": cfg.AllowPendingRegister,
 			"emby_direct_register_enabled": cfg.EmbyDirectRegisterEnabled, "emby_direct_register_days": cfg.EmbyDirectRegisterDays, "emby_user_limit": cfg.EmbyUserLimit,
@@ -987,10 +981,14 @@ func configValues(cfg config.Config) map[string]map[string]any {
 			"invite_code_default_days": cfg.InviteDefaultDays, "permanent_invite_max_days": cfg.PermanentInviteMaxDays, "auto_cleanup_no_emby": cfg.AutoCleanupNoEmby,
 			"auto_cleanup_no_emby_days": cfg.AutoCleanupNoEmbyDays, "auto_cleanup_pending_emby": cfg.AutoCleanupPendingEmby,
 			"auto_cleanup_pending_emby_days": cfg.AutoCleanupPendingEmbyDays,
+			"signin_enabled": cfg.SigninEnabled, "currency_name": cfg.SigninCurrencyName, "daily_min": cfg.SigninDailyMin, "daily_max": cfg.SigninDailyMax,
+			"streak_bonus_enabled": cfg.SigninStreakBonusEnabled, "streak_bonus_days": intsToAny(cfg.SigninStreakBonusDays), "streak_bonus_points": intsToAny(cfg.SigninStreakBonusPoints),
+			"reset_after_miss": cfg.SigninResetAfterMiss, "signin_renewal_enabled": cfg.SigninRenewalEnabled, "signin_renewal_cost": cfg.SigninRenewalCost, "signin_renewal_days": cfg.SigninRenewalDays,
 		},
 		"DeviceLimit": {"device_limit_enabled": cfg.DeviceLimitEnabled, "max_devices": cfg.MaxDevices, "max_streams": cfg.MaxStreams},
 		"RateLimit": {
 			"enabled": cfg.RateLimitEnabled, "global_per_minute": cfg.RateLimitGlobalPerMinute, "login_per_minute": cfg.RateLimitLoginPerMinute,
+			"login_user_per_5m": cfg.RateLimitLoginUserPer5m,
 			"register_per_10m": cfg.RateLimitRegisterPer10m, "forgot_password_ip_per_10m": cfg.RateLimitForgotPasswordIPPer10m,
 			"forgot_password_user_per_30m": cfg.RateLimitForgotPasswordUserPer30m, "upload_per_minute": cfg.RateLimitUploadPerMinute,
 			"admin_icon_per_minute": cfg.RateLimitAdminIconPerMinute, "api_key_default_per_minute": cfg.RateLimitAPIKeyDefaultPerMinute,

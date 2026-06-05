@@ -3495,8 +3495,8 @@ func TestConfigTOMLGetReturnsCompletedConfig(t *testing.T) {
 	if data["completed"] != true {
 		t.Fatalf("expected completed config marker, got %#v", data["completed"])
 	}
-	if !strings.Contains(content, "[Signin]") || !strings.Contains(content, "daily_min") {
-		t.Fatalf("completed config missing signin section: %s", content)
+	if !strings.Contains(content, "[SAR]") || !strings.Contains(content, "signin_enabled") || !strings.Contains(content, "daily_min") {
+		t.Fatalf("completed config missing signin settings under SAR: %s", content)
 	}
 	if strings.Contains(content, "[Admin]") || strings.Contains(content, "usernames =") {
 		t.Fatalf("protected admin config leaked: %s", content)
