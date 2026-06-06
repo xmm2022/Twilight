@@ -2071,7 +2071,6 @@ func TestTelegramMembershipEnforcementUsesConfiguredConcurrency(t *testing.T) {
 
 func TestRegisterConsumesConfirmedTelegramBindCode(t *testing.T) {
 	app := newTestApp(t)
-	app.cfg().BotInternalSecret = "test-secret"
 	app.cfg().ForceBindTelegram = true
 
 	codeResp := doJSONWithHeaders(app, http.MethodGet, "/api/v1/users/telegram/register/bind-code", ``, nil, bindCodeCreateTestHeaders())
@@ -2092,7 +2091,7 @@ func TestRegisterConsumesConfirmedTelegramBindCode(t *testing.T) {
 	}
 
 	confirmPayload := fmt.Sprintf(`{"code":%q,"telegram_id":424242,"telegram_username":"alice_tg"}`, code)
-	confirmed := doJSONWithHeaders(app, http.MethodPost, "/api/v1/users/me/telegram/bind-confirm", confirmPayload, nil, map[string]string{"X-Internal-Secret": "test-secret"})
+	confirmed := doLoopbackJSON(app, http.MethodPost, "/api/v1/users/me/telegram/bind-confirm", confirmPayload)
 	if confirmed.Code != http.StatusOK {
 		t.Fatalf("confirm status=%d body=%s", confirmed.Code, confirmed.Body.String())
 	}
@@ -2111,7 +2110,6 @@ func TestRegisterConsumesConfirmedTelegramBindCode(t *testing.T) {
 
 func TestRegisterWithTelegramBindCodeAllowsBootstrapAdminUIDOnlyConfig(t *testing.T) {
 	app := newTestApp(t)
-	app.cfg().BotInternalSecret = "test-secret"
 	app.cfg().ForceBindTelegram = true
 	app.cfg().AdminUIDs = []int64{1}
 	app.cfg().AdminUsernames = nil
@@ -2130,7 +2128,7 @@ func TestRegisterWithTelegramBindCodeAllowsBootstrapAdminUIDOnlyConfig(t *testin
 	}
 	code := codeBody.Data.BindCode
 	confirmPayload := fmt.Sprintf(`{"code":%q,"telegram_id":777,"telegram_username":"admin_tg"}`, code)
-	confirmed := doJSONWithHeaders(app, http.MethodPost, "/api/v1/users/me/telegram/bind-confirm", confirmPayload, nil, map[string]string{"X-Internal-Secret": "test-secret"})
+	confirmed := doLoopbackJSON(app, http.MethodPost, "/api/v1/users/me/telegram/bind-confirm", confirmPayload)
 	if confirmed.Code != http.StatusOK {
 		t.Fatalf("confirm status=%d body=%s", confirmed.Code, confirmed.Body.String())
 	}
@@ -2175,20 +2173,50 @@ func TestRegisterRejectsMalformedTelegramBindCodeBeforeLookup(t *testing.T) {
 	}
 }
 
-func TestTelegramBindConfirmRequiresInternalSecret(t *testing.T) {
+// TestTelegramBindConfirmLoopbackOnly 锁定 bind-confirm 的新鉴权模型：不再校验
+// 共享密钥，改为“同机回环直连 + 无反代转发头”才放行，外部一律拒绝。覆盖三种来源：
+//   - 外部 IP（默认 RemoteAddr）→ 拒；
+//   - 回环直连、无代理头（= 独立 Bot 直连 127.0.0.1）→ 放行；
+//   - 回环对端但带 X-Forwarded-For（= 同机反代转进来的外部流量）→ 拒。
+func TestTelegramBindConfirmLoopbackOnly(t *testing.T) {
 	app := newTestApp(t)
-	app.cfg().BotInternalSecret = "test-secret"
 	now := time.Now().Unix()
-	if err := app.upsertBindCode(store.BindCode{Code: "ABCDEFGH", Scene: "register", CreatedAt: now, ExpiresAt: now + 60}); err != nil {
-		t.Fatal(err)
+	mustUpsert := func(code string) {
+		if err := app.upsertBindCode(store.BindCode{Code: code, Scene: "register", CreatedAt: now, ExpiresAt: now + 60}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	blocked := doJSON(app, http.MethodPost, "/api/v1/users/me/telegram/bind-confirm", `{"code":"ABCDEFGH","telegram_id":42}`, nil)
-	if blocked.Code != http.StatusForbidden {
-		t.Fatalf("bind confirm without secret = %d body=%s", blocked.Code, blocked.Body.String())
+	serve := func(remoteAddr string, headers map[string]string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/users/me/telegram/bind-confirm", strings.NewReader(`{"code":"LOOPBK12","telegram_id":42}`))
+		req.Header.Set("Content-Type", "application/json")
+		if remoteAddr != "" {
+			req.RemoteAddr = remoteAddr
+		}
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		rr := httptest.NewRecorder()
+		app.ServeHTTP(rr, req)
+		return rr
 	}
-	allowed := doJSONWithHeaders(app, http.MethodPost, "/api/v1/users/me/telegram/bind-confirm", `{"code":"ABCDEFGH","telegram_id":42}`, nil, map[string]string{"X-Internal-Secret": "test-secret"})
-	if allowed.Code != http.StatusOK {
-		t.Fatalf("bind confirm with secret = %d body=%s", allowed.Code, allowed.Body.String())
+
+	// 外部 IP：拒绝。
+	if rr := serve("203.0.113.7:5555", nil); rr.Code != http.StatusForbidden {
+		t.Fatalf("external bind confirm = %d body=%s", rr.Code, rr.Body.String())
+	}
+	// 同机反代转进来的外部流量（回环对端 + XFF）：拒绝。
+	if rr := serve("127.0.0.1:6666", map[string]string{"X-Forwarded-For": "203.0.113.7"}); rr.Code != http.StatusForbidden {
+		t.Fatalf("proxied external bind confirm = %d body=%s", rr.Code, rr.Body.String())
+	}
+	// 独立 Bot 直连 127.0.0.1、无代理头：放行。
+	mustUpsert("LOOPBK12")
+	if rr := serve("127.0.0.1:7777", nil); rr.Code != http.StatusOK {
+		t.Fatalf("loopback internal bind confirm = %d body=%s", rr.Code, rr.Body.String())
+	}
+	// IPv6 回环同样视为内部。
+	mustUpsert("LOOPBK12")
+	if rr := serve("[::1]:8888", nil); rr.Code != http.StatusOK {
+		t.Fatalf("ipv6 loopback bind confirm = %d body=%s", rr.Code, rr.Body.String())
 	}
 }
 
@@ -5230,6 +5258,19 @@ func TestCleanupInvalidUsersDefaultsToDryRunAndRequiresConfirm(t *testing.T) {
 
 func doJSON(app *App, method, path, body string, cookies []*http.Cookie) *httptest.ResponseRecorder {
 	return doJSONWithHeaders(app, method, path, body, cookies, nil)
+}
+
+// doLoopbackJSON 模拟“同机内部直连”：RemoteAddr 设为回环、无任何反代转发头。
+// 用于 bind-confirm 这类只接受本机内部调用的端点（取代旧的共享密钥头）。
+func doLoopbackJSON(app *App, method, path, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.RemoteAddr = "127.0.0.1:54321"
+	rr := httptest.NewRecorder()
+	app.ServeHTTP(rr, req)
+	return rr
 }
 
 func bindCodeCreateTestHeaders() map[string]string {

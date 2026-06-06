@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -9,10 +10,40 @@ import (
 	"github.com/prejudice-studio/twilight/internal/store"
 )
 
+// requestIsLoopbackInternal 判定请求是否来自本机回环且未经任何反代转发，即
+// “同机受信内部调用”（独立 Bot 进程直连 http://127.0.0.1:<port>）。
+//
+// 取代 bind-confirm 过去的共享密钥：Bot 与 API 部署在同一台机器、同一网络环境，
+// 彼此互信，只需把外部请求挡在门外即可，无需再维护一个容易漏配的密钥
+// （漏配会一路 403: INTERNAL_SECRET_INVALID，绑定永远确认不了）。
+//
+// 为什么不能只看 RemoteAddr 是回环：同机反代（nginx 等）会把外部流量也以
+// 127.0.0.1 转进来，RemoteAddr 同样落在回环。区别在于反代必定带上
+// X-Forwarded-For / X-Real-IP / CF-Connecting-IP / Forwarded 等转发头，而 Bot
+// 直连不带任何代理头。因此“回环对端 + 无转发头”才等于真正的同机内部直连；
+// 任何带转发头的请求（= 经反代来的外部流量）一律视为外部、拒绝。
+func requestIsLoopbackInternal(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(strings.TrimSpace(host))
+	if ip == nil || !ip.IsLoopback() {
+		return false
+	}
+	for _, header := range []string{"X-Forwarded-For", "X-Real-IP", "CF-Connecting-IP", "Forwarded"} {
+		if strings.TrimSpace(r.Header.Get(header)) != "" {
+			return false
+		}
+	}
+	return true
+}
+
 func (a *App) handleBindConfirmSecure(w http.ResponseWriter, r *http.Request, _ Params) {
-	secret := firstNonEmpty(r.Header.Get("X-Internal-Secret"), strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
-	if a.cfg().BotInternalSecret == "" || !constantTimeStringEqual(secret, a.cfg().BotInternalSecret) {
-		failWithCode(w, http.StatusForbidden, ErrInternalSecretInvalid, "内部密钥无效")
+	// 同机内部直连才放行；外部（含经反代转发的外部流量）一律拒绝。
+	// 不再校验共享密钥——Bot 与 API 同机互信。
+	if !requestIsLoopbackInternal(r) {
+		failWithCode(w, http.StatusForbidden, ErrInternalSecretInvalid, "仅允许本机内部调用")
 		return
 	}
 	payload := decodeMap(r)

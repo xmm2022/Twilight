@@ -308,7 +308,8 @@ func (a *App) confirmBindCodeViaHTTP(ctx context.Context, chatID int64, code str
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Internal-Secret", a.cfg().BotInternalSecret)
+	// 不再附带共享密钥：服务端按“回环直连 + 无反代头”判定为同机内部调用。
+	// Bot 直连 127.0.0.1，Go http 客户端默认不会加任何 X-Forwarded-* 头，天然满足。
 
 	var resp struct {
 		Success bool   `json:"success"`
