@@ -300,7 +300,10 @@ func (a *App) handleMediaRequestByID(w http.ResponseWriter, r *http.Request, par
 
 func (a *App) handleDeleteMediaRequest(w http.ResponseWriter, r *http.Request, params Params) {
 	id, _ := int64Param(params, "request_id")
-	if req, okReq := a.store().MediaRequest(id); okReq && !canAccessMediaRequest(current(r).User, req) {
+	if req, okReq := a.store().MediaRequest(id); !okReq {
+		failWithCode(w, http.StatusNotFound, ErrMediaRequestNotFound, "request not found")
+		return
+	} else if !canAccessMediaRequest(current(r).User, req) {
 		// 与 handleMediaRequestByID 同口径：存在但无权时返回 404，避免用 DELETE
 		// 探针绕过 GET 的存在性 oracle 收口。
 		failWithCode(w, http.StatusNotFound, ErrMediaRequestNotFound, "request not found")

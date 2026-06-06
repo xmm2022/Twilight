@@ -590,6 +590,13 @@ class ApiClient {
     );
   }
 
+  async adminBindTelegramToUser(uid: number, telegramId: number) {
+    return this.request<{ uid: number; username: string; telegram_id: number; old_telegram_id: number | null }>(
+      `/admin/users/${uid}/bind-telegram`,
+      { method: "POST", body: JSON.stringify({ telegram_id: telegramId }) },
+    );
+  }
+
   async clearUserRegistrationQueue(uid: number) {
     return this.request<{
       uid: number;

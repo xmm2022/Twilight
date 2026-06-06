@@ -264,7 +264,7 @@ func (a *App) registerBatchRoutes() {
 
 func (a *App) registerStatsInviteSigninAnnouncementRoutes() {
 	a.add(http.MethodGet, "/api/v1/stats/me", AuthUser, a.handleWatchStats)
-	a.add(http.MethodGet, "/api/v1/stats/user/:uid", AuthUser, a.handleWatchStats)
+	a.add(http.MethodGet, "/api/v1/stats/user/:uid", AuthAdmin, a.handleWatchStats)
 	a.add(http.MethodGet, "/api/v1/invite/config", AuthPublic, a.handleInviteConfig)
 	a.add(http.MethodGet, "/api/v1/invite/me", AuthUser, a.handleInviteMe)
 	a.add(http.MethodPost, "/api/v1/invite/codes", AuthUser, a.handleCreateInviteCode)

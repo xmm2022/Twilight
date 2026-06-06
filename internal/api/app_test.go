@@ -5057,7 +5057,7 @@ func TestUserStatsEndpointRejectsOtherUser(t *testing.T) {
 	}
 
 	resp := doJSON(app, http.MethodGet, "/api/v1/stats/user/"+strconv.FormatInt(beta.UID, 10), ``, []*http.Cookie{cookie})
-	if resp.Code != http.StatusForbidden || !strings.Contains(resp.Body.String(), `"error_code":"WATCH_STATS_FORBIDDEN"`) {
+	if resp.Code != http.StatusForbidden {
 		t.Fatalf("expected forbidden stats response, status=%d body=%s", resp.Code, resp.Body.String())
 	}
 }

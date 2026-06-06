@@ -148,6 +148,9 @@ export interface UserSettings {
   api_key_enabled: boolean;
   telegram: {
     bound: boolean;
+    telegram_id?: string;
+    telegram_id_full?: number;
+    telegram_username?: string;
     force_bind: boolean;
     can_unbind: boolean;
     can_change: boolean;

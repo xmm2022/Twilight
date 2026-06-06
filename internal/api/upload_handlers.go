@@ -408,6 +408,7 @@ func (a *App) handleUploadServerIcon(w http.ResponseWriter, r *http.Request, _ P
 }
 
 func (a *App) handleAsset(w http.ResponseWriter, r *http.Request, params Params) {
+	p := current(r)
 	kind := params["kind"]
 	filename := params["filename"]
 	if kind != "avatar" && kind != "background" {
@@ -422,6 +423,18 @@ func (a *App) handleAsset(w http.ResponseWriter, r *http.Request, params Params)
 	if !okPath {
 		failWithCode(w, http.StatusNotFound, ErrAssetNotFound, "resource not found")
 		return
+	}
+	assetURL := "/api/v1/users/assets/" + kind + "/" + filename
+	if kind == "avatar" {
+		if p.User.Avatar != assetURL && p.User.Role != store.RoleAdmin {
+			failWithCode(w, http.StatusNotFound, ErrAssetNotFound, "resource not found")
+			return
+		}
+	} else {
+		if !strings.Contains(p.User.Background, filename) && p.User.Role != store.RoleAdmin {
+			failWithCode(w, http.StatusNotFound, ErrAssetNotFound, "resource not found")
+			return
+		}
 	}
 	http.ServeFile(w, r, filePath)
 }

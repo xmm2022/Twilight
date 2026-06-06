@@ -24,7 +24,16 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,7 +54,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useAsyncResource } from "@/hooks/use-async-resource";
-import { PageError } from "@/components/layout/page-state";
+import { PageError, PageLoading } from "@/components/layout/page-state";
 import { api, type UserInfo } from "@/lib/api";
 import { ApiError } from "@/lib/api-request";
 import { useI18n } from "@/lib/i18n";
@@ -170,6 +179,11 @@ export default function AdminUsersPage() {
     conflict_uid: number;
     conflict_username: string;
   }>(null);
+
+  const [bindTgOpen, setBindTgOpen] = useState(false);
+  const [bindTgTarget, setBindTgTarget] = useState<UserInfo | null>(null);
+  const [bindTgId, setBindTgId] = useState("");
+  const [bindTgSubmitting, setBindTgSubmitting] = useState(false);
 
   // 强制重置 Emby 密码（按 Emby 用户名）
   const [forcePwdOpen, setForcePwdOpen] = useState(false);
@@ -655,6 +669,46 @@ export default function AdminUsersPage() {
       toast({ title: "绑定失败", description: message, variant: "destructive" });
     } finally {
       setBindSubmitting(false);
+    }
+  };
+
+  const handleOpenBindTelegram = (user: UserInfo) => {
+    setBindTgTarget(user);
+    setBindTgId("");
+    setBindTgOpen(true);
+  };
+
+  const submitBindTelegram = async () => {
+    if (!bindTgTarget) return;
+    const tgId = parseInt(bindTgId.trim(), 10);
+    if (!tgId || tgId <= 0) {
+      toast({ title: "请输入有效的 Telegram ID", variant: "destructive" });
+      return;
+    }
+    setBindTgSubmitting(true);
+    try {
+      const res = await api.adminBindTelegramToUser(bindTgTarget.uid, tgId);
+      if (res.success) {
+        toast({
+          title: "绑定成功",
+          description: `${bindTgTarget.username} → Telegram ID ${res.data?.telegram_id}`,
+          variant: "success",
+        });
+        invalidateUsersCache();
+        loadUsers();
+        setBindTgOpen(false);
+      } else {
+        toast({ title: "绑定失败", description: res.message, variant: "destructive" });
+      }
+    } catch (error: unknown) {
+      if (error instanceof ApiError && error.errorCode === ErrCodes.TG_ID_TAKEN) {
+        toast({ title: "绑定失败", description: "该 Telegram ID 已被其他用户绑定", variant: "destructive" });
+        return;
+      }
+      const message = error instanceof Error ? error.message : "绑定失败";
+      toast({ title: "绑定失败", description: message, variant: "destructive" });
+    } finally {
+      setBindTgSubmitting(false);
     }
   };
 
@@ -1423,6 +1477,10 @@ export default function AdminUsersPage() {
     }
   };
 
+  if (isLoading && !users.length) {
+    return <PageLoading />;
+  }
+
   if (error) {
     return <PageError message={error} onRetry={() => void loadUsers()} />;
   }
@@ -1451,6 +1509,7 @@ export default function AdminUsersPage() {
         },
         onResetPassword: handleResetPassword,
         onBindEmby: handleOpenBindEmby,
+        onBindTelegram: handleOpenBindTelegram,
         onSyncBindings: (u) => handleSyncBindings({ uid: u.uid }),
         onForceUnbind: handleForceUnbind,
         onClearRegistrationQueue: handleClearRegistrationQueue,
@@ -2252,6 +2311,35 @@ export default function AdminUsersPage() {
         onSubmit={(force) => void submitBindEmby(force)}
         isSubmitting={bindSubmitting}
       />
+
+      <Dialog open={bindTgOpen} onOpenChange={setBindTgOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>绑定 Telegram 到 {bindTgTarget?.username}</DialogTitle>
+            <DialogDescription>强制将指定 Telegram ID 绑定到此用户。此操作会覆盖用户当前的 Telegram 绑定。</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="bind-tg-id">Telegram ID</Label>
+            <Input
+              id="bind-tg-id"
+              type="number"
+              value={bindTgId}
+              onChange={(e) => setBindTgId(e.target.value)}
+              placeholder="请输入 Telegram 数字 ID"
+            />
+            <p className="text-xs text-muted-foreground">Telegram 用户 ID 可以通过 @userinfobot 获取</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBindTgOpen(false)} disabled={bindTgSubmitting}>
+              取消
+            </Button>
+            <Button onClick={() => void submitBindTelegram()} disabled={bindTgSubmitting}>
+              {bindTgSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              确认绑定
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 一键踢出 TG 群里未绑账号的成员 */}
       {/* 一键踢出 TG 群里未绑账号的成员 */}

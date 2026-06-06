@@ -981,7 +981,7 @@ func configValues(cfg config.Config) map[string]map[string]any {
 			"invite_code_default_days": cfg.InviteDefaultDays, "permanent_invite_max_days": cfg.PermanentInviteMaxDays, "auto_cleanup_no_emby": cfg.AutoCleanupNoEmby,
 			"auto_cleanup_no_emby_days": cfg.AutoCleanupNoEmbyDays, "auto_cleanup_pending_emby": cfg.AutoCleanupPendingEmby,
 			"auto_cleanup_pending_emby_days": cfg.AutoCleanupPendingEmbyDays,
-			"signin_enabled": cfg.SigninEnabled, "currency_name": cfg.SigninCurrencyName, "daily_min": cfg.SigninDailyMin, "daily_max": cfg.SigninDailyMax,
+			"signin_enabled":                 cfg.SigninEnabled, "currency_name": cfg.SigninCurrencyName, "daily_min": cfg.SigninDailyMin, "daily_max": cfg.SigninDailyMax,
 			"streak_bonus_enabled": cfg.SigninStreakBonusEnabled, "streak_bonus_days": intsToAny(cfg.SigninStreakBonusDays), "streak_bonus_points": intsToAny(cfg.SigninStreakBonusPoints),
 			"reset_after_miss": cfg.SigninResetAfterMiss, "signin_renewal_enabled": cfg.SigninRenewalEnabled, "signin_renewal_cost": cfg.SigninRenewalCost, "signin_renewal_days": cfg.SigninRenewalDays,
 		},
@@ -989,7 +989,7 @@ func configValues(cfg config.Config) map[string]map[string]any {
 		"RateLimit": {
 			"enabled": cfg.RateLimitEnabled, "global_per_minute": cfg.RateLimitGlobalPerMinute, "login_per_minute": cfg.RateLimitLoginPerMinute,
 			"login_user_per_5m": cfg.RateLimitLoginUserPer5m,
-			"register_per_10m": cfg.RateLimitRegisterPer10m, "forgot_password_ip_per_10m": cfg.RateLimitForgotPasswordIPPer10m,
+			"register_per_10m":  cfg.RateLimitRegisterPer10m, "forgot_password_ip_per_10m": cfg.RateLimitForgotPasswordIPPer10m,
 			"forgot_password_user_per_30m": cfg.RateLimitForgotPasswordUserPer30m, "upload_per_minute": cfg.RateLimitUploadPerMinute,
 			"admin_icon_per_minute": cfg.RateLimitAdminIconPerMinute, "api_key_default_per_minute": cfg.RateLimitAPIKeyDefaultPerMinute,
 		},

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   User,
@@ -52,6 +52,8 @@ import { PageError, PageLoading } from "@/components/layout/page-state";
 import { useAuthStore } from "@/store/auth";
 import { useSystemStore } from "@/store/system";
 import { api, type UserSettings, type TelegramStatus, type EmbyStatus } from "@/lib/api";
+import { ApiError } from "@/lib/api-request";
+import { ErrCodes } from "@/lib/errcode";
 import { localeLabels, supportedLocales, useI18n, type Locale } from "@/lib/i18n";
 import { passwordStrengthLabel, validatePasswordStrength } from "@/lib/password";
 import { telegramBotUrl } from "@/lib/safe-url";
@@ -83,6 +85,8 @@ export default function SettingsPage() {
   const [bindCode, setBindCode] = useState<string | null>(null);
   const [bindCodeExpiry, setBindCodeExpiry] = useState<number>(0);
   const [isTgLoading, setIsTgLoading] = useState(false);
+  const bindCodeRequestId = useRef(0);
+  const bindCodeExpiryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const botUsername = systemInfo?.telegram_bot?.username;
   const botUrl = telegramBotUrl(systemInfo?.telegram_bot?.username, systemInfo?.telegram_bot?.url);
   const [isRebindLoading, setIsRebindLoading] = useState(false);
@@ -340,10 +344,27 @@ export default function SettingsPage() {
     }
   };
 
+  useEffect(() => {
+    if (bindCodeExpiry > 0 && bindCode) {
+      bindCodeExpiryTimer.current = setTimeout(() => {
+        setBindCode(null);
+        setBindCodeExpiry(0);
+      }, bindCodeExpiry * 1000);
+    }
+    return () => {
+      if (bindCodeExpiryTimer.current) {
+        clearTimeout(bindCodeExpiryTimer.current);
+        bindCodeExpiryTimer.current = null;
+      }
+    };
+  }, [bindCode, bindCodeExpiry]);
+
   const handleGetBindCode = async () => {
+    const requestId = ++bindCodeRequestId.current;
     setIsTgLoading(true);
     try {
       const res = await api.getBindCode();
+      if (requestId !== bindCodeRequestId.current) return;
       if (res.success && res.data?.bind_code) {
         setBindCode(res.data.bind_code);
         setBindCodeExpiry(res.data.expires_in);
@@ -356,9 +377,16 @@ export default function SettingsPage() {
         toast({ title: t("settings.getBindCodeFailed"), description: res.message, variant: "destructive" });
       }
     } catch (error: any) {
+      if (requestId !== bindCodeRequestId.current) return;
+      if (error instanceof ApiError && error.errorCode === ErrCodes.BindCodeRateLimited) {
+        toast({ title: t("settings.getBindCodeFailed"), description: t("settings.bindCodeRateLimited"), variant: "destructive" });
+        return;
+      }
       toast({ title: t("settings.getBindCodeFailed"), description: error.message, variant: "destructive" });
     } finally {
-      setIsTgLoading(false);
+      if (requestId === bindCodeRequestId.current) {
+        setIsTgLoading(false);
+      }
     }
   };
 
@@ -392,12 +420,17 @@ export default function SettingsPage() {
       if (res.success) {
         toast({ title: t("settings.unbindSuccess"), variant: "success" });
         setBindCode(null);
+        setBindCodeExpiry(0);
         loadData();
         fetchUser();
       } else {
         toast({ title: t("settings.unbindFailed"), description: res.message, variant: "destructive" });
       }
     } catch (error: any) {
+      if (error instanceof ApiError && error.errorCode === ErrCodes.TGUnbindForbidden) {
+        toast({ title: t("settings.unbindFailed"), description: t("settings.telegramRequired"), variant: "destructive" });
+        return;
+      }
       toast({ title: t("settings.unbindFailed"), description: error.message, variant: "destructive" });
     } finally {
       setIsTgLoading(false);
@@ -1539,7 +1572,7 @@ export default function SettingsPage() {
             <p className="text-xs text-muted-foreground">{rebindReason.length}/500</p>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRebindDialogOpen(false)} disabled={isRebindLoading}>
+            <Button variant="outline" onClick={() => { setRebindDialogOpen(false); setRebindReason(""); }} disabled={isRebindLoading}>
               {t("common.cancel")}
             </Button>
             <Button onClick={handleRequestTelegramRebind} disabled={isRebindLoading}>

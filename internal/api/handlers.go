@@ -156,6 +156,10 @@ func (a *App) handleChangePassword(w http.ResponseWriter, r *http.Request, _ Par
 	if a.requireNonEmbyAdmin(w, r, p.User) {
 		return
 	}
+	if !a.allowRate(r.Context(), rateKey("change-pwd:", p.User.UID), 10, time.Minute) {
+		failWithCode(w, http.StatusTooManyRequests, ErrRateLimited, "操作过于频繁，请稍后再试")
+		return
+	}
 	payload := decodeMap(r)
 	oldPassword := stringValue(payload, "old_password")
 	newPassword := stringValue(payload, "new_password")
@@ -186,6 +190,10 @@ func (a *App) handleChangePassword(w http.ResponseWriter, r *http.Request, _ Par
 func (a *App) handleGeneratedPassword(w http.ResponseWriter, r *http.Request, _ Params) {
 	p := current(r)
 	if a.requireNonEmbyAdmin(w, r, p.User) {
+		return
+	}
+	if !a.allowRate(r.Context(), rateKey("gen-pwd:", p.User.UID), 5, time.Minute) {
+		failWithCode(w, http.StatusTooManyRequests, ErrRateLimited, "操作过于频繁，请稍后再试")
 		return
 	}
 	// 自动生成密码至少 128 bit 熵：32 hex chars。
@@ -398,6 +406,10 @@ func (a *App) handleRenew(w http.ResponseWriter, r *http.Request, _ Params) {
 		return
 	}
 	if a.requireNonEmbyAdmin(w, r, p.User) {
+		return
+	}
+	if !a.allowRate(r.Context(), rateKey("renew:", p.User.UID), 10, time.Minute) {
+		failWithCode(w, http.StatusTooManyRequests, ErrRateLimited, "操作过于频繁，请稍后再试")
 		return
 	}
 	preview, source, okPreview := a.previewCode(r.Context(), regCode, p.User)
@@ -613,7 +625,40 @@ func bindStateExpiryWait(state registerTelegramBindCodeState) time.Duration {
 func (a *App) handleTelegramStatus(w http.ResponseWriter, r *http.Request, _ Params) {
 	u := current(r).User
 	canUnbind := !a.cfg().ForceBindTelegram || u.Role == store.RoleAdmin
-	ok(w, "OK", map[string]any{"bound": u.TelegramID != 0, "telegram_id": nullableInt(u.TelegramID), "telegram_id_full": nullableInt(u.TelegramID), "telegram_username": u.TelegramUsername, "force_bind": a.cfg().ForceBindTelegram, "can_unbind": canUnbind, "can_change": canUnbind})
+	canChange := canUnbind
+	pendingRebind := false
+	rebindApproved := false
+	var rebindStatus any
+	var rebindID any
+	if latestReq, hasReq := a.store().UserLatestRebindRequest(u.UID); hasReq {
+		rebindStatus = latestReq.Status
+		rebindID = latestReq.ID
+		switch latestReq.Status {
+		case "pending":
+			canChange = false
+			pendingRebind = true
+		case "approved":
+			rebindApproved = true
+			canUnbind = true
+		}
+	}
+	if u.Role == store.RoleAdmin {
+		canUnbind = true
+		canChange = true
+	}
+	ok(w, "OK", map[string]any{
+		"bound":                  u.TelegramID != 0,
+		"telegram_id":            nullableInt(u.TelegramID),
+		"telegram_id_full":       nullableInt(u.TelegramID),
+		"telegram_username":      u.TelegramUsername,
+		"force_bind":             a.cfg().ForceBindTelegram,
+		"can_unbind":             canUnbind,
+		"can_change":             canChange,
+		"rebind_approved":        rebindApproved,
+		"pending_rebind_request": pendingRebind,
+		"rebind_request_status":  rebindStatus,
+		"rebind_request_id":      rebindID,
+	})
 }
 
 func (a *App) handleUnbindTelegram(w http.ResponseWriter, r *http.Request, _ Params) {
@@ -665,6 +710,7 @@ func (a *App) handleUserSettings(w http.ResponseWriter, r *http.Request, _ Param
 	canChange := true
 	pendingRebind := false
 	rebindApproved := false
+	rebindConsumed := false
 	var rebindStatus any
 	var rebindID any
 	if latestReq, hasReq := a.store().UserLatestRebindRequest(u.UID); hasReq {
@@ -679,14 +725,26 @@ func (a *App) handleUserSettings(w http.ResponseWriter, r *http.Request, _ Param
 			// so the user can unbind the old account and bind a new one.
 			rebindApproved = true
 			canUnbindTG = true
+		case "used":
+			// The approved rebind has been consumed (user already unbound old Telegram).
+			// User should now be able to generate a new bind code and bind a new account.
+			rebindConsumed = true
 		}
 		// "rejected" → user can submit a new request (canChange stays true)
+	}
+	// When rebind was consumed (unbind already done), force‑bind policy no longer
+	// blocks generating a new bind code; canChange remains true.
+	if rebindConsumed {
+		canChange = true
 	}
 
 	ok(w, "OK", map[string]any{
 		"bgm_mode": u.BGMMode, "bgm_token_set": u.BGMToken != "", "api_key_enabled": u.LegacyAPIKeyStatus,
 		"telegram": map[string]any{
 			"bound":                  u.TelegramID != 0,
+			"telegram_id":            nullableInt(u.TelegramID),
+			"telegram_id_full":       nullableInt(u.TelegramID),
+			"telegram_username":      u.TelegramUsername,
 			"force_bind":             a.cfg().ForceBindTelegram,
 			"can_unbind":             canUnbindTG,
 			"can_change":             canChange,
@@ -2072,6 +2130,9 @@ func (a *App) handleAdminResetPassword(w http.ResponseWriter, r *http.Request, p
 }
 
 func (a *App) handleAdminSetRole(w http.ResponseWriter, r *http.Request, params Params) {
+	if requireAdmin(w, r) {
+		return
+	}
 	uid, _ := int64Param(params, "uid")
 	payload := decodeMap(r)
 	role := store.RoleNormal
