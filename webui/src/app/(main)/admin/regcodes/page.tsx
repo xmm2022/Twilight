@@ -16,6 +16,7 @@ import {
   Link2,
   RefreshCw,
   Search,
+  FlipHorizontal2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -389,6 +390,17 @@ export default function AdminRegcodesPage() {
 
   const toggleSelectAll = (checked: boolean) => {
     setSelectedCodes(checked ? new Set(regcodes.map((item) => item.code)) : new Set());
+  };
+
+  // 反选：对当前页可见卡码逐个翻转选中态（选中列表已被 useEffect 收窄到当前页）。
+  const invertSelection = () => {
+    setSelectedCodes((prev) => {
+      const next = new Set<string>();
+      regcodes.forEach((item) => {
+        if (!prev.has(item.code)) next.add(item.code);
+      });
+      return next;
+    });
   };
 
   const toggleSelectCode = (code: string, checked: boolean) => {
@@ -912,6 +924,9 @@ export default function AdminRegcodesPage() {
           {t("adminRegcodes.selectionSummary", { selected: selectedRegcodes.length, total: regcodes.length })}
         </span>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+          <Button className="flex-1 sm:flex-none" variant="outline" size="sm" onClick={invertSelection} disabled={regcodes.length === 0}>
+            <FlipHorizontal2 className="mr-2 h-4 w-4" /> {t("adminRegcodes.invertSelection")}
+          </Button>
           <Button className="flex-1 sm:flex-none" variant="outline" size="sm" onClick={() => copyRegcodes(selectedRegcodes.length > 0 ? selectedRegcodes : regcodes)} disabled={regcodes.length === 0}>
             <Copy className="mr-2 h-4 w-4" /> {t("adminRegcodes.copyCodes")}
           </Button>

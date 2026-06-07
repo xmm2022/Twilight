@@ -21,6 +21,7 @@ import {
   Send,
   LockKeyhole,
   Eraser,
+  FlipHorizontal2,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -364,6 +365,23 @@ export default function AdminUsersPage() {
     setSelectionScope("manual");
     setSelectionScopeCount(0);
     setSelectedUserIds(new Set(users.map((user) => user.uid)));
+  };
+
+  // 反选本页：对当前页可见行逐个翻转选中态，结果落到 manual 范围。
+  // 与点选单行 (toggleSelectedUser) 一致——非 manual 的虚拟范围（全部 / 拥有 Emby）
+  // 先按当前页可见选中态塌缩为 manual，再翻转；跨页的虚拟全选不参与。
+  const invertPageSelection = () => {
+    if (users.length === 0) return;
+    const base = selectionScope === "manual"
+      ? new Set(selectedUserIds)
+      : new Set(users.filter(isUserSelected).map((user) => user.uid));
+    users.forEach((user) => {
+      if (base.has(user.uid)) base.delete(user.uid);
+      else base.add(user.uid);
+    });
+    setSelectionScope("manual");
+    setSelectionScopeCount(0);
+    setSelectedUserIds(base);
   };
 
   const selectAllMatchingUsers = () => {
@@ -1904,6 +1922,10 @@ export default function AdminUsersPage() {
                 </Button>
                 <Button variant={selectionScope === "all" ? "default" : "outline"} size="sm" onClick={selectAllMatchingUsers} disabled={batchUserLoading || total === 0}>
                   选中全部
+                </Button>
+                <Button variant="outline" size="sm" onClick={invertPageSelection} disabled={batchUserLoading || users.length === 0}>
+                  <FlipHorizontal2 className="mr-2 h-4 w-4" />
+                  反选本页
                 </Button>
               </div>
               <Button variant="outline" size="sm" onClick={clearUserSelection} disabled={batchUserLoading || selectedCount === 0}>

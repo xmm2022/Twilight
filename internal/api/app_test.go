@@ -1621,6 +1621,66 @@ func TestConfigSchemaExposesRegcodeDecoyAction(t *testing.T) {
 	}
 }
 
+// 防回归：configValues 必须为 configSectionDefs 里的每个字段提供取值来源。
+// 漏一个字段 → handleConfigSchemaFull 返回 null（前端显示空）+ renderConfigTOML
+// 写出 "<nil>" 或被清空，等于该字段"存不住 / 读不到"。email_whitelist /
+// email_blacklist / email_validation_mode 曾因此完全失效。
+func TestConfigValuesCoversEverySchemaField(t *testing.T) {
+	values := configValues(config.Config{})
+	for _, section := range configSectionDefs() {
+		sectionValues, okSection := values[section.Key]
+		if !okSection {
+			t.Errorf("configValues 缺失整个 section %q", section.Key)
+			continue
+		}
+		for _, field := range section.Fields {
+			if _, ok := sectionValues[field.Key]; !ok {
+				t.Errorf("configValues 缺失 %s.%s —— schema 有该字段但没有取值来源（GET 返回 null、保存写入 <nil>）", section.Key, field.Key)
+			}
+		}
+	}
+}
+
+// email 黑白名单 + 验证模式必须能完整 round-trip：configValues 暴露 → 渲染 TOML →
+// config.Load 读回，三段都不能丢。
+func TestConfigSchemaRoundTripsEmailLists(t *testing.T) {
+	values := configValues(config.Config{
+		EmailValidationMode: "whitelist",
+		EmailWhitelist:      []string{"gmail.com", "outlook.com"},
+		EmailBlacklist:      []string{"mailinator.com"},
+	})
+	if values["SAR"]["email_validation_mode"] != "whitelist" {
+		t.Fatalf("configValues 未包含 email_validation_mode: %#v", values["SAR"]["email_validation_mode"])
+	}
+	content := renderConfigTOML(values)
+	for _, want := range []string{
+		`email_validation_mode = "whitelist"`,
+		`email_whitelist = ["gmail.com", "outlook.com"]`,
+		`email_blacklist = ["mailinator.com"]`,
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("渲染的配置缺少 %q:\n%s", want, content)
+		}
+	}
+	cfgPath := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(cfgPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.EmailValidationMode != "whitelist" {
+		t.Fatalf("email_validation_mode 未 round-trip: %q", cfg.EmailValidationMode)
+	}
+	if len(cfg.EmailWhitelist) != 2 || cfg.EmailWhitelist[0] != "gmail.com" || cfg.EmailWhitelist[1] != "outlook.com" {
+		t.Fatalf("email_whitelist 未 round-trip: %#v", cfg.EmailWhitelist)
+	}
+	if len(cfg.EmailBlacklist) != 1 || cfg.EmailBlacklist[0] != "mailinator.com" {
+		t.Fatalf("email_blacklist 未 round-trip: %#v", cfg.EmailBlacklist)
+	}
+}
+
 func TestSystemUpdateValidationHelpers(t *testing.T) {
 	if _, err := validateUpdateBranch("../main"); err == nil {
 		t.Fatal("expected traversal branch to be rejected")

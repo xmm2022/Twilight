@@ -978,6 +978,7 @@ func configValues(cfg config.Config) map[string]map[string]any {
 		"SAR": {
 			"register_mode": cfg.RegisterEnabled, "register_code_limit": cfg.RegisterCodeLimit, "allow_pending_register": cfg.AllowPendingRegister,
 			"emby_direct_register_enabled": cfg.EmbyDirectRegisterEnabled, "emby_direct_register_days": cfg.EmbyDirectRegisterDays, "emby_user_limit": cfg.EmbyUserLimit,
+			"email_validation_mode": cfg.EmailValidationMode, "email_whitelist": cfg.EmailWhitelist, "email_blacklist": cfg.EmailBlacklist,
 			"user_limit": cfg.UserLimit, "regcode_format": cfg.RegCodeFormat, "register_code_format": cfg.RegisterCodeFormat, "renew_code_format": cfg.RenewCodeFormat, "invite_code_format": cfg.InviteCodeFormat, "regcode_random_algorithm": cfg.RegCodeRandomAlgorithm, "invite_code_random_algorithm": cfg.InviteCodeRandomAlgorithm, "regcode_decoy_action": firstNonEmpty(cfg.DecoyAction, "log_only"),
 			"media_request_enabled": cfg.MediaRequestEnabled, "max_concurrent_requests_per_user": cfg.MaxConcurrentRequestsPerUser, "max_concurrent_requests_global": cfg.MaxConcurrentRequestsGlobal, "invite_enabled": cfg.InviteEnabled,
 			"invite_limit": cfg.InviteLimit, "invite_root_user_limit": cfg.InviteRootUserLimit, "invite_max_depth": cfg.InviteMaxDepth, "invite_require_emby": cfg.InviteRequireEmby,

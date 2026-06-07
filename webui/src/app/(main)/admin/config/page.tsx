@@ -288,12 +288,32 @@ function SecretField({
   );
 }
 
+// 邮箱黑/白名单快捷预设：白名单给常见的正规邮箱域名，黑名单给常见的一次性 /
+// 临时邮箱域名。点击即追加到列表，已存在的预设会置灰。
+const EMAIL_WHITELIST_PRESETS = [
+  "gmail.com", "outlook.com", "hotmail.com", "yahoo.com", "icloud.com",
+  "qq.com", "163.com", "126.com", "foxmail.com", "sina.com",
+];
+const EMAIL_BLACKLIST_PRESETS = [
+  "mailinator.com", "10minutemail.com", "guerrillamail.com", "temp-mail.org",
+  "yopmail.com", "getnada.com", "sharklasers.com", "trashmail.com",
+  "dispostable.com", "throwaway.email",
+];
+
+function listPresetsForField(key: string): string[] | undefined {
+  if (key === "email_whitelist") return EMAIL_WHITELIST_PRESETS;
+  if (key === "email_blacklist") return EMAIL_BLACKLIST_PRESETS;
+  return undefined;
+}
+
 function ListField({
   value,
   onChange,
+  presets,
 }: {
   value: unknown;
   onChange: (v: unknown[]) => void;
+  presets?: string[];
 }) {
   const { t } = useI18n();
   const items = toEditorList(value);
@@ -305,6 +325,13 @@ function ListField({
     const next = [...items];
     next[idx] = val;
     onChange(next);
+  };
+  const hasItem = (preset: string) =>
+    items.some((it) => it.trim().toLowerCase() === preset.toLowerCase());
+  const addPreset = (preset: string) => {
+    if (hasItem(preset)) return;
+    // 顺手清掉空行，避免快捷添加后残留空输入框。
+    onChange([...items.filter((it) => it.trim() !== ""), preset]);
   };
 
   return (
@@ -337,6 +364,28 @@ function ListField({
         <Plus className="h-4 w-4 mr-1" />
         {t("adminConfig.addItem")}
       </Button>
+      {presets && presets.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+          <span className="mr-1 text-xs text-muted-foreground">{t("adminConfig.quickAdd")}</span>
+          {presets.map((preset) => {
+            const added = hasItem(preset);
+            return (
+              <Button
+                key={preset}
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={added}
+                onClick={() => addPreset(preset)}
+                className="h-7 px-2 text-xs font-normal"
+              >
+                <Plus className="mr-1 h-3 w-3" />
+                {preset}
+              </Button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -465,6 +514,7 @@ function ConfigFieldEditor({
         <ListField
           value={Array.isArray(value) ? value : []}
           onChange={onChange}
+          presets={listPresetsForField(field.key)}
         />
       );
 
