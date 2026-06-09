@@ -160,7 +160,7 @@ func CheckEmailWhitelist(email string, whitelist []string) bool {
 }
 
 var (
-	ErrEmailTooLong       = ErrPasswordTooLong
+	ErrEmailTooLong       = errors.New("邮箱长度不能超过 256 位")
 	ErrEmailInvalidChars  = errors.New("邮箱包含无效字符")
 	ErrEmailInvalidFormat = errors.New("邮箱格式不正确")
 )

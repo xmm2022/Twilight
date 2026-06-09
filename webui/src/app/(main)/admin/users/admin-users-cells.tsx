@@ -8,6 +8,7 @@ import {
   Edit,
   Key,
   Link2,
+  Mail,
   MoreHorizontal,
   RefreshCw,
   Trash2,
@@ -90,6 +91,7 @@ export interface UserActionsMenuHandlers {
   onSetExpiry: (user: UserInfo) => void;
   onResetPassword: (user: UserInfo) => void;
   onBindEmby: (user: UserInfo) => void;
+  onBindEmail: (user: UserInfo) => void;
   onBindTelegram: (user: UserInfo) => void;
   onSyncBindings: (user: UserInfo) => void;
   onForceUnbind: (user: UserInfo) => void;
@@ -146,6 +148,10 @@ export function UserActionsMenu({
         <DropdownMenuItem onClick={() => handlers.onBindEmby(user)}>
           <Link2 className="mr-2 h-4 w-4" />
           {t("adminUsers.menuBindEmby")}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => handlers.onBindEmail(user)}>
+          <Mail className="mr-2 h-4 w-4" />
+          {t("email.admin.bindTitle")}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => handlers.onBindTelegram(user)}>
           <Link2 className="mr-2 h-4 w-4" />
