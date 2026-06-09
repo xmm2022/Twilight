@@ -1410,7 +1410,14 @@
     "clientUnknown": "Unknown client",
     "clientsTitle": "Client breakdown",
     "clientChipTitle": "{devices} devices · {online} online · {users} users",
-    "ipApproxTooltip": "Inferred from login history, not a live session"
+    "ipApproxTooltip": "Inferred from login history, not a live session",
+    "ipApproxTag": "approx",
+    "viewByUser": "By user",
+    "viewByDevice": "By device",
+    "devColUser": "User",
+    "clientFilterActiveHint": "Filtered by client \"{name}\"; showing matching devices only",
+    "deviceMatchCount": "{count} matching devices",
+    "emptyDevices": "No matching devices"
   },
   "adminEmby": {
     "title": "Emby Management",

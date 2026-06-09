@@ -1410,7 +1410,14 @@
     "clientUnknown": "未知用戶端",
     "clientsTitle": "用戶端分布",
     "clientChipTitle": "{devices} 台裝置 · {online} 線上 · {users} 位使用者",
-    "ipApproxTooltip": "依歷史登入記錄推斷，非即時工作階段"
+    "ipApproxTooltip": "依歷史登入記錄推斷，非即時工作階段",
+    "ipApproxTag": "推斷",
+    "viewByUser": "依使用者",
+    "viewByDevice": "依裝置",
+    "devColUser": "使用者",
+    "clientFilterActiveHint": "已依用戶端「{name}」篩選，僅顯示相符裝置",
+    "deviceMatchCount": "相符 {count} 台裝置",
+    "emptyDevices": "無相符裝置"
   },
   "adminEmby": {
     "title": "Emby 管理",

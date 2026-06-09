@@ -1598,7 +1598,14 @@
     "clientUnknown": "未知客户端",
     "clientsTitle": "客户端分布",
     "clientChipTitle": "{devices} 台设备 · {online} 在线 · {users} 个用户",
-    "ipApproxTooltip": "来自历史登录记录推断，非实时会话"
+    "ipApproxTooltip": "来自历史登录记录推断，非实时会话",
+    "ipApproxTag": "推断",
+    "viewByUser": "按用户",
+    "viewByDevice": "按设备",
+    "devColUser": "用户",
+    "clientFilterActiveHint": "已按客户端「{name}」筛选，仅显示匹配设备",
+    "deviceMatchCount": "匹配 {count} 台设备",
+    "emptyDevices": "无匹配设备"
   },
   "adminEmby": {
     "title": "Emby 管理",
