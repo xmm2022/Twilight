@@ -190,6 +190,15 @@ export default function AdminDeviceAuditPage() {
   const summary = data?.summary;
   const embyConfigured = data?.emby_configured ?? true;
 
+  // 客户端筛选生效时，每个用户卡片只展示该客户端的设备，并按这份子集重算设备/在线计数，
+  // 避免「头部计数按全部设备、表格却只剩匹配设备」的不一致渲染。
+  const clientFilterActive = clientFilter !== CLIENT_ALL;
+  const clientFilterTarget = clientFilter === CLIENT_UNKNOWN ? "" : clientFilter;
+  const devicesForUser = (u: EmbyAuditUser) =>
+    clientFilterActive
+      ? u.devices.filter((d) => (d.app_name || "") === clientFilterTarget)
+      : u.devices;
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -364,6 +373,11 @@ export default function AdminDeviceAuditPage() {
             const key = userKey(u, index);
             const isOpen = expanded.has(key);
             const displayName = u.emby_user_name || u.local_user?.username || t("deviceAudit.unknownUser");
+            const devices = devicesForUser(u);
+            const deviceCount = clientFilterActive ? devices.length : u.device_count;
+            const onlineCount = clientFilterActive
+              ? devices.filter((d) => d.online).length
+              : u.online_count;
             return (
               <Card key={key} className="overflow-hidden">
                 {/* Collapsed header (clickable) */}
@@ -404,15 +418,21 @@ export default function AdminDeviceAuditPage() {
                     </div>
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                    {clientFilterActive && (
+                      <Badge variant="secondary" className="gap-1 text-[10px]">
+                        <AppWindow className="h-3 w-3" />
+                        {clientFilterTarget || t("deviceAudit.clientUnknown")}
+                      </Badge>
+                    )}
                     <Badge variant="outline" className="text-xs">
-                      {t("deviceAudit.deviceCountBadge", { count: u.device_count })}
+                      {t("deviceAudit.deviceCountBadge", { count: deviceCount })}
                     </Badge>
                     <Badge variant="outline" className="text-xs">
                       {t("deviceAudit.ipCountBadge", { count: u.ip_count })}
                     </Badge>
-                    {u.online_count > 0 && (
+                    {onlineCount > 0 && (
                       <Badge className="border-emerald-500/20 bg-emerald-500/10 text-xs text-emerald-500">
-                        {t("deviceAudit.onlineBadge", { count: u.online_count })}
+                        {t("deviceAudit.onlineBadge", { count: onlineCount })}
                       </Badge>
                     )}
                   </div>
@@ -558,7 +578,7 @@ export default function AdminDeviceAuditPage() {
                       <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         {t("deviceAudit.devicesTitle")}
                       </div>
-                      {u.devices.length > 0 ? (
+                      {devices.length > 0 ? (
                         <div className="overflow-hidden rounded-lg border bg-background">
                           <div className="overflow-x-auto">
                             <table className="w-full text-sm">
@@ -572,7 +592,7 @@ export default function AdminDeviceAuditPage() {
                                 </tr>
                               </thead>
                               <tbody className="divide-y">
-                                {u.devices.map((d) => (
+                                {devices.map((d) => (
                                   <tr key={d.device_id} className="hover:bg-muted/30">
                                     <td className="p-2">
                                       <div className="font-medium">{d.device_name || "—"}</div>
