@@ -157,6 +157,7 @@ func (a *App) registerAdminRoutes() {
 	a.add(http.MethodPost, "/api/v1/admin/users/:uid/registration-entitlement", AuthAdmin, a.handleRegistrationEntitlement)
 	a.add(http.MethodPost, "/api/v1/admin/users/:uid/registration-entitlement/dequeue", AuthAdmin, a.handleRegistrationEntitlement)
 	a.add(http.MethodPost, "/api/v1/admin/users/sync-bindings", AuthAdmin, a.handleSyncBindings)
+	a.add(http.MethodPost, "/api/v1/admin/users/:uid/refresh-status", AuthAdmin, a.handleAdminRefreshUserStatus)
 	a.add(http.MethodPost, "/api/v1/admin/users/:uid/renew", AuthAdmin, a.handleAdminRenewUser)
 	a.add(http.MethodPost, "/api/v1/admin/users/:uid/cancel-permanent", AuthAdmin, a.handleAdminSetUserExpiry)
 	a.add(http.MethodPost, "/api/v1/admin/users/:uid/set-expiry", AuthAdmin, a.handleAdminSetUserExpiry)

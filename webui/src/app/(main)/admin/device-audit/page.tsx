@@ -719,32 +719,32 @@ function UserAuditCard({
                   <table className="w-full text-sm">
                     <thead className="bg-muted/50">
                       <tr>
-                        <th className="p-2 text-left font-medium">{t("deviceAudit.devColName")}</th>
-                        <th className="p-2 text-left font-medium">{t("deviceAudit.devColApp")}</th>
-                        <th className="p-2 text-left font-medium">{t("deviceAudit.devColIp")}</th>
-                        <th className="p-2 text-left font-medium">{t("deviceAudit.devColLastActivity")}</th>
-                        <th className="p-2 text-left font-medium">{t("deviceAudit.devColStatus")}</th>
+                        <th className="p-2.5 text-left font-medium">{t("deviceAudit.devColName")}</th>
+                        <th className="p-2.5 text-left font-medium">{t("deviceAudit.devColApp")}</th>
+                        <th className="p-2.5 text-left font-medium">{t("deviceAudit.devColIp")}</th>
+                        <th className="p-2.5 text-left font-medium">{t("deviceAudit.devColLastActivity")}</th>
+                        <th className="p-2.5 text-left font-medium">{t("deviceAudit.devColStatus")}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
                       {devices.map((d, di) => (
                         <tr key={d.device_id || `idx:${di}`} className="hover:bg-muted/30">
-                          <td className="p-2">
+                          <td className="p-2.5">
                             <div className="font-medium">{d.device_name || "—"}</div>
                             <div className="font-mono text-[11px] text-muted-foreground">
                               {d.device_id ? (d.device_id.length > 12 ? `${d.device_id.slice(0, 12)}…` : d.device_id) : "—"}
                             </div>
                           </td>
-                          <td className="p-2">
+                          <td className="p-2.5">
                             <ClientCell device={d} />
                           </td>
-                          <td className="p-2">
+                          <td className="p-2.5">
                             <IpCell device={d} t={t} />
                           </td>
-                          <td className="p-2 text-xs text-muted-foreground">
+                          <td className="p-2.5 text-xs text-muted-foreground">
                             {formatIso(d.last_activity, locale)}
                           </td>
-                          <td className="p-2">
+                          <td className="p-2.5">
                             <StatusCell online={d.online} t={t} />
                           </td>
                         </tr>

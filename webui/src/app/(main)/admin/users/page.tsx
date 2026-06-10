@@ -969,6 +969,40 @@ export default function AdminUsersPage() {
     }
   };
 
+  // 强制刷新单个用户的外部状态：主动从 Telegram 拉取最新用户名、从 Emby 核对账号
+  // 启停并回写本地。区别于"同步绑定"（全量清理重复/失效绑定），这里只针对一个用户、
+  // 不做破坏性清理，用于管理员核对单人时拿到实时的 TG 用户名与 Emby 状态。
+  const handleRefreshStatus = async (user: UserInfo) => {
+    try {
+      const res = await api.refreshUserStatus(user.uid);
+      if (res.success && res.data) {
+        const r = res.data.refresh ?? {};
+        const notes: string[] = [];
+        if (r.telegram_username_updated) notes.push(t("adminUsers.refreshTgUpdated"));
+        if (r.emby_username_updated) notes.push(t("adminUsers.refreshEmbyNameUpdated"));
+        if (r.emby_disabled_synced) notes.push(t("adminUsers.refreshEmbyDisabled"));
+        if (r.emby_missing) notes.push(t("adminUsers.refreshEmbyMissing"));
+        const errs: string[] = [];
+        if (r.telegram_error) errs.push(`Telegram: ${r.telegram_error}`);
+        if (r.emby_error) errs.push(`Emby: ${r.emby_error}`);
+        toast({
+          title: t("adminUsers.refreshStatusDone"),
+          description: notes.length ? notes.join("，") : t("adminUsers.refreshNoChange"),
+          variant: errs.length ? "default" : "success",
+        });
+        if (errs.length) {
+          toast({ title: t("adminUsers.refreshPartialFail"), description: errs.join("；"), variant: "destructive" });
+        }
+        invalidateUsersCache();
+        await loadUsers();
+      } else {
+        toast({ title: t("adminUsers.refreshStatusFail"), description: res.message, variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: t("adminUsers.refreshStatusFail"), description: err.message || "网络异常", variant: "destructive" });
+    }
+  };
+
   const handleToggleActive = (user: UserInfo) => {
     setToggleTarget(user);
     setToggleCascadeDepth(1);
@@ -993,6 +1027,16 @@ export default function AdminUsersPage() {
           ? `成功 ${affected}，跳过 ${skipped}（层级 ${toggleCascadeDepth === 0 ? "整棵子树" : toggleCascadeDepth}）`
           : undefined;
         toast({ title: `已${action}`, description: desc, variant: "success" });
+        // 本地禁用成功但 Emby 远端关停失败时，后端会返回 emby_failed 让管理员知晓
+        // 「Web 已禁用、Emby 可能仍可登录」，需要手动复核而不是以为已彻底禁用。
+        const embyFailed = res.data?.emby_failed;
+        if (Array.isArray(embyFailed) && embyFailed.length > 0) {
+          toast({
+            title: t("adminUsers.embySyncFailedTitle"),
+            description: t("adminUsers.embySyncFailedDesc", { count: embyFailed.length }),
+            variant: "destructive",
+          });
+        }
         invalidateUsersCache();
         loadUsers();
         setToggleOpen(false);
@@ -1068,6 +1112,14 @@ export default function AdminUsersPage() {
       const res = await api.updateUser(selectedUser.uid, editForm);
       if (res.success) {
         toast({ title: "更新成功", variant: "success" });
+        // 改成禁用时若 Emby 远端关停失败，后端返回 emby_sync_failed，提示管理员复核。
+        if (res.data?.emby_sync_failed) {
+          toast({
+            title: t("adminUsers.embySyncFailedTitle"),
+            description: t("adminUsers.embySyncFailedDesc", { count: 1 }),
+            variant: "destructive",
+          });
+        }
         setEditOpen(false);
         setSelectedUser(null);
         invalidateUsersCache();
@@ -1665,6 +1717,7 @@ export default function AdminUsersPage() {
         },
         onBindTelegram: handleOpenBindTelegram,
         onSyncBindings: (u) => handleSyncBindings({ uid: u.uid }),
+        onRefreshStatus: handleRefreshStatus,
         onForceUnbind: handleForceUnbind,
         onClearRegistrationQueue: handleClearRegistrationQueue,
         onGrantRegistrationEntitlement: handleGrantRegistrationEntitlement,

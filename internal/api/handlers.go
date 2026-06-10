@@ -1819,6 +1819,7 @@ func (a *App) handleAdminUpdateUser(w http.ResponseWriter, r *http.Request, para
 			}
 		}
 	}
+	embySyncFailed := false
 	if hasActive {
 		updated, err := a.store().SetUserActiveAtomic(uid, desiredActive)
 		if err != nil {
@@ -1831,7 +1832,9 @@ func (a *App) handleAdminUpdateUser(w http.ResponseWriter, r *http.Request, para
 			}
 		}
 		if !desiredActive {
-			_, _ = a.disableRemoteEmbyForWebState(r.Context(), updated)
+			if _, syncErr := a.disableRemoteEmbyForWebState(r.Context(), updated); syncErr != nil {
+				embySyncFailed = true
+			}
 		}
 	}
 	u, err := a.store().UpdateUser(uid, func(u *store.User) error {
@@ -1846,7 +1849,11 @@ func (a *App) handleAdminUpdateUser(w http.ResponseWriter, r *http.Request, para
 	if statusFromError(w, err) {
 		return
 	}
-	ok(w, "user updated", publicUser(u))
+	data := publicUser(u)
+	if embySyncFailed {
+		data["emby_sync_failed"] = true
+	}
+	ok(w, "user updated", data)
 }
 
 // normalizeRoleValue 把任意 JSON 数值收成已知 role 整数。
@@ -1961,6 +1968,7 @@ func (a *App) handleAdminToggleUser(w http.ResponseWriter, r *http.Request, para
 	affected := []int64{}
 	skipped := []map[string]any{}
 	failed := []map[string]any{}
+	embyFailed := []map[string]any{}
 	for _, targetUID := range a.collectCascadeUIDs(uid, depth) {
 		if target, okUser := a.store().User(targetUID); okUser && a.userIsProtected(target) && target.UID != currentUID {
 			skipped = append(skipped, map[string]any{"uid": targetUID, "reason": a.protectedUserReason(target)})
@@ -1978,12 +1986,19 @@ func (a *App) handleAdminToggleUser(w http.ResponseWriter, r *http.Request, para
 			continue
 		}
 		if !enable {
-			_, _ = a.disableRemoteEmbyForWebState(r.Context(), updated)
+			// Emby 同步失败不阻断本地禁用，但记录到响应让管理员知晓。
+			if _, syncErr := a.disableRemoteEmbyForWebState(r.Context(), updated); syncErr != nil {
+				embyFailed = append(embyFailed, map[string]any{"uid": targetUID, "reason": syncErr.Error()})
+			}
 		}
 		affected = append(affected, targetUID)
 	}
 	u, _ := a.store().User(uid)
-	ok(w, "用户状态已更新", map[string]any{"user": publicUser(u), "active": enable, "affected": affected, "skipped": skipped, "failed": failed, "cascade_depth": depth, "enable": enable})
+	resp := map[string]any{"user": publicUser(u), "active": enable, "affected": affected, "skipped": skipped, "failed": failed, "cascade_depth": depth, "enable": enable}
+	if len(embyFailed) > 0 {
+		resp["emby_failed"] = embyFailed
+	}
+	ok(w, "用户状态已更新", resp)
 }
 
 func (a *App) handleAdminUnbindEmby(w http.ResponseWriter, r *http.Request, params Params) {

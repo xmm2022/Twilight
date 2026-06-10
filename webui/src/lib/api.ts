@@ -679,7 +679,8 @@ class ApiClient {
   }
 
   async updateUser(uid: number, data: Partial<UserUpdateData>) {
-    return this.request(`/admin/users/${uid}`, {
+    // 改成禁用时 Emby 远端关停失败会附带 emby_sync_failed=true（其余字段为 publicUser）。
+    return this.request<UserInfo & { emby_sync_failed?: boolean }>(`/admin/users/${uid}`, {
       method: "PUT",
       body: JSON.stringify(data),
     });
@@ -830,6 +831,29 @@ class ApiClient {
       method: "POST",
       body: JSON.stringify(payload),
     });
+  }
+
+  // 强制从 Telegram / Emby 拉取单个用户的当前状态并回写：刷新 telegram_username、
+  // emby_username，并把「Web 已禁用/过期但 Emby 仍启用」的越权漂移关停。返回刷新后的
+  // 用户对象（UserInfo 同口径）+ refresh 同步差异摘要。
+  async refreshUserStatus(uid: number) {
+    return this.request<
+      UserInfo & {
+        refresh?: {
+          telegram_checked?: boolean;
+          telegram_username?: string;
+          telegram_username_updated?: boolean;
+          telegram_error?: string;
+          emby_checked?: boolean;
+          emby_username?: string;
+          emby_username_updated?: boolean;
+          emby_missing?: boolean;
+          emby_remote_disabled?: boolean;
+          emby_disabled_synced?: boolean;
+          emby_error?: string;
+        };
+      }
+    >(`/admin/users/${uid}/refresh-status`, { method: "POST" });
   }
 
   async adminCreateStandaloneEmby(payload: { username: string; password: string; email?: string }) {
@@ -2048,6 +2072,8 @@ class ApiClient {
       affected: number[];
       skipped: Array<{ uid: number; reason: string }>;
       failed: Array<{ uid: number; reason: string }>;
+      // 本地禁用成功但 Emby 远端关停失败的用户（仅禁用方向返回）。
+      emby_failed?: Array<{ uid: number; reason: string }>;
       cascade_depth: number | string;
       enable: boolean;
     }>(`/admin/users/${uid}/${path}`, {

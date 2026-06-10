@@ -10,6 +10,7 @@ import {
   Link2,
   Mail,
   MoreHorizontal,
+  RefreshCcw,
   RefreshCw,
   Trash2,
   Unlink,
@@ -150,6 +151,7 @@ export interface UserActionsMenuHandlers {
   onBindEmail: (user: UserInfo) => void;
   onBindTelegram: (user: UserInfo) => void;
   onSyncBindings: (user: UserInfo) => void;
+  onRefreshStatus: (user: UserInfo) => void;
   onForceUnbind: (user: UserInfo) => void;
   onClearRegistrationQueue: (user: UserInfo) => void;
   onGrantRegistrationEntitlement: (user: UserInfo) => void;
@@ -216,6 +218,10 @@ export function UserActionsMenu({
         <DropdownMenuItem onClick={() => handlers.onSyncBindings(user)}>
           <RefreshCw className="mr-2 h-4 w-4" />
           {t("adminUsers.menuSyncBindings")}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => handlers.onRefreshStatus(user)}>
+          <RefreshCcw className="mr-2 h-4 w-4" />
+          {t("adminUsers.menuRefreshStatus")}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => handlers.onForceUnbind(user)}>
           <Unlink className="mr-2 h-4 w-4" />

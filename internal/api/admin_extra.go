@@ -421,6 +421,7 @@ func (a *App) handleAdminBulkExpire(w http.ResponseWriter, r *http.Request, _ Pa
 	}
 	includeAdmin := boolValue(payload, "include_admin", false)
 	includeWhitelist := boolValue(payload, "include_whitelist", false)
+	affectedUIDs := make([]int64, 0)
 	matched, updated, skipped := a.updateFilteredUsers(payload["filter"], func(u store.User) (bool, string) {
 		if u.Role == store.RoleAdmin && !includeAdmin {
 			return false, "admin"
@@ -441,8 +442,28 @@ func (a *App) handleAdminBulkExpire(w http.ResponseWriter, r *http.Request, _ Pa
 			return false, "pending_emby"
 		}
 		return true, ""
-	}, func(u *store.User) { u.ExpiredAt = expiredAt })
-	ok(w, "bulk expire complete", map[string]any{
+	}, func(u *store.User) {
+		u.ExpiredAt = expiredAt
+		affectedUIDs = append(affectedUIDs, u.UID)
+	})
+	// 若新到期时间已使账号过期，必须同步关停其 Emby 账号——否则会留下「Web 已过期、
+	// Emby 仍可登录」的越权窗口（与单用户禁用、调度自动过期口径一致）。到期时间设为
+	// 未来/永久时 disableRemoteEmbyForWebState 会自行判定不需要关停，安全空转。
+	embyDisabled, embySyncFailed := 0, 0
+	if !expiryIsPermanent(expiredAt) && expiredAt < time.Now().Unix() {
+		for _, uid := range affectedUIDs {
+			target, found := a.store().User(uid)
+			if !found {
+				continue
+			}
+			if changed, err := a.disableRemoteEmbyForWebState(r.Context(), target); err != nil {
+				embySyncFailed++
+			} else if changed {
+				embyDisabled++
+			}
+		}
+	}
+	resp := map[string]any{
 		"matched":              matched,
 		"updated":              updated,
 		"expired_at":           expiredAt,
@@ -451,7 +472,12 @@ func (a *App) handleAdminBulkExpire(w http.ResponseWriter, r *http.Request, _ Pa
 		"skipped_whitelist":    skipped["whitelist"],
 		"skipped_pending_emby": skipped["pending_emby"],
 		"skipped_unrecognized": skipped["unrecognized"],
-	})
+		"emby_disabled":        embyDisabled,
+	}
+	if embySyncFailed > 0 {
+		resp["emby_sync_failed"] = embySyncFailed
+	}
+	ok(w, "bulk expire complete", resp)
 }
 
 func (a *App) handleAdminBulkEnableDisabled(w http.ResponseWriter, r *http.Request, _ Params) {
