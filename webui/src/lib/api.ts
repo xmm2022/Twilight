@@ -1820,7 +1820,7 @@ class ApiClient {
     });
   }
 
-  async getRegcodes(page = 1, params: { type?: string; status?: string; source?: string; search?: string; sort?: string; order?: string } = {}) {
+  async getRegcodes(page = 1, params: { type?: string; status?: string; source?: string; search?: string; sort?: string; order?: string; per_page?: number } = {}) {
     const query = new URLSearchParams({ page: String(page) });
     if (params.type && params.type !== "all") query.set("type", params.type);
     if (params.status && params.status !== "all") query.set("status", params.status);
@@ -1828,6 +1828,7 @@ class ApiClient {
     if (params.search) query.set("search", params.search);
     if (params.sort) query.set("sort", params.sort);
     if (params.order) query.set("order", params.order);
+    if (params.per_page) query.set("per_page", String(params.per_page));
     return this.request<{ regcodes: Regcode[]; total: number }>(
       `/admin/regcodes?${query.toString()}`
     );

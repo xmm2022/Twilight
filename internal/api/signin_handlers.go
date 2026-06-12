@@ -60,6 +60,7 @@ func (a *App) handleSignin(w http.ResponseWriter, r *http.Request, _ Params) {
 	}
 	payload := signinActionPayload(*a.cfg(), si, createdToday, dailyPoints, bonusPoints)
 	if createdToday {
+		a.audit(r, "signin", "user", 0, map[string]any{"points": dailyPoints, "bonus": bonusPoints})
 		ok(w, "签到成功", payload)
 		return
 	}
