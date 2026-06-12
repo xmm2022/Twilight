@@ -32,6 +32,7 @@ import {
   ShieldAlert,
   MonitorSmartphone,
   Mail,
+  ClipboardList,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
@@ -76,6 +77,7 @@ export const adminNavItems: SidebarNavItem[] = [
   { href: "/admin/invite", labelKey: "navigation.inviteForest", icon: Network },
   { href: "/admin/requests", labelKey: "navigation.requestReview", icon: Film },
   { href: "/admin/violations", labelKey: "navigation.violations", icon: ShieldAlert },
+  { href: "/admin/audit-logs", labelKey: "navigation.auditLogs", icon: ClipboardList },
   { href: "/admin/email", labelKey: "navigation.emailAdmin", icon: Mail },
   { href: "/admin/telegram-rebind-requests", labelKey: "navigation.telegramRebind", icon: MessageSquare },
   { href: "/admin/emby", labelKey: "navigation.embyAdmin", icon: Server },

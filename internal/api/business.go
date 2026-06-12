@@ -512,6 +512,10 @@ func regcodeDTO(code store.RegCode) map[string]any {
 		expiresAt = base + code.ValidityTime*3600
 	}
 	usedByUIDs := regcodeUsedByUIDs(code)
+	source := code.Source
+	if source == "" {
+		source = "admin"
+	}
 	return map[string]any{
 		"code":                     code.Code,
 		"type":                     code.Type,
@@ -532,6 +536,8 @@ func regcodeDTO(code store.RegCode) map[string]any {
 		"used_by":                  joinInt64(usedByUIDs),
 		"used_by_uids":             usedByUIDs,
 		"used_by_telegram_ids":     code.UsedByTelegramIDs,
+		"source":                   source,
+		"creator_uid":              zeroNil(code.CreatorUID),
 	}
 }
 
@@ -545,6 +551,11 @@ func (a *App) regcodeDTO(code store.RegCode) map[string]any {
 		}
 	}
 	item["used_by_usernames"] = usedByUsernames
+	if code.CreatorUID > 0 {
+		if creator, ok := a.store().User(code.CreatorUID); ok {
+			item["creator_username"] = creator.Username
+		}
+	}
 	if strings.TrimSpace(code.TargetUsername) != "" {
 		if user, ok := a.store().FindUserByUsername(code.TargetUsername); ok {
 			item["target_uid"] = user.UID

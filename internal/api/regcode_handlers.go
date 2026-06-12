@@ -15,12 +15,23 @@ func (a *App) handleListRegcodes(w http.ResponseWriter, r *http.Request, _ Param
 	perPage := clamp(queryInt(r, "per_page", 20), 1, 100)
 	statusFilter := strings.ToLower(r.URL.Query().Get("status"))
 	typeFilter := r.URL.Query().Get("type")
+	sourceFilter := strings.ToLower(r.URL.Query().Get("source"))
 	search := strings.ToLower(r.URL.Query().Get("search"))
 	items := make([]map[string]any, 0, len(codes))
 	for _, code := range codes {
 		dto := a.regcodeDTO(code)
 		if typeFilter != "" && strconv.Itoa(code.Type) != typeFilter {
 			continue
+		}
+		// source 筛选：admin 包含历史空值和显式 "admin"，invite 只匹配 "invite"
+		if sourceFilter != "" && sourceFilter != "all" {
+			codeSource := code.Source
+			if codeSource == "" {
+				codeSource = "admin"
+			}
+			if codeSource != sourceFilter {
+				continue
+			}
 		}
 		if statusFilter != "" && statusFilter != "all" && dto["status"] != statusFilter {
 			if !(statusFilter == "decoy" && code.IsDecoy) && !(statusFilter == "active" && code.Active) {
@@ -130,11 +141,15 @@ func (a *App) handleCreateRegcodes(w http.ResponseWriter, r *http.Request, _ Par
 			return
 		}
 		seen[code] = true
-		if err := a.store().UpsertRegCode(store.RegCode{Code: code, Type: codeType, ValidityTime: validity, UseCountLimit: useLimit, Days: days, Note: truncateString(stringValue(payload, "note"), 120), IsDecoy: boolValue(payload, "decoy", false), TargetUsername: targetUsername, TargetTelegramUsername: targetTelegramUsername, TargetTelegramID: targetTelegramID, Active: true}); statusFromError(w, err) {
+		admin := current(r).User
+		if err := a.store().UpsertRegCode(store.RegCode{Code: code, Type: codeType, ValidityTime: validity, UseCountLimit: useLimit, Days: days, Note: truncateString(stringValue(payload, "note"), 120), IsDecoy: boolValue(payload, "decoy", false), TargetUsername: targetUsername, TargetTelegramUsername: targetTelegramUsername, TargetTelegramID: targetTelegramID, Active: true, Source: "admin", CreatorUID: admin.UID}); statusFromError(w, err) {
 			return
 		}
 		codes = append(codes, code)
 	}
+	a.audit(r, "create_regcode", "admin", 0, map[string]any{
+		"count": len(codes), "type": codeType, "days": days, "codes": codes,
+	})
 	ok(w, "注册码已创建", map[string]any{"codes": codes, "count": len(codes), "decoy": boolValue(payload, "decoy", false), "target_username": targetUsername, "target_telegram_username": targetTelegramUsername, "target_telegram_id": zeroNil(targetTelegramID)})
 }
 
@@ -190,6 +205,9 @@ func (a *App) handleUpdateRegcode(w http.ResponseWriter, r *http.Request, params
 	if err := a.store().UpsertRegCode(reg); statusFromError(w, err) {
 		return
 	}
+	a.audit(r, "update_regcode", "admin", 0, map[string]any{
+		"code": reg.Code,
+	})
 	ok(w, "注册码已更新", a.regcodeDTO(reg))
 }
 
@@ -197,9 +215,13 @@ func (a *App) handleDeleteRegcode(w http.ResponseWriter, r *http.Request, params
 	if a.rejectRegcodeWriteIfStorageMismatch(w) {
 		return
 	}
+	reg, _ := a.store().RegCode(params["code"])
 	if statusFromError(w, a.store().DeleteRegCode(params["code"])) {
 		return
 	}
+	a.audit(r, "delete_regcode", "admin", 0, map[string]any{
+		"code": params["code"], "type": reg.Type, "days": reg.Days,
+	})
 	ok(w, "注册码已删除", nil)
 }
 
@@ -247,6 +269,9 @@ func (a *App) handleBatchDeleteRegcodes(w http.ResponseWriter, r *http.Request, 
 		failWithCode(w, http.StatusInternalServerError, ErrRegcodeBatchFailed, "批量删除注册码失败")
 		return
 	}
+	a.audit(r, "batch_delete_regcode", "admin", 0, map[string]any{
+		"count": len(deleted), "deleted": deleted, "missing": len(missing),
+	})
 	ok(w, "注册码已批量删除", map[string]any{
 		"deleted":       len(deleted),
 		"deleted_codes": deleted,
@@ -348,6 +373,9 @@ func (a *App) handleClearRegcodeUsage(w http.ResponseWriter, r *http.Request, pa
 	if err := a.store().UpsertRegCode(reg); statusFromError(w, err) {
 		return
 	}
+	a.audit(r, "clear_regcode_usage", "admin", 0, map[string]any{
+		"code": reg.Code, "cleared_use_count": oldUseCount,
+	})
 	ok(w, "使用记录已清理", map[string]any{
 		"code":                     reg.Code,
 		"cleared_use_count":        oldUseCount,

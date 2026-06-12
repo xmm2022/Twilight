@@ -188,6 +188,9 @@ func (a *App) handleUseCode(w http.ResponseWriter, r *http.Request, _ Params) {
 	data["expired_at"] = publicExpiryUnix(u.ExpiredAt)
 	data["role"] = u.Role
 	data["role_name"] = roleName(u.Role)
+	a.audit(r, "use_code", "user", 0, map[string]any{
+		"code": code, "source": source,
+	})
 	ok(w, "使用成功", data)
 }
 

@@ -74,6 +74,7 @@ type State struct {
 	NextSchedulerRunID  int64                          `json:"next_scheduler_run_id"`
 	NextRebindRequestID int64                          `json:"next_rebind_request_id"`
 	NextViolationLogID  int64                          `json:"next_violation_log_id"`
+	NextAuditLogID      int64                          `json:"next_audit_log_id"`
 	Users               map[int64]User                 `json:"users"`
 	APIKeys             map[int64]APIKey               `json:"api_keys"`
 	MediaRequests       map[int64]MediaRequest         `json:"media_requests"`
@@ -94,6 +95,7 @@ type State struct {
 	RebindRequests      map[int64]RebindRequest        `json:"rebind_requests"`
 	TelegramRoster      map[string]TelegramRosterEntry `json:"telegram_roster"`
 	ViolationLogs       []ViolationLog                 `json:"violation_logs"`
+	AuditLogs           []AuditLog                     `json:"audit_logs"`
 	// TelegramBotOffset 持久化最近一次成功 ack 的 update_id+1。
 	// 重启 / token 切换时直接从这个值恢复，避免对 24h backlog 重新分发。
 	// 0 表示未设置 / 历史 state，按"从 0 开始"处理（getUpdates 会拿到队列里
@@ -229,6 +231,11 @@ type RegCode struct {
 	CreatedAt              int64   `json:"created_at"`
 	CreatedTime            int64   `json:"created_time"`
 	ExpiredAt              int64   `json:"expired_at,omitempty"`
+	// Source 区分卡码来源："admin" 管理员手动创建、"invite" 邀请系统自动生成。
+	// 历史数据该字段为空字符串，视作 "admin"。
+	Source string `json:"source,omitempty"`
+	// CreatorUID 记录创建者 UID。管理员创建时为管理员 UID，邀请续期码为邀请人 UID。
+	CreatorUID int64 `json:"creator_uid,omitempty"`
 }
 
 type InviteRelation struct {
@@ -262,6 +269,19 @@ type ViolationLog struct {
 	IP         string `json:"ip,omitempty"`
 	TelegramID int64  `json:"telegram_id,omitempty"`
 	CreatedAt  int64  `json:"created_at"`
+}
+
+// AuditLog 记录用户和管理员的关键操作，用于安全审计和运营追溯。
+type AuditLog struct {
+	ID        int64          `json:"id"`
+	UID       int64          `json:"uid"`                  // 操作者 UID
+	Username  string         `json:"username"`             // 操作者用户名（快照）
+	Action    string         `json:"action"`               // 操作动作，如 "create_regcode"、"disable_user"
+	Category  string         `json:"category"`             // 分类：admin / user / system
+	TargetUID int64          `json:"target_uid,omitempty"` // 被操作对象 UID（如有）
+	Detail    map[string]any `json:"detail,omitempty"`     // 操作详情（结构化）
+	IP        string         `json:"ip,omitempty"`         // 操作者 IP
+	CreatedAt int64          `json:"created_at"`
 }
 
 type RuntimeLogEntry struct {
@@ -895,6 +915,18 @@ func (s *State) ensure() {
 	}
 	if s.RuntimeLogs == nil {
 		s.RuntimeLogs = []RuntimeLogEntry{}
+	}
+	if s.NextAuditLogID <= 0 {
+		max := int64(0)
+		for _, log := range s.AuditLogs {
+			if log.ID > max {
+				max = log.ID
+			}
+		}
+		s.NextAuditLogID = max + 1
+	}
+	if s.AuditLogs == nil {
+		s.AuditLogs = []AuditLog{}
 	}
 }
 
@@ -3457,6 +3489,81 @@ func (s *Store) ClearViolationLogs() error {
 	defer s.mu.Unlock()
 	return s.mutateAndSaveLocked(func() error {
 		s.state.ViolationLogs = nil
+		return nil
+	})
+}
+
+// ---------------------------------------------------------------------------
+// AuditLog — 操作审计日志
+// ---------------------------------------------------------------------------
+
+// AddAuditLog 追加一条操作审计日志。自动分配单调递增 ID 和时间戳。
+// limit 为保留上限条数（<=0 不限）。
+func (s *Store) AddAuditLog(entry AuditLog, limit int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mutateAndSaveLocked(func() error {
+		entry.ID = s.state.NextAuditLogID
+		s.state.NextAuditLogID++
+		if entry.CreatedAt == 0 {
+			entry.CreatedAt = time.Now().Unix()
+		}
+		s.state.AuditLogs = append(s.state.AuditLogs, entry)
+		if limit > 0 && len(s.state.AuditLogs) > limit {
+			s.state.AuditLogs = s.state.AuditLogs[len(s.state.AuditLogs)-limit:]
+		}
+		return nil
+	})
+}
+
+// ListAuditLogs 返回所有审计日志，最新在前。
+func (s *Store) ListAuditLogs() []AuditLog {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]AuditLog, len(s.state.AuditLogs))
+	copy(out, s.state.AuditLogs)
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out
+}
+
+// DeleteAuditLog 按 ID 删除单条审计日志。
+func (s *Store) DeleteAuditLog(id int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mutateAndSaveLocked(func() error {
+		for i, log := range s.state.AuditLogs {
+			if log.ID == id {
+				s.state.AuditLogs = append(s.state.AuditLogs[:i], s.state.AuditLogs[i+1:]...)
+				return nil
+			}
+		}
+		return ErrNotFound
+	})
+}
+
+// ClearAuditLogs 清空全部审计日志。
+func (s *Store) ClearAuditLogs() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mutateAndSaveLocked(func() error {
+		s.state.AuditLogs = nil
+		return nil
+	})
+}
+
+// PruneAuditLogs 保留最新的 keep 条审计日志，超出部分从尾部裁剪。
+func (s *Store) PruneAuditLogs(keep int) error {
+	if keep <= 0 {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mutateAndSaveLocked(func() error {
+		if len(s.state.AuditLogs) > keep {
+			s.state.AuditLogs = s.state.AuditLogs[len(s.state.AuditLogs)-keep:]
+		}
 		return nil
 	})
 }

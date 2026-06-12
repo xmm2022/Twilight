@@ -11,4 +11,5 @@ export const confirmPhrases = {
   cleanupInvalidUsers: "CLEANUP_INVALID_USERS",
   clearAllUserEmails: "CLEAR_ALL_EMAILS",
   clearViolations: "CLEAR_VIOLATIONS",
+  clearAuditLogs: "CLEAR_AUDIT_LOGS",
 } as const;

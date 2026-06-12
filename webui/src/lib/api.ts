@@ -5,6 +5,7 @@ import type {
   AnnouncementRenderMode,
   ApiKeyItem,
   ApiResponse,
+  AuditLog,
   BatchUserSelection,
   BatchUserResult,
   CodeUsePreview,
@@ -1819,10 +1820,11 @@ class ApiClient {
     });
   }
 
-  async getRegcodes(page = 1, params: { type?: string; status?: string; search?: string; sort?: string; order?: string } = {}) {
+  async getRegcodes(page = 1, params: { type?: string; status?: string; source?: string; search?: string; sort?: string; order?: string } = {}) {
     const query = new URLSearchParams({ page: String(page) });
     if (params.type && params.type !== "all") query.set("type", params.type);
     if (params.status && params.status !== "all") query.set("status", params.status);
+    if (params.source && params.source !== "all") query.set("source", params.source);
     if (params.search) query.set("search", params.search);
     if (params.sort) query.set("sort", params.sort);
     if (params.order) query.set("order", params.order);
@@ -1919,6 +1921,30 @@ class ApiClient {
     return this.request("/admin/violations/clear", {
       method: "POST",
       body: JSON.stringify({ confirm: confirmPhrases.clearViolations }),
+    });
+  }
+
+  // Audit logs
+  async getAuditLogs(page = 1, params: { category?: string; action?: string; uid?: string; search?: string; per_page?: number; signal?: AbortSignal } = {}) {
+    const query = new URLSearchParams({ page: String(page), per_page: String(params.per_page ?? 50) });
+    if (params.category && params.category !== "all") query.set("category", params.category);
+    if (params.action && params.action !== "all") query.set("action", params.action);
+    if (params.uid) query.set("uid", params.uid);
+    if (params.search) query.set("search", params.search);
+    return this.request<{ logs: AuditLog[]; total: number; page: number; per_page: number }>(
+      `/admin/audit-logs?${query.toString()}`,
+      { signal: params.signal }
+    );
+  }
+
+  async deleteAuditLog(id: number) {
+    return this.request(`/admin/audit-logs/${id}`, { method: "DELETE" });
+  }
+
+  async clearAuditLogs() {
+    return this.request("/admin/audit-logs/clear", {
+      method: "POST",
+      body: JSON.stringify({ confirm: confirmPhrases.clearAuditLogs }),
     });
   }
 

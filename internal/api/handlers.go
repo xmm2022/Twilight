@@ -1853,6 +1853,9 @@ func (a *App) handleAdminUpdateUser(w http.ResponseWriter, r *http.Request, para
 	if embySyncFailed {
 		data["emby_sync_failed"] = true
 	}
+	a.audit(r, "update_user", "admin", uid, map[string]any{
+		"has_role": hasRole, "has_active": hasActive,
+	})
 	ok(w, "user updated", data)
 }
 
@@ -1946,6 +1949,10 @@ func (a *App) handleAdminDeleteUser(w http.ResponseWriter, r *http.Request, para
 		}
 		deleted = append(deleted, targetUID)
 	}
+	// 审计日志
+	if len(deleted) > 0 {
+		a.audit(r, "delete_user", "admin", uid, map[string]any{"deleted": deleted, "mode": mode, "cascade_depth": depth})
+	}
 	ok(w, "users deleted", map[string]any{"deleted": deleted, "skipped": skipped, "failed": failed, "mode": mode, "cascade_depth": depth})
 }
 
@@ -1997,6 +2004,14 @@ func (a *App) handleAdminToggleUser(w http.ResponseWriter, r *http.Request, para
 	resp := map[string]any{"user": publicUser(u), "active": enable, "affected": affected, "skipped": skipped, "failed": failed, "cascade_depth": depth, "enable": enable}
 	if len(embyFailed) > 0 {
 		resp["emby_failed"] = embyFailed
+	}
+	// 审计日志
+	if len(affected) > 0 {
+		action := "disable_user"
+		if enable {
+			action = "enable_user"
+		}
+		a.audit(r, action, "admin", uid, map[string]any{"affected": affected, "cascade_depth": depth})
 	}
 	ok(w, "用户状态已更新", resp)
 }
@@ -2425,6 +2440,9 @@ func (a *App) handleAdminSetRole(w http.ResponseWriter, r *http.Request, params 
 			return
 		}
 	}
+	a.audit(r, "set_role", "admin", uid, map[string]any{
+		"new_role": role,
+	})
 	ok(w, "role updated", publicUser(u))
 }
 

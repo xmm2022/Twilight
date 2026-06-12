@@ -62,6 +62,7 @@ export default function AdminRegcodesPage() {
   const [deletingCode, setDeletingCode] = useState<string | null>(null);
   const [filterType, setFilterType] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [filterSource, setFilterSource] = useState("all");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("created_time");
   const [order, setOrder] = useState("desc");
@@ -104,7 +105,7 @@ export default function AdminRegcodesPage() {
   const formatRegcodeDays = (days: number) => (days < 0 ? t("adminRegcodes.permanent") : t("adminRegcodes.daysValue", { days: days || 30 }));
 
   const loadRegcodesResource = useCallback(async () => {
-    const res = await api.getRegcodes(page, { type: filterType, status: filterStatus, search, sort, order });
+    const res = await api.getRegcodes(page, { type: filterType, status: filterStatus, source: filterSource, search, sort, order });
     if (res.success && res.data) {
       const regcodesList = Array.isArray(res.data.regcodes)
         ? res.data.regcodes
@@ -124,7 +125,7 @@ export default function AdminRegcodesPage() {
       setTotal(0);
     }
     return true;
-  }, [page, filterType, filterStatus, search, sort, order]);
+  }, [page, filterType, filterStatus, filterSource, search, sort, order]);
 
   const {
     isLoading,
@@ -285,6 +286,7 @@ export default function AdminRegcodesPage() {
   const clearFilters = () => {
     setFilterType("all");
     setFilterStatus("all");
+    setFilterSource("all");
     setSearch("");
     setSort("created_time");
     setOrder("desc");
@@ -500,6 +502,17 @@ export default function AdminRegcodesPage() {
     if (status === "used_up") return <Badge variant="warning">{t("adminRegcodes.badgeUsedUp")}</Badge>;
     if (status === "expired") return <Badge variant="secondary">{t("adminRegcodes.badgeExpired")}</Badge>;
     return <Badge variant="success">{t("adminRegcodes.badgeAvailable")}</Badge>;
+  };
+
+  const getSourceBadge = (code: Regcode) => {
+    if (code.source === "invite") {
+      return <Badge variant="outline" className="text-xs">{t("adminRegcodes.badgeSourceInvite")}</Badge>;
+    }
+    // admin source or legacy (empty) — only show badge for "admin" to match backend behavior
+    if (code.source === "admin" || !code.source) {
+      return null; // admin codes are the default, no badge needed or show subtle
+    }
+    return null;
   };
 
   const activeTypeDescription = {
@@ -994,7 +1007,7 @@ export default function AdminRegcodesPage() {
       </div>
 
       <Card>
-        <CardContent className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(240px,1.2fr)_0.8fr_0.8fr_0.8fr_0.7fr_auto]">
+        <CardContent className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(200px,1fr)_0.7fr_0.7fr_0.7fr_0.7fr_0.7fr_auto]">
           <Input
             placeholder={t("adminRegcodes.searchRegcodePlaceholder")}
             value={search}
@@ -1007,6 +1020,14 @@ export default function AdminRegcodesPage() {
               <SelectItem value="1">{t("adminRegcodes.typeRegcode")}</SelectItem>
               <SelectItem value="2">{t("adminRegcodes.typeRenewcode")}</SelectItem>
               <SelectItem value="3">{t("adminRegcodes.typeWhitelistcode")}</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={filterSource} onValueChange={(v) => { setFilterSource(v); setPage(1); }}>
+            <SelectTrigger><SelectValue placeholder={t("adminRegcodes.filterSourcePlaceholder")} /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("adminRegcodes.allSources")}</SelectItem>
+              <SelectItem value="admin">{t("adminRegcodes.sourceAdmin")}</SelectItem>
+              <SelectItem value="invite">{t("adminRegcodes.sourceInvite")}</SelectItem>
             </SelectContent>
           </Select>
           <Select value={filterStatus} onValueChange={(v) => { setFilterStatus(v); setPage(1); }}>
@@ -1076,6 +1097,7 @@ export default function AdminRegcodesPage() {
                         <span className="mt-2 flex flex-wrap gap-1">
                           {getTypeBadge(code.type)}
                           {getStatusBadge(code)}
+                          {getSourceBadge(code)}
                           {regcodeTargetLabel(code) ? <Badge variant="secondary">{t("adminRegcodes.onlyTargetPrefix")}{regcodeTargetLabel(code)}</Badge> : null}
                           {code.is_decoy ? <Badge variant="destructive">{t("adminRegcodes.badgeFake")}</Badge> : <Badge variant="outline">{t("adminRegcodes.badgeNormal")}</Badge>}
                         </span>
@@ -1137,6 +1159,12 @@ export default function AdminRegcodesPage() {
                     <div>
                       <p className="text-xs text-muted-foreground">{t("adminRegcodes.createdAt")}</p>
                       <p className="mt-1">{formatDate(code.created_time || code.created_at)}</p>
+                      {code.creator_username && (
+                        <p className="mt-0.5 text-xs text-muted-foreground/70">
+                          {code.creator_username}
+                          {code.creator_uid ? ` · UID ${code.creator_uid}` : ""}
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -1228,6 +1256,7 @@ export default function AdminRegcodesPage() {
                         <div className="space-y-2">
                           <div className="flex flex-wrap gap-1">
                             {getTypeBadge(code.type)}
+                            {getSourceBadge(code)}
                             {code.is_decoy ? <Badge variant="destructive">{t("adminRegcodes.badgeFake")}</Badge> : <Badge variant="outline">{t("adminRegcodes.badgeNormal")}</Badge>}
                           </div>
                           {regcodeTargetLabel(code) ? <div className="truncate text-xs text-muted-foreground" title={regcodeTargetLabel(code)}>{t("adminRegcodes.onlyLimitPrefix")}{regcodeTargetLabel(code)}</div> : null}
@@ -1274,7 +1303,13 @@ export default function AdminRegcodesPage() {
                         )}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 align-top text-sm text-muted-foreground">
-                        {formatDate(code.created_time || code.created_at)}
+                        <div>{formatDate(code.created_time || code.created_at)}</div>
+                        {code.creator_username && (
+                          <div className="text-xs text-muted-foreground/70">
+                            {code.creator_username}
+                            {code.creator_uid ? ` · UID ${code.creator_uid}` : ""}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right align-top">
                         <div className="flex items-center justify-end gap-1">

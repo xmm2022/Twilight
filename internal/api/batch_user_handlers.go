@@ -52,6 +52,13 @@ func (a *App) handleBatchToggleUsers(w http.ResponseWriter, r *http.Request, ena
 		addBatchOutcome(result, uid, err)
 	}
 	result["selected_all"] = boolValue(payload, "select_all", false)
+	action := "batch_disable_users"
+	if enable {
+		action = "batch_enable_users"
+	}
+	a.audit(r, action, "admin", 0, map[string]any{
+		"success": result["success"], "failed": result["failed"],
+	})
 	ok(w, "批量操作完成", result)
 }
 
@@ -81,6 +88,9 @@ func (a *App) handleBatchRenewUsers(w http.ResponseWriter, r *http.Request, _ Pa
 		addBatchOutcome(result, uid, err)
 	}
 	result["days"] = days
+	a.audit(r, "batch_renew_users", "admin", 0, map[string]any{
+		"days": days, "success": result["success"], "failed": result["failed"],
+	})
 	ok(w, "批量续期完成", result)
 }
 
@@ -125,6 +135,9 @@ func (a *App) handleBatchDeleteUsers(w http.ResponseWriter, r *http.Request, _ P
 		addBatchOutcome(result, uid, a.store().DeleteUser(uid))
 	}
 	result["selected_all"] = boolValue(payload, "select_all", false)
+	a.audit(r, "batch_delete_users", "admin", 0, map[string]any{
+		"success": result["success"], "failed": result["failed"],
+	})
 	ok(w, "批量删除完成", result)
 }
 

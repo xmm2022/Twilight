@@ -650,6 +650,9 @@ export interface Regcode {
   created_at: string;
   created_time?: number; // 创建时间戳（兼容字段）
   used_at?: string;
+  source?: "admin" | "invite"; // 来源：admin=管理员创建, invite=邀请系统生成
+  creator_uid?: number; // 创建者 UID
+  creator_username?: string; // 创建者用户名
 }
 
 export interface CreateRegcodeData {
@@ -1037,6 +1040,19 @@ export interface SigninHistoryRecord {
   bonus_points: number;
   total: number;
   streak: number;
+  created_at: number;
+}
+
+// ==================== 操作审计日志 ====================
+export interface AuditLog {
+  id: number;
+  uid: number;
+  username: string;
+  action: string;
+  category: string;
+  target_uid: number | null;
+  detail: Record<string, unknown> | null;
+  ip: string | null;
   created_at: number;
 }
 

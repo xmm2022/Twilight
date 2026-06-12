@@ -237,6 +237,9 @@ func (a *App) registerAdminRoutes() {
 	a.add(http.MethodPost, "/api/v1/admin/announcements", AuthAdmin, a.handleCreateAnnouncement)
 	a.add(http.MethodPut, "/api/v1/admin/announcements/:announcement_id", AuthAdmin, a.handleUpdateAnnouncement)
 	a.add(http.MethodDelete, "/api/v1/admin/announcements/:announcement_id", AuthAdmin, a.handleDeleteAnnouncement)
+	a.add(http.MethodGet, "/api/v1/admin/audit-logs", AuthAdmin, a.handleListAuditLogs)
+	a.add(http.MethodDelete, "/api/v1/admin/audit-logs/:log_id", AuthAdmin, a.handleDeleteAuditLog)
+	a.add(http.MethodPost, "/api/v1/admin/audit-logs/clear", AuthAdmin, a.handleClearAuditLogs)
 }
 
 func (a *App) registerAPIKeyRoutes() {

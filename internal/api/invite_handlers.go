@@ -117,6 +117,9 @@ func (a *App) handleCreateInviteCode(w http.ResponseWriter, r *http.Request, _ P
 	if err := a.store().UpsertInviteCode(invite); statusFromError(w, err) {
 		return
 	}
+	a.audit(r, "create_invite_code", "user", 0, map[string]any{
+		"code": code, "days": days,
+	})
 	created(w, "invite code created", a.inviteCodeDTO(invite))
 }
 
@@ -194,10 +197,13 @@ func (a *App) handleCreateInviteRenewCode(w http.ResponseWriter, r *http.Request
 		failWithCode(w, http.StatusConflict, ErrInviteGenerationConflict, "续期码生成冲突，请重试")
 		return
 	}
-	reg := store.RegCode{Code: code, Type: 2, ValidityTime: int64(validityHours), UseCountLimit: 1, Days: days, Note: truncateString(stringValue(payload, "note"), 120), TargetUsername: child.Username, Active: true}
+	reg := store.RegCode{Code: code, Type: 2, ValidityTime: int64(validityHours), UseCountLimit: 1, Days: days, Note: truncateString(stringValue(payload, "note"), 120), TargetUsername: child.Username, Active: true, Source: "invite", CreatorUID: user.UID}
 	if err := a.store().UpsertRegCode(reg); statusFromError(w, err) {
 		return
 	}
+	a.audit(r, "create_renew_code", "user", child.UID, map[string]any{
+		"code": code, "days": days, "target_uid": child.UID,
+	})
 	created(w, "renew code created", map[string]any{"code": code, "target_uid": child.UID, "target_username": child.Username, "days": days, "validity_hours": validityHours, "max_code_days": maxDays})
 }
 
