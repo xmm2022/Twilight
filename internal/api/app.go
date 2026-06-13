@@ -832,7 +832,8 @@ func (a *App) applyCORS(w http.ResponseWriter, r *http.Request) bool {
 	if origin == "" {
 		return false
 	}
-	if !a.corsOriginAllowed(origin) {
+	allowed := a.corsOriginAllowed(origin) || a.corsOriginMatchesHost(origin, r)
+	if !allowed {
 		return false
 	}
 	w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -857,8 +858,6 @@ func (a *App) corsOriginAllowed(origin string) bool {
 	for _, candidate := range a.cfg().CORSOrigins {
 		candidate = strings.TrimSpace(candidate)
 		if candidate == "*" {
-			// 启动期已 zap.Error 告警；运行期再次防御性跳过，
-			// 即使管理员错配置成 `*` 也不会与 Allow-Credentials 组合。
 			continue
 		}
 		if strings.EqualFold(normalizeCORSOrigin(candidate), origin) {
@@ -866,6 +865,29 @@ func (a *App) corsOriginAllowed(origin string) bool {
 		}
 	}
 	return false
+}
+
+// corsOriginMatchesHost 返回 origin 是否与当前 Host 头同源（scheme+host+port）。
+// 用于放行同源请求的 CORS 头：浏览器有时会给同源 POST 也带 Origin，若 API 域名
+// 不在 cors_origins 里就会造成 CORS 拒绝。
+func (a *App) corsOriginMatchesHost(origin string, r *http.Request) bool {
+	normalized := normalizeCORSOrigin(origin)
+	if normalized == "" {
+		return false
+	}
+	host := strings.TrimSpace(r.Host)
+	if host == "" {
+		return false
+	}
+	// 构造与 normalizeCORSOrigin 同口径的 host origin
+	scheme := "https"
+	if a.cfg().CookieSecure {
+		scheme = "https"
+	} else if r.TLS == nil {
+		scheme = "http"
+	}
+	hostOrigin := scheme + "://" + host
+	return strings.EqualFold(normalized, hostOrigin)
 }
 
 func requireWebUIIntent(w http.ResponseWriter, r *http.Request, intent string) bool {
