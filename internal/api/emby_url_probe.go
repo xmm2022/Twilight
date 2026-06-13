@@ -68,6 +68,10 @@ func normalizeProbeURL(raw string) string {
 }
 
 func (a *App) handleEmbyURLProbe(w http.ResponseWriter, r *http.Request, _ Params) {
+	if !a.embyConfigured() {
+		failWithCode(w, http.StatusServiceUnavailable, ErrEmbyNotConfigured, "Emby 服务未配置")
+		return
+	}
 	p := current(r)
 	if !a.allowRate(r.Context(), rateKey("emby-probe:", p.User.UID), embyProbeRateLimit, embyProbeRateWindow) {
 		failWithCode(w, http.StatusTooManyRequests, ErrRateLimited, "测速请求过于频繁，请稍后再试")

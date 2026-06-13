@@ -109,6 +109,9 @@ export function filterNavItems(
     if (features?.bangumi_sync === false && item.href === "/bangumi") {
       return false;
     }
+    if (features?.ticket_system === false && (item.href === "/tickets" || item.href === "/admin/tickets")) {
+      return false;
+    }
     return true;
   });
 }

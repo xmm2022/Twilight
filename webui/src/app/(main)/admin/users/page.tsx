@@ -67,6 +67,18 @@ import { ErrCodes } from "@/lib/errcode";
 import { formatDate } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { sanitizeImageUrl } from "@/lib/safe-url";
+import { API_BASE } from "@/lib/api-request";
+
+// normalizeAssetUrl prepends API_BASE to relative asset paths
+// so avatars work when frontend and backend are on different domains.
+function normalizeAssetUrl(url?: string): string | undefined {
+  if (!url) return undefined;
+  const trimmed = url.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.startsWith("http")) return sanitizeImageUrl(trimmed);
+  if (trimmed.startsWith("/")) return sanitizeImageUrl(`${API_BASE}${trimmed}`);
+  return sanitizeImageUrl(trimmed);
+}
 import {
   batchClearEmbyGrantConfirmConfig,
   batchDeleteConfirmConfig,
@@ -2306,7 +2318,7 @@ export default function AdminUsersPage() {
                         aria-label={`选择 ${user.username}`}
                       />
                       <Avatar className="h-10 w-10 shrink-0 ring-1 ring-border/50">
-                              <AvatarImage src={sanitizeImageUrl(user.avatar)} />
+                              <AvatarImage src={normalizeAssetUrl(user.avatar)} />
                         <AvatarFallback className="bg-primary/10 text-primary text-sm font-bold">
                           {user.username.charAt(0).toUpperCase()}
                         </AvatarFallback>
@@ -2400,7 +2412,7 @@ export default function AdminUsersPage() {
                         <div className="flex items-start justify-between gap-4">
                           <div className="flex items-center gap-3 min-w-0">
                             <Avatar className="h-8 w-8 shrink-0 ring-1 ring-border/50">
-                        <AvatarImage src={sanitizeImageUrl(user.avatar)} />
+                        <AvatarImage src={normalizeAssetUrl(user.avatar)} />
                               <AvatarFallback className="bg-primary/10 text-primary text-xs font-bold">
                                 {user.username.charAt(0).toUpperCase()}
                               </AvatarFallback>

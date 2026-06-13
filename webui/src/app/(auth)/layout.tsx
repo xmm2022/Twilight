@@ -38,6 +38,9 @@ export default function AuthLayout({
           <div className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_20%_10%,hsl(var(--primary)/0.12),transparent_35%),radial-gradient(circle_at_80%_90%,hsl(var(--primary)/0.08),transparent_30%)]" />
         </>
       )}
+      {safeBg && (
+        <div className="pointer-events-none absolute inset-0 -z-10 bg-background/50 backdrop-blur-[2px]" />
+      )}
       <div className="relative z-10 min-h-screen">
         {children}
       </div>

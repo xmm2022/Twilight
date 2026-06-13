@@ -151,13 +151,9 @@ func (a *App) handleReopenOwnTicket(w http.ResponseWriter, r *http.Request, para
 
 // ---- 管理员工单接口 ----
 
-// handleAdminTickets 管理员查看所有工单（支持筛选）。
+// handleAdminTickets 管理员查看所有工单（支持筛选）。管理端接口不受 TicketSystemEnabled 开关限制。
 func (a *App) handleAdminTickets(w http.ResponseWriter, r *http.Request, _ Params) {
 	cfg := a.cfg()
-	if !cfg.TicketSystemEnabled {
-		failWithCode(w, http.StatusServiceUnavailable, ErrTicketDisabled, "工单系统未启用")
-		return
-	}
 	filter := store.TicketFilter{
 		UID:      int64(queryInt(r, "uid", 0)),
 		Status:   strings.TrimSpace(r.URL.Query().Get("status")),
@@ -168,12 +164,8 @@ func (a *App) handleAdminTickets(w http.ResponseWriter, r *http.Request, _ Param
 	ok(w, "OK", map[string]any{"tickets": tickets, "total": len(tickets), "ticket_types": cfg.TicketTypes})
 }
 
-// handleAdminUpdateTicket 管理员更新工单状态 / 回复。
+// handleAdminUpdateTicket 管理员更新工单状态 / 回复。管理端接口不受 TicketSystemEnabled 开关限制。
 func (a *App) handleAdminUpdateTicket(w http.ResponseWriter, r *http.Request, params Params) {
-	if !a.cfg().TicketSystemEnabled {
-		failWithCode(w, http.StatusServiceUnavailable, ErrTicketDisabled, "工单系统未启用")
-		return
-	}
 	id, _ := int64Param(params, "ticket_id")
 	payload := decodeMap(r)
 
@@ -217,12 +209,8 @@ func (a *App) handleAdminUpdateTicket(w http.ResponseWriter, r *http.Request, pa
 	ok(w, "工单已更新", ticket)
 }
 
-// handleAdminDeleteTicket 管理员删除工单。
+// handleAdminDeleteTicket 管理员删除工单。管理端接口不受 TicketSystemEnabled 开关限制。
 func (a *App) handleAdminDeleteTicket(w http.ResponseWriter, r *http.Request, params Params) {
-	if !a.cfg().TicketSystemEnabled {
-		failWithCode(w, http.StatusServiceUnavailable, ErrTicketDisabled, "工单系统未启用")
-		return
-	}
 	id, _ := int64Param(params, "ticket_id")
 	if statusFromError(w, a.store().DeleteTicket(id)) {
 		return
