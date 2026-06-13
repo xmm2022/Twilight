@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useSystemStore } from "@/store/system";
 import { sanitizeImageUrl } from "@/lib/safe-url";
+import { API_BASE } from "@/lib/api-request";
 
 export default function AuthLayout({
   children,
@@ -11,7 +12,12 @@ export default function AuthLayout({
 }) {
   const { info: systemInfo, fetchInfo } = useSystemStore();
   const bgUrl = systemInfo?.auth_background_url;
-  const safeBg = bgUrl ? sanitizeImageUrl(bgUrl) : undefined;
+  const safeBg = useMemo(() => {
+    if (!bgUrl) return undefined;
+    // 相对路径用 API_BASE 补全为绝对 URL（前后端不同域时也能加载）
+    if (bgUrl.startsWith("/")) return sanitizeImageUrl(`${API_BASE}${bgUrl}`);
+    return sanitizeImageUrl(bgUrl);
+  }, [bgUrl]);
 
   useEffect(() => {
     void fetchInfo();

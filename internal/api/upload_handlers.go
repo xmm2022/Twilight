@@ -513,8 +513,7 @@ func (a *App) handleUploadAuthBackground(w http.ResponseWriter, r *http.Request,
 	if values["Global"] == nil {
 		values["Global"] = map[string]any{}
 	}
-	url := filepath.ToSlash(filepath.Join("auth-background", filename))
-	values["Global"]["auth_background_url"] = url
+	values["Global"]["auth_background_url"] = "/system/auth-background?file=" + filename
 	info, status, message := a.saveConfigContent(renderConfigTOML(values))
 	if status != http.StatusOK {
 		_ = os.Remove(filePath)
@@ -522,13 +521,14 @@ func (a *App) handleUploadAuthBackground(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	ok(w, "上传成功", map[string]any{
-		"url":      "/api/v1/system/auth-background?ts=" + strconv.FormatInt(time.Now().Unix(), 10),
+		"url":      "/system/auth-background?file=" + filename,
 		"filename": filename,
 		"reload":   info["reload"],
 	})
 }
 
 // handleAuthBackground 提供已上传的认证页背景图文件。
+// 支持 ?file= 参数指定文件，无参数时取最新上传的文件。
 func (a *App) handleAuthBackground(w http.ResponseWriter, r *http.Request, _ Params) {
 	uploadRoot := firstNonEmpty(a.cfg().UploadDir, "uploads")
 	dir, err := ResolveWithinRoot(uploadRoot, "auth-background")
@@ -536,12 +536,25 @@ func (a *App) handleAuthBackground(w http.ResponseWriter, r *http.Request, _ Par
 		failWithCode(w, http.StatusNotFound, ErrAssetNotFound, "resource not found")
 		return
 	}
+	fileName := strings.TrimSpace(r.URL.Query().Get("file"))
+	if fileName != "" {
+		if !uploadFilenamePattern.MatchString(fileName) {
+			failWithCode(w, http.StatusNotFound, ErrAssetNotFound, "resource not found")
+			return
+		}
+		filePath, err := ResolveWithinRoot(dir, fileName)
+		if err != nil {
+			failWithCode(w, http.StatusNotFound, ErrAssetNotFound, "resource not found")
+			return
+		}
+		http.ServeFile(w, r, filePath)
+		return
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil || len(entries) == 0 {
 		failWithCode(w, http.StatusNotFound, ErrAssetNotFound, "resource not found")
 		return
 	}
-	// 取最新的文件
 	path := filepath.Join(dir, entries[len(entries)-1].Name())
 	http.ServeFile(w, r, path)
 }
