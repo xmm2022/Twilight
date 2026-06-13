@@ -65,6 +65,9 @@ func newTestApp(t *testing.T) *App {
 		PermanentInviteMaxDays:       365,
 		MaxDevices:                   5,
 		MaxStreams:                   2,
+		ForgotPasswordEnabled:        true,
+		ForgotPasswordEmbyEnabled:    true,
+		ForgotPasswordEmailEnabled:   true,
 		// 安全模型：管理员身份只来自配置文件的 admin_uids / admin_usernames。
 		// 旧的"空数据库首注册者自动成为 Admin"通道已移除。测试 harness 大量
 		// 依赖第一个注册的 "admin" 账户具备管理员权限，这里通过配置显式声明

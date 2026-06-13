@@ -26,6 +26,8 @@ export interface SystemInfo {
   session_cookie_name?: string;
   features: Record<string, boolean>;
   limits: Record<string, number | null>;
+  /** 登录/注册页背景图片 HTTPS URL；留空使用默认渐变背景 */
+  auth_background_url?: string;
   telegram_bot?: {
     username: string | null;
     url: string | null;

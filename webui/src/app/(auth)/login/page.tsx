@@ -30,7 +30,8 @@ export default function LoginPage() {
   const { t } = useI18n();
   const { login } = useAuthStore();
   const { info: systemInfo, fetchInfo: fetchSystemInfo } = useSystemStore();
-  
+  const forgotPasswordEnabled = Boolean(systemInfo?.features?.forgot_password_enabled);
+
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -207,11 +208,13 @@ export default function LoginPage() {
               </div>
             </form>
  
+            {forgotPasswordEnabled && (
             <div className="mt-5 text-center text-sm">
               <Link href="/forgot-password" className="font-medium text-primary hover:underline">
                 {t("auth.login.forgotPassword")}
               </Link>
             </div>
+            )}
 
             <div className="mt-5 flex items-center justify-center gap-2 text-sm">
               <span className="text-muted-foreground">{t("auth.login.noAccount")}</span>

@@ -1,4 +1,9 @@
 {
+  "auth": {
+    "forgotPassword": {
+      "adminDisabled": "管理員已關閉找回密碼功能，請直接聯繫管理員"
+    }
+  },
   "email": {
     "verified": "已驗證",
     "unverified": "未驗證",

@@ -1,0 +1,139 @@
+# ============================================================================
+# Production overrides for docker-compose.yml
+# ============================================================================
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Changes from base:
+#   - Explicit restart policy logging
+#   - Resource limits for each service
+#   - Read-only rootfs for backend where possible
+#   - Separate scheduler and bot containers for PostgreSQL multi-process mode
+# ============================================================================
+
+name: twilight
+
+services:
+  postgres:
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 256M
+
+  redis:
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+
+  twilight:
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 256M
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M
+    # volumes with read_only override for writable paths
+    volumes:
+      - ./config.toml:/app/config.toml:ro
+      - twilight_uploads:/app/uploads:rw
+      - twilight_backups:/app/db/backups:rw
+
+  # ---- Scheduler (separate process for PostgreSQL multi-process mode) ----
+  # Uncomment to run scheduler as a separate container (PostgreSQL only).
+  # scheduler:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   image: twilight-backend:latest
+  #   container_name: twilight-scheduler
+  #   restart: unless-stopped
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   environment:
+  #     TWILIGHT_DATABASE_DRIVER: postgres
+  #     TWILIGHT_POSTGRES_HOST: postgres
+  #     TWILIGHT_POSTGRES_PORT: 5432
+  #     TWILIGHT_POSTGRES_USER: twilight
+  #     TWILIGHT_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-twilight}
+  #     TWILIGHT_POSTGRES_DATABASE: twilight
+  #     TWILIGHT_POSTGRES_SSLMODE: disable
+  #     TWILIGHT_REDIS_URL: redis://redis:6379/0
+  #     TWILIGHT_BOT_INTERNAL_SECRET: ${BOT_INTERNAL_SECRET:-}
+  #   env_file:
+  #     - path: .env
+  #       required: false
+  #   volumes:
+  #     - ./config.toml:/app/config.toml:ro
+  #     - twilight_uploads:/app/uploads
+  #     - twilight_backups:/app/db/backups
+  #   command: ["scheduler", "--config", "config.toml"]
+  #   networks:
+  #     - twilight-net
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: "0.5"
+  #         memory: 512M
+
+  # ---- Bot (separate process for PostgreSQL multi-process mode) ----
+  # Uncomment to run bot as a separate container (PostgreSQL only).
+  # bot:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   image: twilight-backend:latest
+  #   container_name: twilight-bot
+  #   restart: unless-stopped
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   environment:
+  #     TWILIGHT_DATABASE_DRIVER: postgres
+  #     TWILIGHT_POSTGRES_HOST: postgres
+  #     TWILIGHT_POSTGRES_PORT: 5432
+  #     TWILIGHT_POSTGRES_USER: twilight
+  #     TWILIGHT_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-twilight}
+  #     TWILIGHT_POSTGRES_DATABASE: twilight
+  #     TWILIGHT_POSTGRES_SSLMODE: disable
+  #     TWILIGHT_REDIS_URL: redis://redis:6379/0
+  #     TWILIGHT_BOT_INTERNAL_SECRET: ${BOT_INTERNAL_SECRET:-}
+  #   env_file:
+  #     - path: .env
+  #       required: false
+  #   volumes:
+  #     - ./config.toml:/app/config.toml:ro
+  #     - twilight_uploads:/app/uploads
+  #     - twilight_backups:/app/db/backups
+  #   command: ["bot", "--config", "config.toml"]
+  #   networks:
+  #     - twilight-net
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: "0.5"
+  #         memory: 512M
+
+  webui:
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M

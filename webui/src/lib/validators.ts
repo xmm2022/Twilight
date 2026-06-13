@@ -145,6 +145,7 @@ export const ERROR_CODE_FRIENDLY: Partial<Record<ErrCode, string>> = {
   AUTH_PASSWORD_RESET_TOO_MANY: "密码重置过于频繁，请稍后再试",
   AUTH_PASSWORD_OLD_MISMATCH: "原密码不正确",
   AUTH_PASSWORD_WEAK: "密码强度不足",
+  AUTH_FORGOT_PASSWORD_DISABLED: "管理员已关闭找回密码功能",
   EMAIL_DISABLED: "邮箱功能未启用",
   EMAIL_NOT_BOUND: "请先绑定并验证邮箱",
   EMAIL_CODE_INVALID: "验证码错误或已失效，请重新获取",

@@ -782,6 +782,7 @@ func configSectionDefs() []configSectionDef {
 		{Key: "Global", Title: "全局", Description: "基础运行参数", Category: "runtime", Fields: []configFieldDef{
 			{Key: "server_name", Label: "服务器名称", Type: "string", Description: "前端展示的站点或服务器名称"},
 			{Key: "server_icon", Label: "服务器图标", Type: "string", Description: "HTTPS 图片 URL 或本地图片路径；留空使用内置图标"},
+			{Key: "auth_background_url", Label: "认证页背景图", Type: "string", Description: "登录/注册页背景图片 HTTPS URL；留空使用默认渐变背景"},
 			{Key: "databases_dir", Label: "数据目录", Type: "string", Description: "JSON 状态、备份和迁移文件目录"},
 			{Key: "log_level", Label: "日志等级", Type: "select", Description: "后端运行日志等级；兼容旧值 10/20/30/40", Options: []map[string]any{{"label": "DEBUG", "value": "debug"}, {"label": "INFO", "value": "info"}, {"label": "WARN", "value": "warn"}, {"label": "ERROR", "value": "error"}}},
 			{Key: "runtime_log_limit", Label: "实时日志保留行数", Type: "int", Description: "后台实时日志缓冲区行数，热重载生效"},
@@ -919,6 +920,9 @@ func configSectionDefs() []configSectionDef {
 			{Key: "trusted_proxy_cidrs", Label: "可信反代 CIDR", Type: "list", Description: "上游反代的 IP / CIDR；启用 trust_proxy_headers 时必须配置，否则任何客户端都可伪造 X-Forwarded-For"},
 		}},
 		{Key: "Security", Title: "安全", Description: "内部密钥和安全开关", Category: "ops", Fields: []configFieldDef{
+			{Key: "forgot_password_enabled", Label: "启用找回密码", Type: "bool", Description: "总开关：关闭后所有找回密码途径均不可用"},
+			{Key: "forgot_password_emby_enabled", Label: "Emby 找回密码", Type: "bool", Description: "允许通过 Emby 账号验证重置 Web 面板密码；依赖上图总开关"},
+			{Key: "forgot_password_email_enabled", Label: "邮箱找回密码", Type: "bool", Description: "允许通过绑定邮箱验证码重置 Web 面板密码；依赖上图总开关"},
 			{Key: "bot_internal_secret", Label: "Bot 内部密钥", Type: "secret", Description: "外部更新回调共享密钥"},
 		}},
 		{Key: "Scheduler", Title: "调度器", Description: "后台任务计划", Category: "ops", Fields: []configFieldDef{
@@ -973,7 +977,7 @@ func configSectionDefs() []configSectionDef {
 func configValues(cfg config.Config) map[string]map[string]any {
 	return map[string]map[string]any{
 		"Global": {
-			"server_name": cfg.AppName, "server_icon": cfg.ServerIcon, "databases_dir": cfg.DatabaseDir, "redis_url": cfg.RedisURL, "telegram_mode": cfg.TelegramMode, "force_bind_telegram": cfg.ForceBindTelegram,
+			"server_name": cfg.AppName, "server_icon": cfg.ServerIcon, "auth_background_url": cfg.AuthBackgroundURL, "databases_dir": cfg.DatabaseDir, "redis_url": cfg.RedisURL, "telegram_mode": cfg.TelegramMode, "force_bind_telegram": cfg.ForceBindTelegram,
 			"log_level": cfg.LogLevel, "runtime_log_limit": cfg.RuntimeLogLimit,
 			"tmdb_api_key": cfg.TMDBAPIKey, "tmdb_api_url": cfg.TMDBAPIURL, "tmdb_image_url": cfg.TMDBImageURL, "bangumi_token": cfg.BangumiToken, "bangumi_api_url": cfg.BangumiAPIURL,
 		},
@@ -1030,7 +1034,7 @@ func configValues(cfg config.Config) map[string]map[string]any {
 			"resend_cooldown_seconds": cfg.EmailResendCooldownSeconds, "max_attempts": cfg.EmailMaxAttempts, "subject_template": cfg.EmailSubjectTemplate, "body_template": cfg.EmailBodyTemplate,
 			"email_validation_mode": cfg.EmailValidationMode, "email_whitelist": cfg.EmailWhitelist, "email_blacklist": cfg.EmailBlacklist,
 		},
-		"Security":     {"bot_internal_secret": cfg.BotInternalSecret},
+		"Security":     {"forgot_password_enabled": cfg.ForgotPasswordEnabled, "forgot_password_emby_enabled": cfg.ForgotPasswordEmbyEnabled, "forgot_password_email_enabled": cfg.ForgotPasswordEmailEnabled, "bot_internal_secret": cfg.BotInternalSecret},
 		"Scheduler":    {"enabled": cfg.SchedulerEnabled, "expired_check_time": cfg.SchedulerExpiredCheckTime, "expiring_check_time": cfg.SchedulerExpiringCheckTime, "daily_stats_time": cfg.SchedulerDailyStatsTime, "session_cleanup_interval": cfg.SchedulerSessionCleanupInterval},
 		"SystemUpdate": {"auto_update_enabled": cfg.SystemUpdateEnabled, "repo_url": cfg.SystemUpdateRepoURL, "branch": cfg.SystemUpdateBranch, "restart_services": cfg.SystemUpdateRestartServices, "auto_update_trigger_type": cfg.SystemUpdateTriggerType, "auto_update_interval_hours": cfg.SystemUpdateIntervalHours, "auto_update_time": cfg.SystemUpdateTime},
 		"Notification": {"enabled": cfg.NotificationEnabled, "expiry_remind_days": cfg.NotificationExpiryRemindDays},

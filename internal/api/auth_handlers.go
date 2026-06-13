@@ -172,8 +172,17 @@ func (a *App) handleDirectLoginUnavailable(w http.ResponseWriter, r *http.Reques
 }
 
 func (a *App) handleForgotPassword(w http.ResponseWriter, r *http.Request, _ Params) {
+	cfg := a.cfg()
+	if !cfg.ForgotPasswordEnabled {
+		failWithCode(w, http.StatusServiceUnavailable, ErrForgotPasswordDisabled, "找回密码功能已关闭")
+		return
+	}
+	if !cfg.ForgotPasswordEmbyEnabled {
+		failWithCode(w, http.StatusServiceUnavailable, ErrForgotPasswordDisabled, "通过 Emby 找回密码已关闭")
+		return
+	}
 	ip := a.clientIP(r)
-	if !a.allowRate(r.Context(), rateKey("forgot-password:ip:", ip), a.cfg().RateLimitForgotPasswordIPPer10m, 10*time.Minute) {
+	if !a.allowRate(r.Context(), rateKey("forgot-password:ip:", ip), cfg.RateLimitForgotPasswordIPPer10m, 10*time.Minute) {
 		failWithCode(w, http.StatusTooManyRequests, ErrPasswordResetTooMany, "重置密码尝试过于频繁，请稍后再试")
 		return
 	}
@@ -188,7 +197,7 @@ func (a *App) handleForgotPassword(w http.ResponseWriter, r *http.Request, _ Par
 		failWithCode(w, http.StatusBadRequest, ErrEmbyInputTooLong, "输入内容过长")
 		return
 	}
-	if !a.allowRate(r.Context(), rateKey("forgot-password:user:", strings.ToLower(embyUsername)), a.cfg().RateLimitForgotPasswordUserPer30m, 30*time.Minute) {
+	if !a.allowRate(r.Context(), rateKey("forgot-password:user:", strings.ToLower(embyUsername)), cfg.RateLimitForgotPasswordUserPer30m, 30*time.Minute) {
 		failWithCode(w, http.StatusTooManyRequests, ErrPasswordResetTooMany, "该账号重置密码尝试过于频繁，请稍后再试")
 		return
 	}

@@ -1,10 +1,11 @@
 # 开发指南
 
-本文面向贡献者与维护者，覆盖 Twilight 的目录结构、后端与前端的本地开发流程、API 与安全编码规范、数据模型与迁移约定，以及验证与发布流程。Twilight 当前的开发与部署目标都是 Linux + systemd。
+本文面向贡献者与维护者，覆盖 Twilight 的目录结构、后端与前端的本地开发流程、API 与安全编码规范、数据模型与迁移约定，以及验证与发布流程。Twilight 的当前开发与部署目标都是 Linux + systemd；同时提供完整的 Docker 支持。
 
 相关文档：
 
 - 安装部署见 [安装部署](./install.md)。
+- Docker 部署见 [Docker 部署](./docker.md)。
 - 安全加固见 [安全加固](./security.md)。
 - 后端架构与配置见 [Go 后端架构与配置](../reference/backend.md)。
 - 路由总览见 [API 路由索引](../reference/api-index.md)，单接口细节见 [后端 API 详参](../reference/backend-api.md)。
@@ -191,6 +192,44 @@ Twilight 不对 Cookie 鉴权的变更类请求做 CSRF 令牌校验，也不做
 - 旧部署迁移应使用显式的一次性导入流程，不应在启动时隐式修改或猜测旧业务数据。
 - 管理员身份只来自配置文件：启动时 `applyConfiguredAdmins` 会按 `config.toml` 的 `admin_uids` / `admin_usernames`（大小写不敏感）把匹配到的用户提升为管理员并置为 active；注册时命中同一配置列表的账号也会被提升。默认不配置时列表为空，没有任何账号是管理员。已移除「空库首注册者无条件成为管理员」通道，避免部署窗口期被陌生人抢注提权。
 - `admin_uids` / `admin_usernames` 以及 `[SystemUpdate].repo_url` 都禁止经网页配置接口（schema / 原始 TOML 保存）改写：保存时提交值会被剥离或就地还原为磁盘原值，只能由运维在配置文件 / 环境变量侧设定。
+
+## Docker 本地开发
+
+项目提供完整的 Docker Compose 环境用于本地开发和测试：
+
+```bash
+# 启动完整的 Docker 开发环境 (PostgreSQL + Redis + 后端 + 前端)
+docker compose up -d --build
+
+# 查看日志
+docker compose logs -f twilight webui
+
+# 重启某个服务
+docker compose restart twilight
+
+# 停止
+docker compose down
+```
+
+### 独立启动后端/前端（不用 Docker）
+
+与 Docker 环境并行或替代使用——前端 dev server 可单独启动，指向 Docker 中的后端：
+
+```bash
+# 终端 1: Docker 后端 (PostgreSQL + Redis + API)
+docker compose up -d postgres redis twilight
+# 终端 2: 前端 dev server (hot reload)
+cd webui && pnpm dev
+```
+
+前端 dev server 通过 Next.js rewrites 将 `/api/*` 代理到 `localhost:5000`（Docker 后端暴露的端口）。
+
+### Docker 开发注意事项
+
+- 后端代码改动后需重建镜像：`docker compose up -d --build twilight`
+- 前端代码改动在 `pnpm dev` 模式下即时生效（HMR）
+- `config.toml` 挂载为只读卷；修改后重启服务生效
+- 构建时使用 `BuildKit`（Docker 默认），支持缓存复用加速重复构建
 
 ## 验证与发布
 

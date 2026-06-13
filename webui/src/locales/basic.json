@@ -187,7 +187,8 @@
       "webUsername": "Web 用户名：{username}",
       "copyHint": "新密码只显示一次，请立即复制并登录后修改。",
       "copyPassword": "复制新密码",
-      "backToLogin": "返回登录"
+      "backToLogin": "返回登录",
+      "adminDisabled": "管理员已关闭找回密码功能，请直接联系管理员"
     },
     "register": {
       "bindCodeGenerated": "已生成绑定码",

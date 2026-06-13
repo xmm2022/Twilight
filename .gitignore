@@ -1,31 +1,46 @@
-# IDE
+# ============================================================
+# Twilight .gitignore
+# ============================================================
+# 原则：
+#   - 构建产物、运行时数据、本地配置和私密文件不上库
+#   - 项目必需的模板文件 (.example) 和部署脚本保留
+#   - Dockerfile / docker-compose.yml 作为正式部署方案保留，仅本地覆写排除
+# ============================================================
+
+# ─── IDE & Editor ───
 .vscode/
 .idea/
+.vs/
 *.swp
 *.swo
 *~
 *.iml
+*.suo
+*.user
+*.sln.docstates
+.history/
 .cursorignore
 .cursorindexingignore
+.cursorrules
+.cursor/
 
-# Environment and local config
+# ─── Environment Files ───
 .env
-.env.local
-.env.development
-.env.production
-.env.staging
-.env.test
-.env.*.local
-.env.*.private
+.env.*
+!.env.example
+!.env.*.example
 .envrc
-config.local.toml
-config.private.toml
-config.secrets.toml
-config.*.secrets.toml
-config.*.local.toml
-config.toml.backup
-config.toml.bak
+
+# ─── Local / Secret Configuration ───
+# 本地 tom 覆写（任意层级）
+**/*.local.toml
+**/*.private.toml
+**/*.secrets.toml
+# 根目录配置备份
 config.toml
+config.toml.*
+!config.production.toml
+# 1Panel 部署配置
 1panel*.env
 1panel*.toml
 1panel*.json
@@ -34,13 +49,18 @@ config.toml
 1panel*.conf
 .1panel/
 1panel/
-*.local
-*.secret
 
-# Runtime data
-*.log
-/logs/
-api_error.log
+# ─── Docker ───
+# 本地用户覆写（Docker Compose 标准机制）
+docker-compose.override.yml
+# 本地自定义 Dockerfile
+Dockerfile.local
+Dockerfile.*.local
+# BuildKit 缓存
+.docker/
+
+# ─── Runtime Data ───
+# 数据库
 *.db
 *.db-journal
 *.db-shm
@@ -50,19 +70,31 @@ api_error.log
 *.sqlite-*
 /db/
 database.db
+# 备份
 config_backups/
 backups/
+# 上传 & 临时
+uploads/
+/tmp/
+temp/
+# 进程 & 缓存
 runtime/
 data/
-uploads/
-tmp/
-temp/
 .cache/
 *.tmp
 *.temp
 *.pid
 
-# Frontend
+# ─── Logs ───
+*.log
+/logs/
+api_error.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ─── Frontend (Next.js / pnpm / Turbopack) ───
 node_modules/
 .pnp
 .pnp.js
@@ -70,45 +102,70 @@ node_modules/
 .next/
 out/
 .eslintcache
-.env*.local
+*.tsbuildinfo
 **/tsconfig.tsbuildinfo
-**/*.tsbuildinfo
 .vite/
 .parcel-cache/
 .opennextjs/
 .wrangler/
 .vercel/
 .netlify/
+# 测试
 coverage/
 playwright-report/
 test-results/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
+# 类型锁文件
 webui/.next-env.d.ts.lock
-# Lock 文件统一为 pnpm-lock.yaml，禁止 npm/yarn lock 重新生成
+*.next-env.d.ts.lock
+# Lock 文件统一为 pnpm-lock.yaml，禁止 npm/yarn lock 再生成
 webui/package-lock.json
 webui/yarn.lock
+.pnpm-store/
 
-# Go build outputs
-dist/
-build/
+# ─── Go ───
+# 构建输出
 /bin/
 /twilight
 /twilight.exe
+dist/
+build/
+# 测试 & 分析
 *.test
 coverage.out
 coverage.html
 *.coverprofile
 *.prof
 *.pprof
+# 工具配置
 .air.toml
+# Go workspace（本地多模块开发用）
+go.work
+go.work.sum
+# Delve 调试器生成的二进制
+__debug_bin*
+# GOCACHE 本地目录（如果配置在项目内）
+.gocache/
 
-# OS files
+# ─── Python (legacy) ───
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.python-version
+
+# ─── OS Files ───
 .DS_Store
+.DS_Store?
 .AppleDouble
 .LSOverride
+._*
 Thumbs.db
 *.lnk
 desktop.ini
@@ -116,30 +173,38 @@ desktop.ini
 *.cmd
 *.ps1
 
-# Keys and credentials
+# ─── Keys & Credentials ───
 *.pem
 *.key
+*.key.pub
 *.p12
+*.pfx
+*.cer
+*.crt
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+id_ecdsa
+id_ecdsa.*
+*.gpg
+*.pgp
 
-# Backup and patch artifacts
+# ─── Backup & Patch Artifacts ───
 *.backup
 *.orig
 *.rej
 *.patch
 *.bak
+*.old
 
-# Local and generated artifacts
+# ─── Project-specific Local Files ───
 OPTIMIZATION_SUMMARY.md
 DEPLOY_LOCAL.txt
 /tests
 /.claude
 /memory/
 .notes/
-.vs/
-*.suo
-*.user
-*.sln.docstates
-.history/
 .aider*
 .codex/
 .continue/
@@ -156,21 +221,14 @@ opencode.json
 docs/AUDIT_REPORT.md
 .narrafork/
 .worktrees/
-tmp/
 setup-deploy.sh
 
-.pnpm-store/
-__pycache__/
-*.pyc
-*.pyo
-
-# Python virtual environments（显式忽略，不依赖 venv 自带的 .gitignore）
-.venv/
-venv/
-env/
-ENV/
-*.egg-info/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-
+# ─── Cloud / Infrastructure ───
+# Terraform / Pulumi 本地状态
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform/
+.pulumi/
+# Kubernetes 本地配置
+kubeconfig*

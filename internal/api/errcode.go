@@ -24,15 +24,16 @@ const (
 	// 不要把这条码用于"密码错误 / 限速 / 鉴权流"等非 ExpiredAt 触发的失败，
 	// 那些走各自专用码（ErrLoginInvalid / ErrLoginRateLimited 等），保持语
 	// 义集中。
-	ErrAccountExpired       ErrCode = "AUTH_ACCOUNT_EXPIRED"
-	ErrSessionCreateFailed  ErrCode = "AUTH_SESSION_CREATE_FAILED"
-	ErrAPIKeyEmpty          ErrCode = "AUTH_APIKEY_EMPTY"
-	ErrAPIKeyInvalid        ErrCode = "AUTH_APIKEY_INVALID"
-	ErrDirectLoginDisabled  ErrCode = "AUTH_DIRECT_LOGIN_DISABLED"
-	ErrPasswordResetTooMany ErrCode = "AUTH_PASSWORD_RESET_TOO_MANY"
-	ErrPasswordOldMismatch  ErrCode = "AUTH_PASSWORD_OLD_MISMATCH"
-	ErrPasswordWeak         ErrCode = "AUTH_PASSWORD_WEAK"
-	ErrPasswordHashFailed   ErrCode = "AUTH_PASSWORD_HASH_FAILED"
+	ErrAccountExpired         ErrCode = "AUTH_ACCOUNT_EXPIRED"
+	ErrSessionCreateFailed    ErrCode = "AUTH_SESSION_CREATE_FAILED"
+	ErrAPIKeyEmpty            ErrCode = "AUTH_APIKEY_EMPTY"
+	ErrAPIKeyInvalid          ErrCode = "AUTH_APIKEY_INVALID"
+	ErrDirectLoginDisabled    ErrCode = "AUTH_DIRECT_LOGIN_DISABLED"
+	ErrPasswordResetTooMany   ErrCode = "AUTH_PASSWORD_RESET_TOO_MANY"
+	ErrPasswordOldMismatch    ErrCode = "AUTH_PASSWORD_OLD_MISMATCH"
+	ErrPasswordWeak           ErrCode = "AUTH_PASSWORD_WEAK"
+	ErrPasswordHashFailed     ErrCode = "AUTH_PASSWORD_HASH_FAILED"
+	ErrForgotPasswordDisabled ErrCode = "AUTH_FORGOT_PASSWORD_DISABLED"
 
 	// === 用户 / 注册 ===
 	ErrRegisterRateLimited ErrCode = "USER_REGISTER_RATE_LIMITED"

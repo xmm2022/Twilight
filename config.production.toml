@@ -291,6 +291,12 @@ trusted_proxy_cidrs = ["127.0.0.0/8", "::1/128"]
 
 # ───────── 安全 ─────────
 [Security]
+# 找回密码总开关：关闭后所有途径均不可用
+forgot_password_enabled = true
+# 允许通过 Emby 账号验证重置 Web 面板密码
+forgot_password_emby_enabled = true
+# 允许通过绑定邮箱验证码重置 Web 面板密码
+forgot_password_email_enabled = true
 # 同一 IP 连续登录失败多少次后锁定
 login_fail_threshold = 5
 # 锁定时长（分钟），影响登录限流窗口

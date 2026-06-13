@@ -1,0 +1,207 @@
+# ============================================================================
+# Twilight Docker Configuration Template
+# ============================================================================
+# Copy this file to config.toml and edit before deploying with Docker.
+#
+# Important Docker-specific notes:
+#   1. All host references (postgres, redis) use docker-compose service names
+#   2. TWILIGHT_* env vars in docker-compose.yml will override these values
+#   3. database_driver MUST be "postgres" for Docker (JSON is single-process)
+#   4. redis_url is strongly recommended for rate-limit consistency
+#   5. Do NOT run "all" mode with database_driver="json" — use postgres only
+# ============================================================================
+
+# ───────── 全局 ─────────
+[Global]
+server_name = "Twilight"
+server_icon = ""
+log_level = "info"
+runtime_log_limit = 5000
+redis_url = "redis://redis:6379/0"
+telegram_mode = true
+force_bind_telegram = false
+tmdb_api_key = ""
+tmdb_api_url = "https://api.themoviedb.org/3"
+tmdb_image_url = "https://image.tmdb.org/t/p"
+bangumi_token = ""
+bangumi_api_url = "https://api.bgm.tv/v0"
+
+# 认证页背景图 HTTPS URL，留空使用默认渐变
+auth_background_url = ""
+
+# ───────── 管理员 ─────────
+# Protected — cannot be changed via Web UI. Set admin usernames/uids here.
+[Admin]
+# uids = []
+# usernames = ["admin"]
+
+# ───────── 数据库 ─────────
+# Docker: always use PostgreSQL
+[Database]
+driver = "postgres"
+# Full connection URL (takes priority over individual postgres_* fields)
+# url = "postgres://twilight:twilight@postgres:5432/twilight?sslmode=disable"
+postgres_host = "postgres"
+postgres_port = 5432
+postgres_user = "twilight"
+postgres_password = "twilight"
+postgres_database = "twilight"
+postgres_sslmode = "disable"
+postgres_max_open_conns = 16
+postgres_max_idle_conns = 8
+# JSON state file path (only used when driver=json)
+state_file = "db/twilight_go_state.json"
+backup_dir = "db/backups"
+migration_panel_enabled = false
+
+# ───────── Emby / Jellyfin ─────────
+[Emby]
+emby_url = "http://your-emby-server:8096"
+emby_token = ""
+emby_username = ""
+emby_password = ""
+emby_url_list = []
+emby_url_list_for_whitelist = []
+
+# ───────── Telegram Bot ─────────
+[Telegram]
+bot_token = ""
+admin_id = []
+group_id = []
+channel_id = []
+force_bind_group = false
+force_bind_channel = false
+require_group_membership = false
+ban_on_leave = false
+auto_enable_rejoined = false
+enable_tg_panel = true
+
+# ───────── 注册 / 用户策略 ─────────
+[SAR]
+register_mode = false
+register_code_limit = false
+allow_pending_register = false
+emby_direct_register_enabled = false
+emby_direct_register_days = 30
+user_limit = -1
+emby_user_limit = -1
+regcode_format = "TW-{type}-{random}"
+regcode_random_algorithm = "base32-20"
+invite_code_format = "INV{random}"
+invite_code_random_algorithm = "hex10"
+regcode_decoy_action = "log_only"
+media_request_enabled = true
+max_concurrent_requests_per_user = 3
+max_concurrent_requests_global = -1
+invite_enabled = true
+invite_limit = 10
+invite_root_user_limit = -1
+invite_max_depth = 3
+invite_require_emby = false
+invite_code_default_days = 30
+permanent_invite_max_days = 365
+auto_cleanup_no_emby = false
+auto_cleanup_no_emby_days = 7
+auto_cleanup_pending_emby = false
+auto_cleanup_pending_emby_days = 7
+signin_enabled = true
+currency_name = "星币"
+daily_min = 5
+daily_max = 20
+streak_bonus_enabled = true
+streak_bonus_days = [3, 7, 14, 30]
+streak_bonus_points = [10, 50, 100, 300]
+reset_after_miss = true
+signin_renewal_enabled = false
+signin_renewal_cost = 100
+signin_renewal_days = 30
+
+# ───────── 设备限制 ─────────
+[DeviceLimit]
+device_limit_enabled = false
+max_devices = 5
+max_streams = 2
+
+# ───────── API 服务器 ─────────
+[API]
+host = "0.0.0.0"
+port = 5000
+cors_origins = ["http://localhost:3000"]
+upload_folder = "uploads"
+max_upload_size = 5242880
+session_cookie_name = "twilight_session"
+session_cookie_secure = true
+session_cookie_samesite = "lax"
+session_cookie_domain = ""
+trust_proxy_headers = false
+trusted_proxy_cidrs = ["127.0.0.0/8", "::1/128"]
+
+# ───────── 安全 ─────────
+[Security]
+forgot_password_enabled = true
+forgot_password_emby_enabled = true
+forgot_password_email_enabled = true
+bot_internal_secret = ""
+
+# ───────── 速率限制 ─────────
+[RateLimit]
+enabled = true
+global_per_minute = 1200
+login_per_minute = 60
+login_user_per_5m = 10
+register_per_10m = 30
+forgot_password_ip_per_10m = 20
+forgot_password_user_per_30m = 10
+email_code_ip_per_10m = 20
+email_code_addr_per_10m = 5
+email_code_uid_per_10m = 10
+upload_per_minute = 60
+admin_icon_per_minute = 20
+api_key_default_per_minute = 300
+
+# ───────── 调度器 ─────────
+[Scheduler]
+enabled = true
+expired_check_time = "03:00"
+expiring_check_time = "09:00"
+daily_stats_time = "00:05"
+session_cleanup_interval = 6
+
+# ───────── 自动更新 ─────────
+# Docker deployment should NOT use built-in git auto-update.
+# Updates are done by pulling new images.
+[SystemUpdate]
+auto_update_enabled = false
+repo_url = "https://github.com/Prejudice-Studio/Twilight.git"
+branch = "main"
+restart_services = false
+
+# ───────── 通知 ─────────
+[Notification]
+enabled = true
+expiry_remind_days = 3
+
+# ───────── Bangumi 同步 ─────────
+[BangumiSync]
+enabled = false
+webhook_secret = ""
+
+# ───────── 邮箱验证 ─────────
+[Email]
+enabled = false
+smtp_host = ""
+smtp_port = 587
+smtp_username = ""
+smtp_password = ""
+smtp_encryption = "starttls"
+smtp_from_address = ""
+smtp_from_name = ""
+smtp_timeout_seconds = 10
+force_bind = false
+code_length = 6
+code_type = "numeric"
+code_ttl_minutes = 10
+resend_cooldown_seconds = 60
+max_attempts = 5
+subject_template = "{site} 邮箱验证码"
+body_template = """您正在 {site} 进行邮箱验证。\n\n验证码：{code}\n\n验证码 {ttl} 分钟内有效，请勿向任何人泄露。如非本人操作，请忽略本邮件。"""

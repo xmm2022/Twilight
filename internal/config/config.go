@@ -258,6 +258,12 @@ type Config struct {
 	MaxDevices                   int
 	MaxStreams                   int
 
+	ForgotPasswordEnabled      bool
+	ForgotPasswordEmbyEnabled  bool
+	ForgotPasswordEmailEnabled bool
+
+	AuthBackgroundURL string
+
 	ConfigFile string
 }
 
@@ -458,6 +464,10 @@ func Load(path string) (Config, error) {
 	cfg.DeviceLimitEnabled = reader.boolValue(cfg.DeviceLimitEnabled, "DeviceLimit.enabled", "DeviceLimit.device_limit_enabled", "device_limit_enabled")
 	cfg.MaxDevices = reader.intValue(cfg.MaxDevices, "DeviceLimit.max_devices", "max_devices")
 	cfg.MaxStreams = reader.intValue(cfg.MaxStreams, "DeviceLimit.max_streams", "max_streams")
+	cfg.ForgotPasswordEnabled = reader.boolValue(cfg.ForgotPasswordEnabled, "Security.forgot_password_enabled", "forgot_password_enabled")
+	cfg.ForgotPasswordEmbyEnabled = reader.boolValue(cfg.ForgotPasswordEmbyEnabled, "Security.forgot_password_emby_enabled", "forgot_password_emby_enabled")
+	cfg.ForgotPasswordEmailEnabled = reader.boolValue(cfg.ForgotPasswordEmailEnabled, "Security.forgot_password_email_enabled", "forgot_password_email_enabled")
+	cfg.AuthBackgroundURL = reader.stringValue(cfg.AuthBackgroundURL, "Global.auth_background_url", "auth_background_url")
 
 	applyEnv(&cfg)
 	if cfg.StateFile == "" {
@@ -581,6 +591,9 @@ func defaults() Config {
 		UserLimit:                         -1,
 		MaxDevices:                        5,
 		MaxStreams:                        2,
+		ForgotPasswordEnabled:             true,
+		ForgotPasswordEmbyEnabled:         true,
+		ForgotPasswordEmailEnabled:        true,
 		SMTPPort:                          587,
 		SMTPEncryption:                    "starttls",
 		SMTPTimeoutSeconds:                10,

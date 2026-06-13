@@ -157,6 +157,14 @@ func (a *App) handleVerifyEmailCode(w http.ResponseWriter, r *http.Request, _ Pa
 // 防枚举：无论邮箱是否对应账号，都回统一成功（仅 IP 级限流可见）。
 func (a *App) handleForgotPasswordEmailRequest(w http.ResponseWriter, r *http.Request, _ Params) {
 	cfg := a.cfg()
+	if !cfg.ForgotPasswordEnabled {
+		failWithCode(w, http.StatusServiceUnavailable, ErrForgotPasswordDisabled, "找回密码功能已关闭")
+		return
+	}
+	if !cfg.ForgotPasswordEmailEnabled {
+		failWithCode(w, http.StatusServiceUnavailable, ErrForgotPasswordDisabled, "通过邮箱找回密码已关闭")
+		return
+	}
 	if !emailConfigured(cfg) {
 		failWithCode(w, http.StatusServiceUnavailable, ErrEmailDisabled, "邮箱功能未启用")
 		return
@@ -188,6 +196,14 @@ func (a *App) handleForgotPasswordEmailRequest(w http.ResponseWriter, r *http.Re
 // handleForgotPasswordEmailReset 登出态找回第二步：校验验证码并重置系统密码。
 func (a *App) handleForgotPasswordEmailReset(w http.ResponseWriter, r *http.Request, _ Params) {
 	cfg := a.cfg()
+	if !cfg.ForgotPasswordEnabled {
+		failWithCode(w, http.StatusServiceUnavailable, ErrForgotPasswordDisabled, "找回密码功能已关闭")
+		return
+	}
+	if !cfg.ForgotPasswordEmailEnabled {
+		failWithCode(w, http.StatusServiceUnavailable, ErrForgotPasswordDisabled, "通过邮箱找回密码已关闭")
+		return
+	}
 	if !emailConfigured(cfg) {
 		failWithCode(w, http.StatusServiceUnavailable, ErrEmailDisabled, "邮箱功能未启用")
 		return

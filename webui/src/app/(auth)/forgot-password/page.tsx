@@ -19,7 +19,13 @@ export default function ForgotPasswordPage() {
   const { toast } = useToast();
   const { t } = useI18n();
   const { info: systemInfo, fetchInfo } = useSystemStore();
-  const emailEnabled = Boolean(systemInfo?.features?.email_enabled);
+  const features = systemInfo?.features;
+  const forgotPasswordEnabled = Boolean(features?.forgot_password_enabled);
+  const forgotPasswordEmbyEnabled = Boolean(features?.forgot_password_emby_enabled);
+  const forgotPasswordEmailEnabled = Boolean(features?.forgot_password_email_enabled);
+  const emailEnabled = Boolean(features?.email_enabled) && forgotPasswordEmailEnabled;
+  const embyAvailable = forgotPasswordEmbyEnabled;
+  const emailAvailable = emailEnabled;
 
   // Emby 重置（保留原有流程）
   const [embyUsername, setEmbyUsername] = useState("");
@@ -210,6 +216,11 @@ export default function ForgotPasswordPage() {
     </form>
   );
 
+  const showTabs = emailAvailable && embyAvailable;
+  const showEmbyOnly = embyAvailable && !emailAvailable;
+  const showEmailOnly = !embyAvailable && emailAvailable;
+  const nothingAvailable = !embyAvailable && !emailAvailable;
+
   return (
     <main className="relative flex min-h-screen w-full items-center justify-center p-4">
       <Card className="w-full max-w-[460px] border-border/70 bg-card/78 shadow-2xl backdrop-blur-xl">
@@ -221,7 +232,11 @@ export default function ForgotPasswordPage() {
           <CardDescription>{t("auth.forgotPassword.description")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
-          {emailEnabled ? (
+          {!forgotPasswordEnabled || nothingAvailable ? (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-center text-sm">
+              <p className="font-semibold">{t("auth.forgotPassword.adminDisabled")}</p>
+            </div>
+          ) : showTabs ? (
             <Tabs defaultValue="email">
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="email">
@@ -233,9 +248,11 @@ export default function ForgotPasswordPage() {
               <TabsContent value="email" className="mt-4">{emailForm}</TabsContent>
               <TabsContent value="emby" className="mt-4">{embyForm}</TabsContent>
             </Tabs>
-          ) : (
+          ) : showEmbyOnly ? (
             embyForm
-          )}
+          ) : showEmailOnly ? (
+            emailForm
+          ) : null}
 
           <div className="text-center text-sm">
             <Link href="/login" className="font-medium text-primary hover:underline">{t("auth.forgotPassword.backToLogin")}</Link>

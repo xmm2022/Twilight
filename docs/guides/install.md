@@ -2,6 +2,8 @@
 
 本文介绍如何在生产环境部署 Twilight：Go 后端面向 Linux + systemd 设计，前端为 Next.js，业务状态默认存储在 PostgreSQL（也可使用单一 JSON 状态文档），并通过 HTTPS 反向代理统一对外暴露。
 
+> **推荐**: 新部署优先使用 [Docker 部署](./docker.md)，一键启动 PostgreSQL + Redis + 后端 + 前端。
+
 ## 环境要求
 
 | 组件 | 要求 | 说明 |

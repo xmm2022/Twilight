@@ -1,0 +1,73 @@
+# Git
+.git
+.gitattributes
+.gitignore
+
+# Environment & secrets
+.env
+.env.*
+config.toml
+config.local.toml
+*.local.toml
+
+# Build artifacts
+bin/
+twilight.exe
+tmp/
+
+# Data (should be volumes, not baked into image)
+db/
+uploads/
+config_backups/
+memory/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Node (frontend has its own Dockerfile)
+node_modules/
+webui/node_modules/
+webui/.next/
+webui/out/
+
+# Python legacy
+.venv/
+__pycache__/
+*.pyc
+
+# Documentation (not needed in image)
+*.md
+docs/
+SOUL.md
+USER.md
+DEPLOY_LOCAL.txt
+AGENTS.md
+
+# CI / GitHub
+.github/
+
+# Testing
+*_test.go
+*.test
+
+# Nix
+flake.nix
+flake.lock
+
+# Misc
+Twilight Logo.png
+
+# Docker
+.dockerignore
+Dockerfile
+docker-compose*.yml
+webui/Dockerfile

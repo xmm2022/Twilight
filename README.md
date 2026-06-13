@@ -25,6 +25,19 @@
 - Telegram Bot：账号绑定、个人查询、管理员只读查询、群组成员安全管理。
 - 运维后台：实时日志、服务器状态、配置热重载、数据库备份/恢复/迁移、Git 更新。
 
+## 快速开始 (Docker)
+
+```bash
+git clone https://github.com/Prejudice-Studio/Twilight.git
+cd Twilight
+cp deploy/docker/config.docker.toml config.toml
+# 编辑 config.toml，至少填写 Emby URL 和 Token
+docker compose up -d --build
+# 访问 http://localhost:3000
+```
+
+详细部署指南见 [Docker 部署文档](docs/guides/docker.md) 和 [安装部署](docs/guides/install.md)。
+
 ## 文档导航
 
 完整导航见 [文档中心](docs/README.md)。常用入口：
@@ -32,6 +45,7 @@
 | 文档 | 说明 |
 | ---- | ---- |
 | [安装部署](docs/guides/install.md) | Linux、systemd、1Panel、Nginx、PostgreSQL 部署 |
+| [Docker 部署](docs/guides/docker.md) | Docker / Docker Compose 一键部署指南 |
 | [开发指南](docs/guides/development.md) | 目录结构、后端/前端命令、API 与安全规范、发布流程 |
 | [安全加固](docs/guides/security.md) | 生产安全基线与上线检查清单 |
 | [Go 后端架构与配置](docs/reference/backend.md) | 后端架构、配置加载、环境变量、Redis、迁移 |

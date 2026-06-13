@@ -1,4 +1,9 @@
 {
+  "auth": {
+    "forgotPassword": {
+      "adminDisabled": "The password reset feature has been disabled by the administrator. Please contact the administrator directly."
+    }
+  },
   "email": {
     "verified": "Verified",
     "unverified": "Unverified",
