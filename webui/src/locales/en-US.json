@@ -457,7 +457,14 @@
     "statusResolved": "Resolved",
     "statusClosed": "Closed",
     "updatedAt": "Updated at {time}",
-    "createdAt": "Created at {time}"
+    "createdAt": "Created at {time}",
+    "resolvedAt": "Resolved at {time}",
+    "closedAt": "Closed at {time}",
+    "closeTicket": "Close Ticket",
+    "reopenTicket": "Reopen Ticket",
+    "closed": "Ticket closed",
+    "reopened": "Ticket reopened",
+    "adminReply": "Admin Reply"
   },
   "adminTickets": {
     "title": "Ticket Management",
@@ -479,7 +486,12 @@
     "updated": "Ticket updated",
     "deleteConfirmTitle": "Delete Ticket",
     "deleteConfirmDescription": "Are you sure you want to delete this ticket? This cannot be undone.",
-    "deleted": "Ticket deleted"
+    "deleted": "Ticket deleted",
+    "editTitle": "Process Ticket",
+    "markInProgress": "In Progress",
+    "markResolved": "Mark Resolved",
+    "closeTicket": "Close",
+    "reopenTicket": "Reopen"
   },
   "bangumi": {
     "title": "Bangumi Sync",

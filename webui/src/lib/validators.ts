@@ -149,6 +149,8 @@ export const ERROR_CODE_FRIENDLY: Partial<Record<ErrCode, string>> = {
   TICKET_DISABLED: "工单系统未启用",
   TICKET_NOT_FOUND: "工单不存在",
   TICKET_RATE_LIMITED: "提交过于频繁，请稍后再试",
+  TICKET_ALREADY_CLOSED: "工单已关闭",
+  TICKET_NOT_CLOSED: "只有已关闭的工单可以重开",
   AUDIT_LOG_NOT_FOUND: "日志不存在",
   EMAIL_DISABLED: "邮箱功能未启用",
   EMAIL_NOT_BOUND: "请先绑定并验证邮箱",

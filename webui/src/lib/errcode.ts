@@ -37,6 +37,8 @@ export type ErrCode =
   | "TICKET_DISABLED"
   | "TICKET_NOT_FOUND"
   | "TICKET_RATE_LIMITED"
+  | "TICKET_ALREADY_CLOSED"
+  | "TICKET_NOT_CLOSED"
   // === 操作日志 ===
   | "AUDIT_LOG_NOT_FOUND"
   // === 用户 / 注册 ===

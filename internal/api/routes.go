@@ -327,4 +327,6 @@ func (a *App) registerStatsInviteSigninAnnouncementRoutes() {
 	// 工单
 	a.add(http.MethodGet, "/api/v1/tickets", AuthUser, a.handleMyTickets)
 	a.add(http.MethodPost, "/api/v1/tickets", AuthUser, a.handleCreateTicket)
+	a.add(http.MethodPost, "/api/v1/tickets/:ticket_id/close", AuthUser, a.handleCloseOwnTicket)
+	a.add(http.MethodPost, "/api/v1/tickets/:ticket_id/reopen", AuthUser, a.handleReopenOwnTicket)
 }

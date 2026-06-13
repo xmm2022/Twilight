@@ -3,57 +3,37 @@
 import { useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import {
-  MessageSquareMore,
-  Loader2,
-  Trash2,
-  Edit2,
-  AlertCircle,
-  Clock,
-  User,
+  MessageSquareMore, Loader2, Trash2, Edit2, AlertCircle, Clock, User,
+  CheckCircle2, Archive, RotateCcw, PlayCircle, Wrench,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useAsyncResource } from "@/hooks/use-async-resource";
 import { api, type Ticket } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 
-const STATUS_OPTIONS: Array<{ value: string; labelKey: string; className: string }> = [
-  { value: "", labelKey: "adminTickets.filterAll", className: "" },
-  { value: "open", labelKey: "adminTickets.filterOpen", className: "bg-warning/10 text-warning border-warning/30" },
-  { value: "in_progress", labelKey: "adminTickets.filterInProgress", className: "bg-info/10 text-info border-info/30" },
-  { value: "resolved", labelKey: "adminTickets.filterResolved", className: "bg-success/10 text-success border-success/30" },
-  { value: "closed", labelKey: "adminTickets.filterClosed", className: "bg-muted text-muted-foreground" },
-];
+const STATUS_MAP: Record<string, { labelKey: string; className: string; icon: typeof AlertCircle }> = {
+  open: { labelKey: "tickets.statusOpen", className: "bg-warning/10 text-warning border-warning/30", icon: AlertCircle },
+  in_progress: { labelKey: "tickets.statusInProgress", className: "bg-info/10 text-info border-info/30", icon: PlayCircle },
+  resolved: { labelKey: "tickets.statusResolved", className: "bg-success/10 text-success border-success/30", icon: CheckCircle2 },
+  closed: { labelKey: "tickets.statusClosed", className: "bg-muted text-muted-foreground border-muted", icon: Archive },
+};
 
-const PRIORITY_OPTIONS = [
-  { value: "", labelKey: "adminTickets.filterAllPriorities" },
-  { value: "low", labelKey: "tickets.priorityLow" },
-  { value: "medium", labelKey: "tickets.priorityMedium" },
-  { value: "high", labelKey: "tickets.priorityHigh" },
-  { value: "urgent", labelKey: "tickets.priorityUrgent" },
-];
+const PRIORITY_MAP: Record<string, { labelKey: string; className: string }> = {
+  low: { labelKey: "tickets.priorityLow", className: "bg-muted text-muted-foreground" },
+  medium: { labelKey: "tickets.priorityMedium", className: "bg-info/10 text-info" },
+  high: { labelKey: "tickets.priorityHigh", className: "bg-warning/10 text-warning" },
+  urgent: { labelKey: "tickets.priorityUrgent", className: "bg-destructive/10 text-destructive" },
+};
 
 const DEFAULT_TYPES = [
   { value: "bug", labelKey: "tickets.typeBug" },
@@ -81,71 +61,39 @@ export default function AdminTicketsPage() {
   const [saving, setSaving] = useState(false);
 
   const loadTickets = useCallback(async () => {
-    const res = await api.adminListTickets({
-      status: statusFilter || undefined,
-      type: typeFilter || undefined,
-      priority: priorityFilter || undefined,
-    });
-    if (res.success && res.data) {
-      return { tickets: res.data.tickets, types: res.data.ticket_types || [] };
-    }
+    const res = await api.adminListTickets({ status: statusFilter || undefined, type: typeFilter || undefined, priority: priorityFilter || undefined });
+    if (res.success && res.data) return { tickets: res.data.tickets, types: res.data.ticket_types || [] };
     throw new Error(res.message || t("common.networkError"));
   }, [statusFilter, typeFilter, priorityFilter, t]);
 
   const { data, isLoading, error, execute: reload } = useAsyncResource(loadTickets, { immediate: true });
 
-  const openEdit = (ticket: Ticket) => {
-    setEditingTicket(ticket);
-    setEditStatus(ticket.status);
-    setEditPriority(ticket.priority);
-    setEditType(ticket.type);
-    setEditNote(ticket.admin_note || "");
-    setEditOpen(true);
-  };
+  const openEdit = (ticket: Ticket) => { setEditingTicket(ticket); setEditStatus(ticket.status); setEditPriority(ticket.priority); setEditType(ticket.type); setEditNote(ticket.admin_note || ""); setEditOpen(true); };
 
   const handleSave = async () => {
     if (!editingTicket) return;
     setSaving(true);
     try {
-      const res = await api.adminUpdateTicket(editingTicket.id, {
-        status: editStatus,
-        priority: editPriority,
-        type: editType,
-        admin_note: editNote.trim(),
-      });
-      if (res.success) {
-        toast({ title: t("adminTickets.updated") });
-        setEditOpen(false);
-        await reload();
-      } else {
-        toast({ title: res.message, variant: "destructive" });
-      }
-    } catch (err) {
-      toast({ title: err instanceof Error ? err.message : t("common.networkError"), variant: "destructive" });
-    } finally {
-      setSaving(false);
-    }
+      const res = await api.adminUpdateTicket(editingTicket.id, { status: editStatus, priority: editPriority, type: editType, admin_note: editNote.trim() });
+      if (res.success) { toast({ title: t("adminTickets.updated") }); setEditOpen(false); await reload(); }
+      else toast({ title: res.message, variant: "destructive" });
+    } catch (err: any) { toast({ title: err?.message || t("common.networkError"), variant: "destructive" }); }
+    finally { setSaving(false); }
+  };
+
+  const quickStatus = async (ticket: Ticket, status: string) => {
+    try {
+      const res = await api.adminUpdateTicket(ticket.id, { status, admin_note: ticket.admin_note || "" });
+      if (res.success) { toast({ title: t("adminTickets.updated") }); await reload(); }
+      else toast({ title: res.message, variant: "destructive" });
+    } catch (err: any) { toast({ title: err?.message || t("common.networkError"), variant: "destructive" }); }
   };
 
   const handleDelete = async (id: number) => {
-    const ok = await confirm({
-      title: t("adminTickets.deleteConfirmTitle"),
-      description: t("adminTickets.deleteConfirmDescription"),
-      tone: "danger",
-      confirmLabel: t("common.delete"),
-    });
+    const ok = await confirm({ title: t("adminTickets.deleteConfirmTitle"), description: t("adminTickets.deleteConfirmDescription"), tone: "danger", confirmLabel: t("common.delete") });
     if (!ok) return;
-    try {
-      const res = await api.adminDeleteTicket(id);
-      if (res.success) {
-        toast({ title: t("adminTickets.deleted") });
-        await reload();
-      } else {
-        toast({ title: res.message, variant: "destructive" });
-      }
-    } catch (err) {
-      toast({ title: err instanceof Error ? err.message : t("common.networkError"), variant: "destructive" });
-    }
+    try { const res = await api.adminDeleteTicket(id); if (res.success) { toast({ title: t("adminTickets.deleted") }); await reload(); } else toast({ title: res.message, variant: "destructive" }); }
+    catch (err: any) { toast({ title: err?.message || t("common.networkError"), variant: "destructive" }); }
   };
 
   const types = data?.types?.length ? data.types : DEFAULT_TYPES.map((t) => t.value);
@@ -153,116 +101,96 @@ export default function AdminTicketsPage() {
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <MessageSquareMore className="h-5 w-5" />
-          {t("adminTickets.title")}
-        </h1>
+        <h1 className="text-2xl font-bold flex items-center gap-2"><MessageSquareMore className="h-5 w-5" />{t("adminTickets.title")}</h1>
         <p className="text-sm text-muted-foreground mt-1">{t("adminTickets.description")}</p>
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-32"><SelectValue placeholder={t("adminTickets.filterAll")} /></SelectTrigger>
-          <SelectContent>
-            {STATUS_OPTIONS.map((s) => (
-              <SelectItem key={s.value} value={s.value}>{t(s.labelKey as any)}</SelectItem>
-            ))}
-          </SelectContent>
+          <SelectTrigger className="w-28"><SelectValue placeholder={t("adminTickets.filterAll")} /></SelectTrigger>
+          <SelectContent>{Object.entries(STATUS_MAP).map(([v, s]) => <SelectItem key={v} value={v}>{t(s.labelKey as any)}</SelectItem>)}<SelectItem value="">{t("adminTickets.filterAll")}</SelectItem></SelectContent>
         </Select>
         <Select value={typeFilter} onValueChange={setTypeFilter}>
-          <SelectTrigger className="w-32"><SelectValue placeholder={t("adminTickets.filterAllTypes")} /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="">{t("adminTickets.filterAllTypes")}</SelectItem>
-            {DEFAULT_TYPES.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>{t(opt.labelKey as any)}</SelectItem>
-            ))}
-            {data?.types?.filter((tp: string) => !DEFAULT_TYPES.find((d) => d.value === tp)).map((tp: string) => (
-              <SelectItem key={tp} value={tp}>{tp}</SelectItem>
-            ))}
+          <SelectTrigger className="w-28"><SelectValue placeholder={t("adminTickets.filterAllTypes")} /></SelectTrigger>
+          <SelectContent><SelectItem value="">{t("adminTickets.filterAllTypes")}</SelectItem>
+            {DEFAULT_TYPES.map((o) => <SelectItem key={o.value} value={o.value}>{t(o.labelKey as any)}</SelectItem>)}
+            {types.filter((tp: string) => !DEFAULT_TYPES.find((d) => d.value === tp)).map((tp: string) => <SelectItem key={tp} value={tp}>{tp}</SelectItem>)}
           </SelectContent>
         </Select>
         <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-          <SelectTrigger className="w-32"><SelectValue placeholder={t("adminTickets.filterAllPriorities")} /></SelectTrigger>
-          <SelectContent>
-            {PRIORITY_OPTIONS.map((p) => (
-              <SelectItem key={p.value} value={p.value}>{t(p.labelKey as any)}</SelectItem>
-            ))}
+          <SelectTrigger className="w-28"><SelectValue placeholder={t("adminTickets.filterAllPriorities")} /></SelectTrigger>
+          <SelectContent><SelectItem value="">{t("adminTickets.filterAllPriorities")}</SelectItem>
+            {Object.entries(PRIORITY_MAP).map(([v, p]) => <SelectItem key={v} value={v}>{t(p.labelKey as any)}</SelectItem>)}
           </SelectContent>
         </Select>
-        <span className="text-xs text-muted-foreground ml-auto">
-          {t("adminTickets.total", { count: data?.tickets?.length ?? 0 })}
-        </span>
+        <span className="text-xs text-muted-foreground ml-auto">{t("adminTickets.total", { count: data?.tickets?.length ?? 0 })}</span>
       </div>
 
       {error ? (
-        <Card className="border-destructive/40">
-          <CardContent className="p-6 text-center space-y-3">
-            <AlertCircle className="h-8 w-8 mx-auto text-destructive" />
-            <p className="text-sm">{error}</p>
-            <Button variant="outline" size="sm" onClick={() => void reload()}>{t("common.retry")}</Button>
-          </CardContent>
-        </Card>
+        <Card className="border-destructive/40"><CardContent className="p-6 text-center space-y-3"><AlertCircle className="h-8 w-8 mx-auto text-destructive" /><p className="text-sm">{error}</p><Button variant="outline" size="sm" onClick={() => void reload()}>{t("common.retry")}</Button></CardContent></Card>
       ) : isLoading && !data ? (
-        <Card className="border-dashed">
-          <CardContent className="p-8 text-center">
-            <Loader2 className="h-6 w-6 mx-auto animate-spin text-muted-foreground" />
-          </CardContent>
-        </Card>
+        <Card className="border-dashed"><CardContent className="p-8 text-center"><Loader2 className="h-6 w-6 mx-auto animate-spin text-muted-foreground" /></CardContent></Card>
       ) : !data?.tickets?.length ? (
-        <Card className="border-dashed">
-          <CardContent className="p-8 text-center">
-            <MessageSquareMore className="h-10 w-10 mx-auto text-muted-foreground mb-2 opacity-40" />
-            <p className="font-medium">{t("adminTickets.noTickets")}</p>
-            <p className="text-xs text-muted-foreground mt-1">{t("adminTickets.noTicketsHint")}</p>
-          </CardContent>
-        </Card>
+        <Card className="border-dashed"><CardContent className="p-8 text-center"><MessageSquareMore className="h-10 w-10 mx-auto text-muted-foreground mb-2 opacity-40" /><p className="font-medium">{t("adminTickets.noTickets")}</p><p className="text-xs text-muted-foreground mt-1">{t("adminTickets.noTicketsHint")}</p></CardContent></Card>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {data.tickets.map((ticket: Ticket) => {
-            const status = STATUS_OPTIONS.find((s) => s.value === ticket.status) || STATUS_OPTIONS[1];
+            const s = STATUS_MAP[ticket.status] || STATUS_MAP.open;
+            const p = PRIORITY_MAP[ticket.priority] || PRIORITY_MAP.medium;
             const typeLabel = DEFAULT_TYPES.find((dt) => dt.value === ticket.type)?.labelKey;
+            const SI = s.icon;
+            const isClosed = ticket.status === "closed";
             return (
-              <Card key={ticket.id} className={ticket.status === "closed" ? "opacity-70" : ""}>
-                <CardContent className="p-4 space-y-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
+              <Card key={ticket.id} className={isClosed ? "opacity-70" : ""}>
+                <CardContent className="p-5 space-y-4">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="flex-1 min-w-0 space-y-2">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-bold text-sm">{ticket.title}</h3>
-                        <Badge variant="outline" className={`text-[10px] ${status.className}`}>
-                          {t(status.labelKey as any)}
-                        </Badge>
-                        <Badge variant="secondary" className="text-[10px]">
-                          {t(PRIORITY_OPTIONS.find((p) => p.value === ticket.priority)?.labelKey as any || "tickets.priorityMedium")}
-                        </Badge>
+                        <Badge variant="outline" className={`text-[10px] gap-1 ${s.className}`}><SI className="h-3 w-3" />{t(s.labelKey as any)}</Badge>
+                        <Badge variant="outline" className={`text-[10px] ${p.className}`}>{t(p.labelKey as any)}</Badge>
                         {typeLabel && <Badge variant="secondary" className="text-[10px]">{t(typeLabel as any)}</Badge>}
+                        <Badge variant="secondary" className="text-[10px] font-mono">#{ticket.id}</Badge>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                        <User className="h-3 w-3" />
-                        {ticket.username} (UID: {ticket.uid})
-                      </p>
-                      <p className="text-sm mt-2 whitespace-pre-wrap break-words">{ticket.content}</p>
-                      {ticket.admin_note && (
-                        <div className="mt-2 rounded-md bg-muted/60 p-3 text-sm">
-                          <span className="font-medium text-xs text-muted-foreground">{t("adminTickets.adminNote")}: </span>
-                          {ticket.admin_note}
-                        </div>
+                      <p className="text-xs text-muted-foreground flex items-center gap-1"><User className="h-3 w-3" />{ticket.username} (UID: {ticket.uid})</p>
+                      <h3 className="font-bold text-base">{ticket.title}</h3>
+                    </div>
+                    <div className="flex gap-1 shrink-0 flex-wrap">
+                      {ticket.status === "open" && (
+                        <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => quickStatus(ticket, "in_progress")}><PlayCircle className="h-3.5 w-3.5 mr-1" />{t("adminTickets.markInProgress")}</Button>
                       )}
-                      <p className="text-[11px] text-muted-foreground mt-2 flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        {new Date(ticket.created_at * 1000).toLocaleString()}
-                        {ticket.updated_at !== ticket.created_at && (
-                          <> · {new Date(ticket.updated_at * 1000).toLocaleString()}</>
-                        )}
-                      </p>
+                      {(ticket.status === "open" || ticket.status === "in_progress") && (
+                        <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => quickStatus(ticket, "resolved")}><CheckCircle2 className="h-3.5 w-3.5 mr-1" />{t("adminTickets.markResolved")}</Button>
+                      )}
+                      {ticket.status !== "closed" && (
+                        <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground" onClick={() => quickStatus(ticket, "closed")}><Archive className="h-3.5 w-3.5 mr-1" />{t("adminTickets.closeTicket")}</Button>
+                      )}
+                      {ticket.status === "closed" && (
+                        <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => quickStatus(ticket, "open")}><RotateCcw className="h-3.5 w-3.5 mr-1" />{t("adminTickets.reopenTicket")}</Button>
+                      )}
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(ticket)}><Edit2 className="h-4 w-4" /></Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDelete(ticket.id)}><Trash2 className="h-4 w-4" /></Button>
                     </div>
-                    <div className="flex gap-1 shrink-0">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(ticket)}>
-                        <Edit2 className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDelete(ticket.id)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                  </div>
+
+                  <div className="rounded-lg bg-muted/30 p-4 text-sm whitespace-pre-wrap break-words border border-border/50">
+                    {ticket.content}
+                  </div>
+
+                  {ticket.admin_note && (
+                    <div className="rounded-lg bg-info/5 border border-info/20 p-4 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Wrench className="h-4 w-4 text-info" />
+                        <span className="text-xs font-semibold text-info">{t("tickets.adminReply")}</span>
+                      </div>
+                      <p className="text-sm whitespace-pre-wrap break-words">{ticket.admin_note}</p>
                     </div>
+                  )}
+
+                  <div className="flex items-center gap-3 text-[11px] text-muted-foreground flex-wrap">
+                    <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{new Date(ticket.created_at * 1000).toLocaleString()}</span>
+                    {ticket.updated_at !== ticket.created_at && (<span>· {new Date(ticket.updated_at * 1000).toLocaleString()}</span>)}
+                    {ticket.resolved_at && ticket.resolved_at > 0 && <span className="text-success">· {t("tickets.resolvedAt", { time: new Date(ticket.resolved_at * 1000).toLocaleString() })}</span>}
+                    {isClosed && ticket.closed_at && ticket.closed_at > 0 && <span>· {t("tickets.closedAt", { time: new Date(ticket.closed_at * 1000).toLocaleString() })}</span>}
                   </div>
                 </CardContent>
               </Card>
@@ -271,59 +199,50 @@ export default function AdminTicketsPage() {
         </div>
       )}
 
+      {/* Edit Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{t("adminTickets.title")}</DialogTitle>
-            <DialogDescription>{editingTicket?.title}</DialogDescription>
+            <DialogTitle>{t("adminTickets.editTitle")}</DialogTitle>
+            <DialogDescription>
+              <span className="block font-medium text-sm text-foreground">{editingTicket?.title}</span>
+              <span className="text-xs text-muted-foreground">{editingTicket?.username} · #{editingTicket?.id}</span>
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>{t("adminTickets.changeStatus")}</Label>
-                <Select value={editStatus} onValueChange={setEditStatus}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {STATUS_OPTIONS.filter((s) => s.value !== "").map((s) => (
-                      <SelectItem key={s.value} value={s.value}>{t(s.labelKey as any)}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+          {editingTicket && (
+            <div className="space-y-4">
+              <div className="rounded-lg bg-muted/30 p-3 text-sm whitespace-pre-wrap break-words border max-h-32 overflow-y-auto">
+                {editingTicket.content}
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-2"><Label>{t("adminTickets.changeStatus")}</Label>
+                  <Select value={editStatus} onValueChange={setEditStatus}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{Object.entries(STATUS_MAP).map(([v, st]) => <SelectItem key={v} value={v}>{t(st.labelKey as any)}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2"><Label>{t("tickets.priority")}</Label>
+                  <Select value={editPriority} onValueChange={setEditPriority}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{Object.entries(PRIORITY_MAP).map(([v, pr]) => <SelectItem key={v} value={v}>{t(pr.labelKey as any)}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2"><Label>{t("tickets.type")}</Label>
+                  <Select value={editType} onValueChange={setEditType}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{DEFAULT_TYPES.map((o) => <SelectItem key={o.value} value={o.value}>{t(o.labelKey as any)}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
               </div>
               <div className="space-y-2">
-                <Label>{t("tickets.priority")}</Label>
-                <Select value={editPriority} onValueChange={setEditPriority}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {PRIORITY_OPTIONS.filter((p) => p.value !== "").map((p) => (
-                      <SelectItem key={p.value} value={p.value}>{t(p.labelKey as any)}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label className="flex items-center gap-1"><MessageSquareMore className="h-3.5 w-3.5" />{t("tickets.adminReply")}</Label>
+                <Textarea value={editNote} onChange={(e) => setEditNote(e.target.value)} placeholder={t("adminTickets.adminNotePlaceholder")} rows={4} maxLength={5000} className="resize-y" />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label>{t("tickets.type")}</Label>
-              <Select value={editType} onValueChange={setEditType}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {DEFAULT_TYPES.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>{t(opt.labelKey as any)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>{t("adminTickets.adminNote")}</Label>
-              <Textarea value={editNote} onChange={(e) => setEditNote(e.target.value)} placeholder={t("adminTickets.adminNotePlaceholder")} rows={3} maxLength={5000} className="resize-y" />
-            </div>
-          </div>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)}>{t("common.cancel")}</Button>
-            <Button onClick={handleSave} disabled={saving}>
-              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {t("adminTickets.save")}
-            </Button>
+            <Button onClick={handleSave} disabled={saving}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{t("adminTickets.save")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

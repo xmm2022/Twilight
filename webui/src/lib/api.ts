@@ -2256,6 +2256,14 @@ class ApiClient {
     });
   }
 
+  async closeOwnTicket(id: number) {
+    return this.request<Ticket>(`/tickets/${id}/close`, { method: "POST" });
+  }
+
+  async reopenOwnTicket(id: number) {
+    return this.request<Ticket>(`/tickets/${id}/reopen`, { method: "POST" });
+  }
+
   async adminListTickets(params: { uid?: number; status?: string; type?: string; priority?: string } = {}) {
     const query = new URLSearchParams();
     if (params.uid) query.set("uid", String(params.uid));

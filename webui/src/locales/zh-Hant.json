@@ -457,7 +457,14 @@
     "statusResolved": "已解決",
     "statusClosed": "已關閉",
     "updatedAt": "更新於 {time}",
-    "createdAt": "創建於 {time}"
+    "createdAt": "創建於 {time}",
+    "resolvedAt": "解決於 {time}",
+    "closedAt": "關閉於 {time}",
+    "closeTicket": "關閉工單",
+    "reopenTicket": "重開工單",
+    "closed": "工單已關閉",
+    "reopened": "工單已重開",
+    "adminReply": "管理員回覆"
   },
   "adminTickets": {
     "title": "工單管理",
@@ -479,7 +486,12 @@
     "updated": "工單已更新",
     "deleteConfirmTitle": "刪除工單",
     "deleteConfirmDescription": "確定要刪除這條工單嗎？此操作不可撤銷。",
-    "deleted": "工單已刪除"
+    "deleted": "工單已刪除",
+    "editTitle": "處理工單",
+    "markInProgress": "處理中",
+    "markResolved": "標記已解決",
+    "closeTicket": "關閉",
+    "reopenTicket": "重開"
   },
   "bangumi": {
     "title": "Bangumi 同步",

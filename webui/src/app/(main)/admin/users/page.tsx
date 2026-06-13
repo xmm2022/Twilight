@@ -65,6 +65,8 @@ import { ApiError } from "@/lib/api-request";
 import { useI18n } from "@/lib/i18n";
 import { ErrCodes } from "@/lib/errcode";
 import { formatDate } from "@/lib/utils";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { sanitizeImageUrl } from "@/lib/safe-url";
 import {
   batchClearEmbyGrantConfirmConfig,
   batchDeleteConfirmConfig,
@@ -2303,6 +2305,12 @@ export default function AdminUsersPage() {
                         className="mt-1 h-4 w-4"
                         aria-label={`选择 ${user.username}`}
                       />
+                      <Avatar className="h-10 w-10 shrink-0 ring-1 ring-border/50">
+                              <AvatarImage src={sanitizeImageUrl(user.avatar)} />
+                        <AvatarFallback className="bg-primary/10 text-primary text-sm font-bold">
+                          {user.username.charAt(0).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
                       <div className="min-w-0">
                         <p className="truncate text-base font-medium">{user.username}</p>
                         <p className="mt-1 text-xs text-muted-foreground">UID: {user.uid}</p>
@@ -2390,7 +2398,14 @@ export default function AdminUsersPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-start justify-between gap-4">
-                          <div className="min-w-0">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <Avatar className="h-8 w-8 shrink-0 ring-1 ring-border/50">
+                        <AvatarImage src={sanitizeImageUrl(user.avatar)} />
+                              <AvatarFallback className="bg-primary/10 text-primary text-xs font-bold">
+                                {user.username.charAt(0).toUpperCase()}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="min-w-0">
                             <p className="font-medium">{user.username}</p>
                             <p className="text-xs text-muted-foreground truncate">
                               UID: {user.uid}
@@ -2417,6 +2432,7 @@ export default function AdminUsersPage() {
                                 </Badge>
                               )}
                             </div>
+                          </div>
                           </div>
                           <Button
                             variant="ghost"

@@ -36,9 +36,11 @@ const (
 	ErrForgotPasswordDisabled ErrCode = "AUTH_FORGOT_PASSWORD_DISABLED"
 
 	// === 工单 ===
-	ErrTicketDisabled    ErrCode = "TICKET_DISABLED"
-	ErrTicketNotFound    ErrCode = "TICKET_NOT_FOUND"
-	ErrTicketRateLimited ErrCode = "TICKET_RATE_LIMITED"
+	ErrTicketDisabled      ErrCode = "TICKET_DISABLED"
+	ErrTicketNotFound      ErrCode = "TICKET_NOT_FOUND"
+	ErrTicketRateLimited   ErrCode = "TICKET_RATE_LIMITED"
+	ErrTicketAlreadyClosed ErrCode = "TICKET_ALREADY_CLOSED"
+	ErrTicketNotClosed     ErrCode = "TICKET_NOT_CLOSED"
 
 	// === 用户 / 注册 ===
 	ErrRegisterRateLimited ErrCode = "USER_REGISTER_RATE_LIMITED"

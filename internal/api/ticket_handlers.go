@@ -77,6 +77,78 @@ func (a *App) handleCreateTicket(w http.ResponseWriter, r *http.Request, _ Param
 	created(w, "工单已提交", ticket)
 }
 
+// handleCloseOwnTicket 用户关闭自己的工单。
+func (a *App) handleCloseOwnTicket(w http.ResponseWriter, r *http.Request, params Params) {
+	if !a.cfg().TicketSystemEnabled {
+		failWithCode(w, http.StatusServiceUnavailable, ErrTicketDisabled, "工单系统未启用")
+		return
+	}
+	id, _ := int64Param(params, "ticket_id")
+	p := current(r)
+	existing, found := a.store().Ticket(id)
+	if !found || existing.UID != p.User.UID {
+		failWithCode(w, http.StatusNotFound, ErrTicketNotFound, "工单不存在")
+		return
+	}
+	if existing.Status == "closed" {
+		failWithCode(w, http.StatusBadRequest, ErrTicketAlreadyClosed, "工单已关闭")
+		return
+	}
+	ticket, err := a.store().UpsertTicket(store.Ticket{
+		ID:        id,
+		UID:       existing.UID,
+		Username:  existing.Username,
+		Title:     existing.Title,
+		Content:   existing.Content,
+		Type:      existing.Type,
+		Priority:  existing.Priority,
+		Status:    "closed",
+		AdminNote: existing.AdminNote,
+		CreatedAt: existing.CreatedAt,
+	})
+	if statusFromError(w, err) {
+		return
+	}
+	a.audit(r, "close_ticket", "user", 0, map[string]any{"ticket_id": id})
+	ok(w, "工单已关闭", ticket)
+}
+
+// handleReopenOwnTicket 用户重开自己的已关闭工单。
+func (a *App) handleReopenOwnTicket(w http.ResponseWriter, r *http.Request, params Params) {
+	if !a.cfg().TicketSystemEnabled {
+		failWithCode(w, http.StatusServiceUnavailable, ErrTicketDisabled, "工单系统未启用")
+		return
+	}
+	id, _ := int64Param(params, "ticket_id")
+	p := current(r)
+	existing, found := a.store().Ticket(id)
+	if !found || existing.UID != p.User.UID {
+		failWithCode(w, http.StatusNotFound, ErrTicketNotFound, "工单不存在")
+		return
+	}
+	if existing.Status != "closed" {
+		failWithCode(w, http.StatusBadRequest, ErrTicketNotClosed, "只有已关闭的工单可以重开")
+		return
+	}
+	ticket, err := a.store().UpsertTicket(store.Ticket{
+		ID:        id,
+		UID:       existing.UID,
+		Username:  existing.Username,
+		Title:     existing.Title,
+		Content:   existing.Content,
+		Type:      existing.Type,
+		Priority:  existing.Priority,
+		Status:    "open",
+		AdminNote: existing.AdminNote,
+		CreatedAt: existing.CreatedAt,
+	})
+	if statusFromError(w, err) {
+		return
+	}
+	a.audit(r, "reopen_ticket", "user", 0, map[string]any{"ticket_id": id})
+	ok(w, "工单已重开", ticket)
+}
+
 // ---- 管理员工单接口 ----
 
 // handleAdminTickets 管理员查看所有工单（支持筛选）。
