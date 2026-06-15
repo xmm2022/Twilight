@@ -228,6 +228,8 @@ func New(cfg config.Config, st *store.Store) (*App, error) {
 	app.configSignature = configFileSignature(cfg.ConfigFile)
 	app.registerRoutes()
 	app.applyConfiguredAdmins()
+	// 从配置同步工单类型到 store（兼容旧配置 + 首次启动种子）
+	st.SyncTicketTypesFromConfig(cfg.TicketTypes)
 	// 启动期校验 CORS 配置一致性。
 	// applyCORS 默认就附带 Allow-Credentials: true，浏览器规范本就拒绝
 	// `*` + credentials 组合；早期管理员若误填 `*` 会得到一个静默无效的配置。
@@ -432,6 +434,8 @@ func (a *App) reloadConfigLocked() (map[string]any, error) {
 		"runtime_restarted":   len(reinitialized) > 0,
 	}
 	zap.L().Info("config hot reloaded", zap.String("config_file", next.ConfigFile), zap.String("reinitialized", strings.Join(reinitialized, ",")), zap.String("restart_required", strings.Join(restartRequired, ",")), zap.String("live_applied", strings.Join(liveApplied, ",")))
+	// 同步配置中的 TicketTypes 到 store（兼容旧配置 + 配置变更后的覆盖）
+	nextState.store.SyncTicketTypesFromConfig(next.TicketTypes)
 	return info, nil
 }
 

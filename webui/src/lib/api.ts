@@ -2300,6 +2300,32 @@ class ApiClient {
   async adminDeleteTicket(id: number) {
     return this.request(`/admin/tickets/${id}`, { method: "DELETE" });
   }
+
+  // 工单类型管理
+  async adminGetTicketTypes() {
+    return this.request<{ types: string[] }>("/admin/ticket-types");
+  }
+
+  async adminAddTicketType(name: string) {
+    return this.request<{ name: string; types: string[] }>("/admin/ticket-types", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  async adminDeleteTicketType(name: string) {
+    return this.request<{ name: string; types: string[] }>("/admin/ticket-types", {
+      method: "DELETE",
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  async adminRenameTicketType(oldName: string, newName: string) {
+    return this.request<{ old_name: string; new_name: string; types: string[] }>("/admin/ticket-types", {
+      method: "PUT",
+      body: JSON.stringify({ old_name: oldName, new_name: newName }),
+    });
+  }
 }
 
 export const api = new ApiClient();

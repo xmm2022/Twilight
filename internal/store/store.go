@@ -100,6 +100,7 @@ type State struct {
 	AuditLogs            []AuditLog                     `json:"audit_logs"`
 	BangumiSyncLogs      []BangumiSyncLog               `json:"bangumi_sync_logs"`
 	Tickets              map[int64]Ticket               `json:"tickets"`
+	TicketTypes          []string                       `json:"ticket_types,omitempty"`
 	// TelegramBotOffset 持久化最近一次成功 ack 的 update_id+1。
 	// 重启 / token 切换时直接从这个值恢复，避免对 24h backlog 重新分发。
 	// 0 表示未设置 / 历史 state，按"从 0 开始"处理（getUpdates 会拿到队列里
@@ -989,6 +990,9 @@ func (s *State) ensure() {
 	}
 	if s.Tickets == nil {
 		s.Tickets = map[int64]Ticket{}
+	}
+	if s.TicketTypes == nil {
+		s.TicketTypes = []string{"bug", "feature", "question", "account", "other"}
 	}
 }
 
@@ -2885,6 +2889,99 @@ func (s *Store) DeleteTicket(id int64) error {
 			return ErrNotFound
 		}
 		delete(s.state.Tickets, id)
+		return nil
+	})
+}
+
+// TicketTypes 返回当前工单类型列表。
+func (s *Store) TicketTypes() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]string, len(s.state.TicketTypes))
+	copy(out, s.state.TicketTypes)
+	return out
+}
+
+// SetTicketTypes 原子替换工单类型列表。
+func (s *Store) SetTicketTypes(types []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// 确保至少一个类型
+	if len(types) == 0 {
+		types = []string{"other"}
+	}
+	return s.mutateAndSaveLocked(func() error {
+		s.state.TicketTypes = types
+		return nil
+	})
+}
+
+// AddTicketType 添加工单类型，已存在则返回 ErrConflict。
+func (s *Store) AddTicketType(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mutateAndSaveLocked(func() error {
+		for _, t := range s.state.TicketTypes {
+			if strings.EqualFold(t, name) {
+				return ErrConflict
+			}
+		}
+		s.state.TicketTypes = append(s.state.TicketTypes, name)
+		return nil
+	})
+}
+
+// DeleteTicketType 删除工单类型，不允许删除最后一个。
+func (s *Store) DeleteTicketType(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mutateAndSaveLocked(func() error {
+		if len(s.state.TicketTypes) <= 1 {
+			return ErrConflict
+		}
+		idx := -1
+		for i, t := range s.state.TicketTypes {
+			if strings.EqualFold(t, name) {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			return ErrNotFound
+		}
+		s.state.TicketTypes = append(s.state.TicketTypes[:idx], s.state.TicketTypes[idx+1:]...)
+		return nil
+	})
+}
+
+// RenameTicketType 重命名工单类型。
+func (s *Store) RenameTicketType(oldName, newName string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	count := 0
+	err := s.mutateAndSaveLocked(func() error {
+		for i, t := range s.state.TicketTypes {
+			if strings.EqualFold(t, oldName) {
+				s.state.TicketTypes[i] = newName
+				count++
+				return nil
+			}
+		}
+		return ErrNotFound
+	})
+	return count, err
+}
+
+// SyncTicketTypesFromConfig 从配置同步类型（首次启动或配置变更时调用），
+// 配置中的类型会覆盖 store 中的类型。
+func (s *Store) SyncTicketTypesFromConfig(cfgTypes []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(cfgTypes) == 0 {
+		return
+	}
+	_ = s.mutateAndSaveLocked(func() error {
+		s.state.TicketTypes = cfgTypes
 		return nil
 	})
 }

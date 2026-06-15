@@ -1268,6 +1268,16 @@
     "markInProgress": "处理中",
     "markResolved": "标记已解决",
     "closeTicket": "关闭",
+    "manageTypes": "管理类型",
+    "manageTypesDesc": "添加、重命名或删除工单类型",
+    "newTypePlaceholder": "新类型名称",
+    "addType": "添加",
+    "typeAdded": "类型已添加",
+    "typeDeleted": "类型已删除",
+    "typeRenamed": "类型已重命名",
+    "deleteTypeTitle": "删除工单类型",
+    "deleteTypeDesc": "确定要删除类型「{name}」吗？已有工单的类型不会受影响。",
+    "cannotDeleteLastType": "不能删除最后一个类型",
     "reopenTicket": "重开"
   },
   "bangumi": {

@@ -40,6 +40,10 @@ redis_url = ""
 telegram_mode = false
 # 是否强制所有用户绑定 Telegram 才能登录/注册
 force_bind_telegram = false
+# 站点图标 HTTPS URL 或本地路径；留空使用内置图标（支持环境变量 TWILIGHT_SERVER_ICON）
+server_icon = ""
+# 登录/注册页背景图片 URL；上传后自动写入 /system/auth-background（支持环境变量 TWILIGHT_AUTH_BACKGROUND_URL）
+auth_background_url = ""
 # Bangumi 全局 API Token（可选；点格子不会把它作为用户兜底 Token）
 bangumi_token = ""
 # Bangumi API 地址（自建反代时可改）

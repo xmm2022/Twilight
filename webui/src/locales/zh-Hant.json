@@ -589,7 +589,17 @@
     "markInProgress": "處理中",
     "markResolved": "標記已解決",
     "closeTicket": "關閉",
-    "reopenTicket": "重開"
+    "reopenTicket": "重開",
+    "manageTypes": "管理類型",
+    "manageTypesDesc": "新增、重新命名或刪除工單類型",
+    "newTypePlaceholder": "新類型名稱",
+    "addType": "新增",
+    "typeAdded": "類型已新增",
+    "typeDeleted": "類型已刪除",
+    "typeRenamed": "類型已重新命名",
+    "deleteTypeTitle": "刪除工單類型",
+    "deleteTypeDesc": "確定要刪除類型「{name}」嗎？已有工單的類型不會受影響。",
+    "cannotDeleteLastType": "不能刪除最後一個類型"
   },
   "bangumi": {
     "title": "Bangumi 同步",

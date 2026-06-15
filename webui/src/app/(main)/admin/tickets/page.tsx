@@ -4,10 +4,11 @@ import { useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import {
   MessageSquareMore, Loader2, Trash2, Edit2, AlertCircle, Clock, User,
-  CheckCircle2, Archive, RotateCcw, PlayCircle, Wrench,
+  CheckCircle2, Archive, RotateCcw, PlayCircle, Wrench, Plus, Pencil, Settings2,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -59,6 +60,46 @@ export default function AdminTicketsPage() {
   const [editType, setEditType] = useState("");
   const [editNote, setEditNote] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // 工单类型管理
+  const [typeMgmtOpen, setTypeMgmtOpen] = useState(false);
+  const [newTypeName, setNewTypeName] = useState("");
+  const [editingTypeName, setEditingTypeName] = useState<string | null>(null);
+  const [editTypeValue, setEditTypeValue] = useState("");
+  const [typeMgmtSaving, setTypeMgmtSaving] = useState(false);
+
+  const handleAddType = async () => {
+    const name = newTypeName.trim();
+    if (!name) return;
+    setTypeMgmtSaving(true);
+    try {
+      const res = await api.adminAddTicketType(name);
+      if (res.success) { toast({ title: t("adminTickets.typeAdded") }); setNewTypeName(""); await reload(); }
+      else toast({ title: res.message, variant: "destructive" });
+    } catch (err: any) { toast({ title: err?.message || t("common.networkError"), variant: "destructive" }); }
+    finally { setTypeMgmtSaving(false); }
+  };
+
+  const handleDeleteType = async (name: string) => {
+    const ok = await confirm({ title: t("adminTickets.deleteTypeTitle"), description: t("adminTickets.deleteTypeDesc", { name }), tone: "danger", confirmLabel: t("common.delete") });
+    if (!ok) return;
+    try {
+      const res = await api.adminDeleteTicketType(name);
+      if (res.success) { toast({ title: t("adminTickets.typeDeleted") }); await reload(); }
+      else toast({ title: res.message, variant: "destructive" });
+    } catch (err: any) { toast({ title: err?.message || t("common.networkError"), variant: "destructive" }); }
+  };
+
+  const handleRenameType = async () => {
+    if (!editingTypeName || !editTypeValue.trim()) return;
+    setTypeMgmtSaving(true);
+    try {
+      const res = await api.adminRenameTicketType(editingTypeName, editTypeValue.trim());
+      if (res.success) { toast({ title: t("adminTickets.typeRenamed") }); setEditingTypeName(null); setEditTypeValue(""); await reload(); }
+      else toast({ title: res.message, variant: "destructive" });
+    } catch (err: any) { toast({ title: err?.message || t("common.networkError"), variant: "destructive" }); }
+    finally { setTypeMgmtSaving(false); }
+  };
 
   const loadTickets = useCallback(async () => {
     const res = await api.adminListTickets({
@@ -129,6 +170,7 @@ export default function AdminTicketsPage() {
           </SelectContent>
         </Select>
         <span className="text-xs text-muted-foreground ml-auto">{t("adminTickets.total", { count: data?.tickets?.length ?? 0 })}</span>
+        <Button variant="outline" size="sm" onClick={() => setTypeMgmtOpen(true)}><Settings2 className="mr-1 h-3.5 w-3.5" />{t("adminTickets.manageTypes")}</Button>
       </div>
 
       {error ? (
@@ -248,6 +290,79 @@ export default function AdminTicketsPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)}>{t("common.cancel")}</Button>
             <Button onClick={handleSave} disabled={saving}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{t("adminTickets.save")}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 工单类型管理 */}
+      <Dialog open={typeMgmtOpen} onOpenChange={setTypeMgmtOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("adminTickets.manageTypes")}</DialogTitle>
+            <DialogDescription>{t("adminTickets.manageTypesDesc")}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {/* 添加新类型 */}
+            <div className="flex gap-2">
+              <Input
+                value={newTypeName}
+                onChange={(e) => setNewTypeName(e.target.value)}
+                placeholder={t("adminTickets.newTypePlaceholder")}
+                maxLength={50}
+                className="flex-1"
+                onKeyDown={(e) => { if (e.key === "Enter") void handleAddType(); }}
+              />
+              <Button size="sm" onClick={() => void handleAddType()} disabled={typeMgmtSaving || !newTypeName.trim()}>
+                <Plus className="mr-1 h-3.5 w-3.5" />{t("adminTickets.addType")}
+              </Button>
+            </div>
+            {/* 已有类型列表 */}
+            <div className="max-h-60 space-y-1 overflow-y-auto">
+              {types.map((tp: string) => (
+                <div key={tp} className="flex items-center gap-2 rounded-md border px-3 py-2">
+                  {editingTypeName === tp ? (
+                    <>
+                      <Input
+                        value={editTypeValue}
+                        onChange={(e) => setEditTypeValue(e.target.value)}
+                        maxLength={50}
+                        className="flex-1 h-8 text-sm"
+                        onKeyDown={(e) => { if (e.key === "Enter") void handleRenameType(); if (e.key === "Escape") setEditingTypeName(null); }}
+                        autoFocus
+                      />
+                      <Button size="sm" variant="ghost" className="h-8 px-2" onClick={() => void handleRenameType()} disabled={typeMgmtSaving}>
+                        {t("common.save")}
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-8 px-2" onClick={() => setEditingTypeName(null)}>
+                        {t("common.cancel")}
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="flex-1 text-sm">{DEFAULT_TYPES.find((d) => d.value === tp) ? t(DEFAULT_TYPES.find((d) => d.value === tp)!.labelKey as any) : tp}</span>
+                      <Button
+                        size="icon" variant="ghost" className="h-7 w-7"
+                        onClick={() => { setEditingTypeName(tp); setEditTypeValue(tp); }}
+                        title="Rename"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive"
+                        onClick={() => void handleDeleteType(tp)}
+                        disabled={types.length <= 1}
+                        title={types.length <= 1 ? "Cannot delete last type" : "Delete"}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTypeMgmtOpen(false)}>{t("common.close")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

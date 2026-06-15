@@ -589,6 +589,16 @@
     "markInProgress": "In Progress",
     "markResolved": "Mark Resolved",
     "closeTicket": "Close",
+    "manageTypes": "Manage Types",
+    "manageTypesDesc": "Add, rename, or delete ticket types",
+    "newTypePlaceholder": "New type name",
+    "addType": "Add",
+    "typeAdded": "Type added",
+    "typeDeleted": "Type deleted",
+    "typeRenamed": "Type renamed",
+    "deleteTypeTitle": "Delete ticket type",
+    "deleteTypeDesc": "Delete type \"{name}\"? Existing tickets are unaffected.",
+    "cannotDeleteLastType": "Cannot delete the last type",
     "reopenTicket": "Reopen"
   },
   "bangumi": {

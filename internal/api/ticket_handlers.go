@@ -17,7 +17,7 @@ func (a *App) handleMyTickets(w http.ResponseWriter, r *http.Request, _ Params) 
 	}
 	p := current(r)
 	tickets := a.store().ListTickets(store.TicketFilter{UID: p.User.UID})
-	ok(w, "OK", map[string]any{"tickets": tickets, "total": len(tickets), "ticket_types": cfg.TicketTypes})
+	ok(w, "OK", map[string]any{"tickets": tickets, "total": len(tickets), "ticket_types": a.store().TicketTypes()})
 }
 
 // handleCreateTicket 用户提交工单。
@@ -54,7 +54,7 @@ func (a *App) handleCreateTicket(w http.ResponseWriter, r *http.Request, _ Param
 		failWithCode(w, http.StatusBadRequest, ErrInvalidPayload, "工单内容过长")
 		return
 	}
-	if !validTicketType(cfg.TicketTypes, ticketType) {
+	if !validTicketType(a.store().TicketTypes(), ticketType) {
 		ticketType = "other"
 	}
 	if !validTicketPriority(priority) {
@@ -153,7 +153,6 @@ func (a *App) handleReopenOwnTicket(w http.ResponseWriter, r *http.Request, para
 
 // handleAdminTickets 管理员查看所有工单（支持筛选）。管理端接口不受 TicketSystemEnabled 开关限制。
 func (a *App) handleAdminTickets(w http.ResponseWriter, r *http.Request, _ Params) {
-	cfg := a.cfg()
 	filter := store.TicketFilter{
 		UID:      int64(queryInt(r, "uid", 0)),
 		Status:   strings.TrimSpace(r.URL.Query().Get("status")),
@@ -161,7 +160,7 @@ func (a *App) handleAdminTickets(w http.ResponseWriter, r *http.Request, _ Param
 		Priority: strings.TrimSpace(r.URL.Query().Get("priority")),
 	}
 	tickets := a.store().ListTickets(filter)
-	ok(w, "OK", map[string]any{"tickets": tickets, "total": len(tickets), "ticket_types": cfg.TicketTypes})
+	ok(w, "OK", map[string]any{"tickets": tickets, "total": len(tickets), "ticket_types": a.store().TicketTypes()})
 }
 
 // handleAdminUpdateTicket 管理员更新工单状态 / 回复。管理端接口不受 TicketSystemEnabled 开关限制。
@@ -244,4 +243,59 @@ func validTicketType(types []string, input string) bool {
 		}
 	}
 	return false
+}
+
+// ---- 工单类型管理 ----
+
+func (a *App) handleAdminTicketTypes(w http.ResponseWriter, r *http.Request, _ Params) {
+	types := a.store().TicketTypes()
+	ok(w, "OK", map[string]any{"types": types})
+}
+
+func (a *App) handleAdminAddTicketType(w http.ResponseWriter, r *http.Request, _ Params) {
+	payload := decodeMap(r)
+	name := strings.TrimSpace(stringValue(payload, "name"))
+	if name == "" || len(name) > 50 {
+		failWithCode(w, http.StatusBadRequest, ErrBadRequest, "类型名称需为 1-50 个字符")
+		return
+	}
+	if err := a.store().AddTicketType(name); statusFromError(w, err) {
+		return
+	}
+	a.audit(r, "add_ticket_type", "admin", 0, map[string]any{"name": name})
+	ok(w, "类型已添加", map[string]any{"name": name, "types": a.store().TicketTypes()})
+}
+
+func (a *App) handleAdminDeleteTicketType(w http.ResponseWriter, r *http.Request, _ Params) {
+	payload := decodeMap(r)
+	name := strings.TrimSpace(stringValue(payload, "name"))
+	if name == "" {
+		failWithCode(w, http.StatusBadRequest, ErrBadRequest, "类型名称不能为空")
+		return
+	}
+	if err := a.store().DeleteTicketType(name); statusFromError(w, err) {
+		return
+	}
+	a.audit(r, "delete_ticket_type", "admin", 0, map[string]any{"name": name})
+	ok(w, "类型已删除", map[string]any{"name": name, "types": a.store().TicketTypes()})
+}
+
+func (a *App) handleAdminRenameTicketType(w http.ResponseWriter, r *http.Request, _ Params) {
+	payload := decodeMap(r)
+	oldName := strings.TrimSpace(stringValue(payload, "old_name"))
+	newName := strings.TrimSpace(stringValue(payload, "new_name"))
+	if oldName == "" || newName == "" || len(newName) > 50 {
+		failWithCode(w, http.StatusBadRequest, ErrBadRequest, "类型名称需为 1-50 个字符")
+		return
+	}
+	if strings.EqualFold(oldName, newName) {
+		failWithCode(w, http.StatusBadRequest, ErrBadRequest, "新旧名称相同")
+		return
+	}
+	count, err := a.store().RenameTicketType(oldName, newName)
+	if statusFromError(w, err) {
+		return
+	}
+	a.audit(r, "rename_ticket_type", "admin", 0, map[string]any{"old": oldName, "new": newName, "tickets_renamed": count})
+	ok(w, "类型已重命名", map[string]any{"old_name": oldName, "new_name": newName, "types": a.store().TicketTypes()})
 }
