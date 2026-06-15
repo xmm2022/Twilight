@@ -536,7 +536,8 @@ func (a *App) handleUploadAuthBackground(w http.ResponseWriter, r *http.Request,
 	})
 }
 
-// handleAuthBackground 提供认证页背景图文件，固定文件名 background.<ext>。
+// handleAuthBackground 提供认证页背景图文件，优先返回固定文件名 background.<ext>，
+// 兼容旧版 ?file= 参数格式（新文件不存在时回退）。
 func (a *App) handleAuthBackground(w http.ResponseWriter, r *http.Request, _ Params) {
 	uploadRoot := firstNonEmpty(a.cfg().UploadDir, "uploads")
 	dir, err := ResolveWithinRoot(uploadRoot, "auth-background")
@@ -544,12 +545,29 @@ func (a *App) handleAuthBackground(w http.ResponseWriter, r *http.Request, _ Par
 		failWithCode(w, http.StatusNotFound, ErrAssetNotFound, "resource not found")
 		return
 	}
+	// 优先查找新格式 background.<ext>
 	for _, ext := range []string{".jpg", ".png", ".gif", ".webp", ".bmp"} {
 		filePath := filepath.Join(dir, "background"+ext)
 		if info, statErr := os.Stat(filePath); statErr == nil && info.Mode().IsRegular() {
 			http.ServeFile(w, r, filePath)
 			return
 		}
+	}
+	// 新文件不存在时回退：兼容旧版 ?file= 参数或目录中最新的文件
+	if fileName := strings.TrimSpace(r.URL.Query().Get("file")); fileName != "" {
+		if uploadFilenamePattern.MatchString(fileName) {
+			if filePath, resolveErr := ResolveWithinRoot(dir, fileName); resolveErr == nil {
+				if info, statErr := os.Stat(filePath); statErr == nil && info.Mode().IsRegular() {
+					http.ServeFile(w, r, filePath)
+					return
+				}
+			}
+		}
+	}
+	if entries, readErr := os.ReadDir(dir); readErr == nil && len(entries) > 0 {
+		path := filepath.Join(dir, entries[len(entries)-1].Name())
+		http.ServeFile(w, r, path)
+		return
 	}
 	failWithCode(w, http.StatusNotFound, ErrAssetNotFound, "resource not found")
 }

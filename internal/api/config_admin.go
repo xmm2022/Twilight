@@ -782,7 +782,7 @@ func configSectionDefs() []configSectionDef {
 		{Key: "Global", Title: "全局", Description: "基础运行参数", Category: "runtime", Fields: []configFieldDef{
 			{Key: "server_name", Label: "服务器名称", Type: "string", Description: "前端展示的站点或服务器名称"},
 			{Key: "server_icon", Label: "服务器图标", Type: "string", Description: "HTTPS 图片 URL 或本地图片路径；留空使用内置图标"},
-			{Key: "auth_background_url", Label: "认证页背景图", Type: "string", Description: "登录/注册页背景图片 HTTPS URL；留空使用默认渐变背景"},
+			{Key: "auth_background_url", Label: "认证页背景图", Type: "string", Description: "内置路径 /system/auth-background；由上传接口自动写入，留空使用默认渐变背景"},
 			{Key: "databases_dir", Label: "数据目录", Type: "string", Description: "JSON 状态、备份和迁移文件目录"},
 			{Key: "log_level", Label: "日志等级", Type: "select", Description: "后端运行日志等级；兼容旧值 10/20/30/40", Options: []map[string]any{{"label": "DEBUG", "value": "debug"}, {"label": "INFO", "value": "info"}, {"label": "WARN", "value": "warn"}, {"label": "ERROR", "value": "error"}}},
 			{Key: "runtime_log_limit", Label: "实时日志保留行数", Type: "int", Description: "后台实时日志缓冲区行数，热重载生效"},
