@@ -5,7 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Eye, EyeOff, ArrowRight, Loader2, ShieldCheck, Send } from "lucide-react";
+import { Eye, EyeOff, ArrowRight, Loader2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -133,8 +133,8 @@ export default function LoginPage() {
       >
         <Card className="border-border/70 bg-card/78 shadow-2xl backdrop-blur-xl">
           <CardHeader className="space-y-2 pb-6 pt-8 text-center">
-            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/14 text-primary overflow-hidden relative">
-              {systemInfo?.server_icon ? (
+            {systemInfo?.server_icon ? (
+              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-muted overflow-hidden relative">
                 <Image
                   src={serverIconUrl(systemInfo.server_icon) || ""}
                   alt={systemInfo.name || SITE_NAME}
@@ -144,10 +144,8 @@ export default function LoginPage() {
                     e.currentTarget.style.display = "none";
                   }}
                 />
-              ) : (
-                <ShieldCheck className="h-7 w-7" />
-              )}
-            </div>
+              </div>
+            ) : null}
 
             <CardTitle className="text-2xl font-semibold tracking-tight">
               {t("auth.login.title", { site: systemInfo?.name || SITE_NAME })}
@@ -160,8 +158,8 @@ export default function LoginPage() {
           <CardContent className="px-6 pb-7 md:px-8">
             {telegramLinks.length > 0 && (
               <div className="mb-5 rounded-xl border border-border/70 bg-muted/40 px-4 py-3 text-sm">
-                <div className="mb-2 flex items-center gap-2 font-medium">
-                  <Send className="h-4 w-4 text-primary" />
+                <div className="mb-2 flex items-center gap-2 font-medium text-foreground">
+                  <Send className="h-4 w-4 text-muted-foreground" />
                   {t("auth.login.telegramCommunity")}
                 </div>
                 <div className="flex flex-wrap gap-2">
