@@ -150,7 +150,7 @@ export default function LoginPage() {
             <CardTitle className="text-2xl font-semibold tracking-tight">
               {t("auth.login.title", { site: systemInfo?.name || SITE_NAME })}
             </CardTitle>
-            <CardDescription className="text-sm">
+            <CardDescription className="text-sm text-foreground">
               {t("auth.login.description")}
             </CardDescription>
           </CardHeader>
@@ -236,7 +236,7 @@ export default function LoginPage() {
             )}
 
             <div className="mt-5 flex items-center justify-center gap-2 text-sm">
-              <span className="text-muted-foreground">{t("auth.login.noAccount")}</span>
+              <span className="text-foreground">{t("auth.login.noAccount")}</span>
               <Link
                 href="/register"
                 className="font-medium text-primary hover:underline"

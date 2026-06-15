@@ -183,7 +183,7 @@ export default function ForgotPasswordPage() {
     </div>
   ) : emailStage === "request" ? (
     <form onSubmit={requestEmailCode} className="space-y-4">
-      <p className="text-sm text-muted-foreground">{t("email.forgot.description")}</p>
+      <p className="text-sm text-foreground">{t("email.forgot.description")}</p>
       <div className="space-y-2">
         <Label>{t("email.emailLabel")}</Label>
         <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t("email.emailPlaceholder")} autoComplete="email" />
@@ -195,7 +195,7 @@ export default function ForgotPasswordPage() {
     </form>
   ) : (
     <form onSubmit={submitEmailReset} className="space-y-4">
-      <p className="text-sm text-muted-foreground">{t("email.codeSentTo", { email })}</p>
+      <p className="text-sm text-foreground">{t("email.codeSentTo", { email })}</p>
       <div className="space-y-2">
         <Label>{t("email.codeLabel")}</Label>
         <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder={t("email.codePlaceholder")} inputMode="numeric" autoComplete="one-time-code" />
@@ -229,7 +229,7 @@ export default function ForgotPasswordPage() {
             <KeyRound className="h-7 w-7" />
           </div>
           <CardTitle className="text-2xl">{t("auth.forgotPassword.title")}</CardTitle>
-          <CardDescription>{t("auth.forgotPassword.description")}</CardDescription>
+          <CardDescription className="text-foreground">{t("auth.forgotPassword.description")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           {!forgotPasswordEnabled || nothingAvailable ? (

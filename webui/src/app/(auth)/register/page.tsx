@@ -334,7 +334,7 @@ export default function RegisterPage() {
               </div>
               <div>
                 <h2 className="text-xl font-semibold">{t("auth.register.welcome", { site: systemInfo?.name || SITE_NAME })}</h2>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-foreground">
                   {registerRequiresCode
                     ? t("auth.register.introWithCode")
                     : t("auth.register.introWithoutCode")}
@@ -344,7 +344,7 @@ export default function RegisterPage() {
 
             <div className="rounded-2xl border border-border/70 bg-muted/40 p-4 text-sm">
               <p className="font-semibold text-foreground">{t("auth.register.aboutRegCode")}</p>
-              <p className="mt-2 leading-relaxed text-foreground/80">
+              <p className="mt-2 leading-relaxed text-foreground">
                   {registerRequiresCode
                   ? t("auth.register.aboutRegCodeRequired")
                   : t("auth.register.aboutRegCodeOptional")}
@@ -398,7 +398,7 @@ export default function RegisterPage() {
           <div className="space-y-6 p-6 sm:p-8">
             <div className="space-y-3">
               <CardTitle className="text-2xl font-semibold tracking-tight">{t("auth.register.createTitle")}</CardTitle>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-foreground/80">
                 {registerRequiresCode ? t("auth.register.createDescriptionWithCode") : t("auth.register.createDescriptionWithoutCode")}
               </p>
             </div>
@@ -545,7 +545,7 @@ export default function RegisterPage() {
                       </Button>
                     ) : null}
                     {bindCode && !bindConfirmed ? (
-                      <div className="basis-full space-y-2 rounded-lg border border-border/70 bg-muted/50 px-3 py-3 text-sm text-muted-foreground">
+                      <div className="basis-full space-y-2 rounded-lg border border-border/70 bg-muted/50 px-3 py-3 text-sm text-foreground">
                         <p>{t("auth.register.sendCommandBelow")}</p>
                         <div className="flex flex-wrap items-center gap-2">
                           <code className="rounded bg-background px-2 py-1 font-mono text-base text-foreground select-all break-all max-w-full">
