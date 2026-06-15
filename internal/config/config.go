@@ -661,6 +661,9 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("TWILIGHT_SERVER_ICON"); v != "" {
 		cfg.ServerIcon = v
 	}
+	if v := os.Getenv("TWILIGHT_AUTH_BACKGROUND_URL"); v != "" {
+		cfg.AuthBackgroundURL = v
+	}
 	if v := os.Getenv("TWILIGHT_API_PORT"); v != "" {
 		cfg.Port = intValue(v, cfg.Port)
 	}

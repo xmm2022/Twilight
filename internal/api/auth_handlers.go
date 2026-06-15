@@ -22,6 +22,8 @@ import (
 	"strings"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/prejudice-studio/twilight/internal/security"
 	"github.com/prejudice-studio/twilight/internal/store"
 	"github.com/prejudice-studio/twilight/internal/validate"
@@ -456,7 +458,22 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request, _ Params) {
 			role = store.RoleAdmin
 		}
 	}
-	created(w, "注册成功", map[string]any{"user": publicUser(u), "first_admin": role == store.RoleAdmin, "reg_code_used": registerReg.Code})
+	created(w, "注册成功", map[string]any{"user": publicUser(u), "first_admin": role == store.RoleAdmin, "reg_code_used": registerReg.Code, "email_verification_sent": sendRegistrationEmailVerification(a, r, u, stringValue(payload, "email"))})
+}
+
+func sendRegistrationEmailVerification(a *App, r *http.Request, u store.User, email string) string {
+	if email == "" || !emailConfigured(a.cfg()) {
+		return ""
+	}
+	vid, s, _, msg := a.issueEmailCode(r.Context(), a.clientIP(r), "bind", email, u.UID)
+	if s != http.StatusOK {
+		zap.L().Warn("register email auto-send failed",
+			zap.Int64("uid", u.UID),
+			zap.String("message", msg),
+		)
+		return ""
+	}
+	return vid
 }
 
 func (a *App) handleRegisterAvailability(w http.ResponseWriter, r *http.Request, _ Params) {

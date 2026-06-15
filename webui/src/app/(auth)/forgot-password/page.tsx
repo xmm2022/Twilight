@@ -204,7 +204,7 @@ export default function ForgotPasswordPage() {
         <Label>{t("email.newPassword")}</Label>
         <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder={t("email.newPasswordPlaceholder")} autoComplete="new-password" />
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <Button type="submit" className="flex-1" disabled={emailLoading}>
           {emailLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           {t("email.forgot.submitReset")}

@@ -216,6 +216,7 @@ func (a *App) registerAdminRoutes() {
 	a.add(http.MethodPost, "/api/v1/admin/email/test", AuthAdmin, a.handleAdminEmailTest)
 	a.add(http.MethodGet, "/api/v1/admin/email/verifications", AuthAdmin, a.handleAdminEmailVerifications)
 	a.add(http.MethodPost, "/api/v1/admin/email/verifications/cleanup", AuthAdmin, a.handleAdminCleanupEmailVerifications)
+	a.add(http.MethodPost, "/api/v1/admin/email/verifications/clear-unverified", AuthAdmin, a.handleAdminClearUnverifiedEmails)
 	a.add(http.MethodDelete, "/api/v1/admin/email/verifications/:id", AuthAdmin, a.handleAdminDeleteEmailVerification)
 	a.add(http.MethodPost, "/api/v1/admin/users/kick-no-emby", AuthAdmin, a.handleAdminKickNoEmby)
 	a.add(http.MethodGet, "/api/v1/admin/invite/tree", AuthAdmin, a.handleInviteTree)

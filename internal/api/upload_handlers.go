@@ -437,6 +437,7 @@ func (a *App) handleAsset(w http.ResponseWriter, r *http.Request, params Params)
 			return
 		}
 	}
+	setCacheHeader(w)
 	http.ServeFile(w, r, filePath)
 }
 
@@ -546,6 +547,7 @@ func (a *App) handleAuthBackground(w http.ResponseWriter, r *http.Request, _ Par
 		return
 	}
 	// 优先查找新格式 background.<ext>
+	setCacheHeader(w)
 	for _, ext := range []string{".jpg", ".png", ".gif", ".webp", ".bmp"} {
 		filePath := filepath.Join(dir, "background"+ext)
 		if info, statErr := os.Stat(filePath); statErr == nil && info.Mode().IsRegular() {
@@ -570,4 +572,8 @@ func (a *App) handleAuthBackground(w http.ResponseWriter, r *http.Request, _ Par
 		return
 	}
 	failWithCode(w, http.StatusNotFound, ErrAssetNotFound, "resource not found")
+}
+
+func setCacheHeader(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "public, max-age=3600")
 }

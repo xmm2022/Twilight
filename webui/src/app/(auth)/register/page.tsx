@@ -342,9 +342,9 @@ export default function RegisterPage() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-border/70 bg-muted/40 p-4 text-sm text-muted-foreground">
+            <div className="rounded-2xl border border-border/70 bg-muted/40 p-4 text-sm">
               <p className="font-semibold text-foreground">{t("auth.register.aboutRegCode")}</p>
-              <p className="mt-2 leading-relaxed">
+              <p className="mt-2 leading-relaxed text-foreground/80">
                   {registerRequiresCode
                   ? t("auth.register.aboutRegCodeRequired")
                   : t("auth.register.aboutRegCodeOptional")}
@@ -364,8 +364,10 @@ export default function RegisterPage() {
                 </p>
               ) : null}
               {registerAvailability ? (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  {t("auth.register.quota", { current: registerAvailability.current_users, max: registerAvailability.max_users })}
+                <p className="mt-2 text-xs text-foreground/70">
+                  {registerAvailability.max_users <= 0
+                    ? t("auth.register.quotaUnlimited", { current: registerAvailability.current_users })
+                    : t("auth.register.quota", { current: registerAvailability.current_users, max: registerAvailability.max_users })}
                 </p>
               ) : null}
             </div>
@@ -546,7 +548,7 @@ export default function RegisterPage() {
                       <div className="basis-full space-y-2 rounded-lg border border-border/70 bg-muted/50 px-3 py-3 text-sm text-muted-foreground">
                         <p>{t("auth.register.sendCommandBelow")}</p>
                         <div className="flex flex-wrap items-center gap-2">
-                          <code className="rounded bg-background px-2 py-1 font-mono text-base text-foreground select-all">
+                          <code className="rounded bg-background px-2 py-1 font-mono text-base text-foreground select-all break-all max-w-full">
                             /bind {bindCode}
                           </code>
                           <Button

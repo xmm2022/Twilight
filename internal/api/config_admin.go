@@ -367,6 +367,7 @@ func (a *App) handleConfigSchemaUpdateSafe(w http.ResponseWriter, r *http.Reques
 			values[sectionKey][fieldKey] = normalizeConfigField(field, value)
 		}
 	}
+	ensureTicketDefaults(values)
 	info, status, message := a.saveConfigContent(renderConfigTOML(values))
 	if status != http.StatusOK {
 		failWithCode(w, status, ErrConfigBackupInvalid, message)
@@ -459,7 +460,30 @@ func normalizeConfigContent(configFile, content string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return renderConfigTOML(configValues(cfg)), nil
+	values := configValues(cfg)
+	ensureTicketDefaults(values)
+	return renderConfigTOML(values), nil
+}
+
+func ensureTicketDefaults(values map[string]map[string]any) {
+	ticketSection, ok := values["Ticket"]
+	if !ok {
+		return
+	}
+	raw := ticketSection["types"]
+	items, _ := raw.([]any)
+	seen := map[string]bool{}
+	for _, it := range items {
+		if s, ok := it.(string); ok && s != "" {
+			seen[strings.ToLower(s)] = true
+		}
+	}
+	// 确保至少保留一个类型，防止管理员清空所有类型导致 fallback 失效
+	if len(seen) == 0 {
+		ticketSection["types"] = []any{"other"}
+	} else {
+		ticketSection["types"] = items
+	}
 }
 
 func (a *App) configBackupDir() string {

@@ -60,6 +60,7 @@ export default function AdminEmailPage() {
   const [verifiedFilter, setVerifiedFilter] = useState<VerifiedFilter>("all");
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [cleaning, setCleaning] = useState(false);
+  const [clearingEmails, setClearingEmails] = useState(false);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -163,6 +164,31 @@ export default function AdminEmailPage() {
 
   const summary = data?.summary;
 
+  const handleClearUnverified = useCallback(async () => {
+    const ok = await confirm({
+      title: t("emailAdmin.clearUnverifiedTitle"),
+      description: t("emailAdmin.clearUnverifiedDesc", { count: summary?.unverified ?? 0 }),
+      tone: "danger",
+      confirmLabel: t("emailAdmin.clearUnverifiedConfirm"),
+    });
+    if (!ok) return;
+    setClearingEmails(true);
+    try {
+      const res = await api.adminClearUnverifiedEmails();
+      if (res.success && res.data) {
+        toast({ title: t("emailAdmin.clearUnverifiedDone", { count: res.data.cleared }), variant: "success" });
+        await reload();
+      } else {
+        toast({ title: t("emailAdmin.clearUnverifiedFailed"), description: res.message, variant: "destructive" });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t("emailAdmin.clearUnverifiedFailed");
+      toast({ title: t("emailAdmin.clearUnverifiedFailed"), description: message, variant: "destructive" });
+    } finally {
+      setClearingEmails(false);
+    }
+  }, [confirm, reload, summary?.unverified, t, toast]);
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -265,6 +291,21 @@ export default function AdminEmailPage() {
                   )}
                   {t("emailAdmin.cleanupExpired")}
                 </Button>
+                {(summary?.unverified ?? 0) > 0 && (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => void handleClearUnverified()}
+                    disabled={clearingEmails}
+                  >
+                    {clearingEmails ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="mr-2 h-4 w-4" />
+                    )}
+                    {t("emailAdmin.clearUnverifiedBtn")}
+                  </Button>
+                )}
               </div>
               <div className="overflow-hidden rounded-lg border">
                 <div className="overflow-x-auto">

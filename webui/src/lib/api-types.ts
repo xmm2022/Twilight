@@ -16,6 +16,7 @@ export interface ApiResponse<T = unknown> {
 export interface SystemInfo {
   name: string;
   icon: string;
+  server_icon?: string;
   version: string;
   /** 后端 API 大版本（如 "v1"），便于前端将来做接口契约校验 */
   api_version?: string;
@@ -512,6 +513,7 @@ export interface RegisterResponse {
   queue_position?: number;
   reused?: boolean;
   reg_code_used?: string;
+  email_verification_sent?: string; // 验证记录 ID，空表示未发送或发送失败
 }
 
 export interface RegisterAvailability {

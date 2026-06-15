@@ -475,3 +475,13 @@ func (a *App) handleAdminCleanupEmailVerifications(w http.ResponseWriter, r *htt
 	}
 	ok(w, "已清理过期验证码", map[string]any{"deleted": deleted})
 }
+
+// handleAdminClearUnverifiedEmails 一键清空所有未验证邮箱的用户的 Email 字段。
+func (a *App) handleAdminClearUnverifiedEmails(w http.ResponseWriter, r *http.Request, _ Params) {
+	total, cleared, err := a.store().ClearUnverifiedEmails()
+	if statusFromError(w, err) {
+		return
+	}
+	a.audit(r, "clear_unverified_emails", "admin", 0, map[string]any{"total": total, "cleared": cleared})
+	ok(w, "已清空未验证邮箱", map[string]any{"total": total, "cleared": cleared})
+}

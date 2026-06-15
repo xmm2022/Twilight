@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Eye, EyeOff, ArrowRight, Loader2, ShieldCheck, Send } from "lucide-react";
@@ -13,7 +14,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuthStore } from "@/store/auth";
 import { useSystemStore } from "@/store/system";
 import { SITE_NAME } from "@/lib/site-config";
-import { sanitizeExternalUrl } from "@/lib/safe-url";
+import { sanitizeExternalUrl, sanitizeImageUrl } from "@/lib/safe-url";
+import { API_BASE } from "@/lib/api-request";
 import { friendlyError } from "@/lib/validators";
 import { safeProtectedRedirectTarget } from "@/lib/auth-routes";
 import { useI18n } from "@/lib/i18n";
@@ -22,6 +24,13 @@ function loginRedirectTarget(): string {
   if (typeof window === "undefined") return "/dashboard";
   const next = new URLSearchParams(window.location.search).get("next");
   return safeProtectedRedirectTarget(next);
+}
+
+function serverIconUrl(icon?: string | null): string | undefined {
+  if (!icon) return undefined;
+  if (icon.startsWith("http")) return sanitizeImageUrl(icon);
+  if (icon.startsWith("/")) return sanitizeImageUrl(`${API_BASE}/api/v1${icon}`);
+  return sanitizeImageUrl(icon);
 }
 
 export default function LoginPage() {
@@ -124,8 +133,20 @@ export default function LoginPage() {
       >
         <Card className="border-border/70 bg-card/78 shadow-2xl backdrop-blur-xl">
           <CardHeader className="space-y-2 pb-6 pt-8 text-center">
-            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/14 text-primary">
-              <ShieldCheck className="h-7 w-7" />
+            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/14 text-primary overflow-hidden relative">
+              {systemInfo?.server_icon ? (
+                <Image
+                  src={serverIconUrl(systemInfo.server_icon) || ""}
+                  alt={systemInfo.name || SITE_NAME}
+                  fill
+                  className="object-cover"
+                  onError={(e) => {
+                    e.currentTarget.style.display = "none";
+                  }}
+                />
+              ) : (
+                <ShieldCheck className="h-7 w-7" />
+              )}
             </div>
 
             <CardTitle className="text-2xl font-semibold tracking-tight">

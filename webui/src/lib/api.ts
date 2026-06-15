@@ -512,6 +512,13 @@ class ApiClient {
     });
   }
 
+  // 管理员：一键清空所有未验证邮箱
+  async adminClearUnverifiedEmails() {
+    return this.request<{ total: number; cleared: number }>("/admin/email/verifications/clear-unverified", {
+      method: "POST",
+    });
+  }
+
   // 管理员：发送测试邮件验证 SMTP 配置。
   async adminTestEmail(to?: string) {
     return this.request<{ results: EmailTestResult[] }>("/admin/email/test", {

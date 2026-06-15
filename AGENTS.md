@@ -171,6 +171,44 @@
 | `emby_status` | Emby 启停状态（独立于 Web） | `active` / `disabled` |
 | `email_status` | 邮箱验证状态 | `verified` / `unverified` / `bound` / `none` |
 
+### RegCode 有效期暂停约定
+
+`RegCode` 支持停用期间暂停计算有效期：
+- `PausedSeconds` — 累计暂停时长（秒），停用期间暂停计算 `ValidityTime` 倒计时
+- `PauseStart` — 当前暂停起始时间戳（秒），0 表示未处于暂停状态
+- `handleUpdateRegcode` 在 `active` 变化时自动记录/结算暂停时间
+- `regcodeStatus` 和 `consumableRegCodeLocked` 在判断过期时扣除 `PausedSeconds` 和当前暂停时长
+- 使用次数耗尽 (`use_count >= use_count_limit`) 的优先级高于 admin 手动停用，确保 `status` 返回 `used_up` 而非 `disabled`
+
+### 认证页背景图约定
+
+认证页（登录/注册）背景图：
+- 上传接口：`POST /admin/config/upload-auth-background`，文件名固定为 `background.<ext>`
+- 提供接口：`GET /system/auth-background`，优先返回 `background.<ext>`，不存在时兼容旧版 `?file=` 参数
+- 配置键：`Global.auth_background_url`，默认空，支持环境变量 `TWILIGHT_AUTH_BACKGROUND_URL` 覆盖
+- 前端通过 `handleSystemInfo` 返回的 `auth_background_url` 加载，AuthLayout 自动处理路径拼接
+
+### 工单类型保护
+
+`Ticket.types` 配置受最小保护：
+- 通过配置保存页面（schema 编辑器或原始 TOML 编辑器）保存时，`ensureTicketDefaults` 自动确保至少保留一个类型（默认 `"other"`），防止管理员清空所有类型导致 fallback 失效
+- 管理员可自由增删类型，不再强制保留全部 5 个默认类型
+
+### 注册邮箱验证约定
+
+注册时如果填写了邮箱且 SMTP 已配置，自动发送验证邮件：
+- `handleRegister` 在创建用户成功后调用 `issueEmailCode` 发送绑定验证码
+- 验证码发送失败不影响注册结果（仅记录日志）
+- 响应中包含 `email_verification_sent` 字段（验证记录 ID，发送失败时为空）
+- 邮箱管理页面支持一键清空未验证邮箱（`POST /admin/email/verifications/clear-unverified`）
+
+### 线路测速约定
+
+- 测速前先通过 `GET /emby/status` 检测 Emby 在线状态
+- 如果 Emby 不在线（`online: false`），跳过所有线路测速，直接标记所有线路为不可达
+- 如果 Emby 状态接口异常（网络错误等），同样标记所有线路为不可达（不继续测速）
+- 用户可手动刷新重新测速，每次测速都会重新请求状态接口
+
 ## 常用命令
 
 后端：

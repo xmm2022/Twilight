@@ -191,6 +191,24 @@ func (s *Store) CleanupExpiredEmailVerifications(now int64) (int, error) {
 	return deleted, nil
 }
 
+// ClearUnverifiedEmails 清空所有 EmailVerified=false 的用户的 Email 字段。
+func (s *Store) ClearUnverifiedEmails() (total int, cleared int, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	err = s.mutateAndSaveLocked(func() error {
+		for uid, u := range s.state.Users {
+			if u.Email != "" && !u.EmailVerified {
+				total++
+				u.Email = ""
+				s.state.Users[uid] = u
+				cleared++
+			}
+		}
+		return nil
+	})
+	return
+}
+
 // EmailVerifiedOwner 返回已把 email 标记为"已验证"的其它账号（excludeUID 之外），
 // 用于绑定 / 管理员强制绑定时的占用冲突判定。
 func (s *Store) EmailVerifiedOwner(email string, excludeUID int64) (User, bool) {
