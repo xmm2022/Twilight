@@ -268,5 +268,4 @@ sudo TWILIGHT_PROJECT_ROOT=/opt/Twilight \
 - [开发指南](./development.md)
 - [安全加固](./security.md)
 - [Go 后端架构与配置](../reference/backend.md)
-- [版本历史](../changelog.md)
 - [文档导航](../README.md)

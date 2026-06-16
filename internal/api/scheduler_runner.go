@@ -560,21 +560,22 @@ func (a *App) runSchedulerJob(r *http.Request, jobID string) (map[string]any, []
 		}
 		return result, []string{asString(result["message"])}, nil
 	case "cleanup_audit_logs":
-		cfg := a.cfg()
-		if !cfg.AuditLogAutoCleanupEnabled {
+		enabled := jobParamBool(params, "enabled", true)
+		if !enabled {
 			return map[string]any{"success": true, "skipped": true, "reason": "auto cleanup disabled"}, nil, nil
 		}
 		logs := []string{}
 		// 按条数裁剪（保留最新 N 条）
-		if cfg.AuditLogMaxEntries > 0 {
-			_ = a.store().PruneAuditLogs(cfg.AuditLogMaxEntries)
-			logs = append(logs, fmt.Sprintf("enforced max %d entries (current: %d)", cfg.AuditLogMaxEntries, a.store().AuditLogCount()))
+		if maxEntries := jobParamInt(params, "max_entries", 0); maxEntries > 0 {
+			_ = a.store().PruneAuditLogs(maxEntries)
+			logs = append(logs, fmt.Sprintf("enforced max %d entries (current: %d)", maxEntries, a.store().AuditLogCount()))
 		}
 		// 按天数裁剪
-		if cfg.AuditLogRetentionDays > 0 {
-			cutoff := time.Now().Add(-time.Duration(cfg.AuditLogRetentionDays) * 24 * time.Hour).Unix()
-			removed := a.store().PruneAuditLogsByAge(cutoff, cfg.AuditLogPreserveAdmin)
-			logs = append(logs, fmt.Sprintf("removed %d entries older than %d days (preserve_admin=%v)", removed, cfg.AuditLogRetentionDays, cfg.AuditLogPreserveAdmin))
+		if retentionDays := jobParamInt(params, "retention_days", 0); retentionDays > 0 {
+			preserveAdmin := jobParamBool(params, "preserve_admin", true)
+			cutoff := time.Now().Add(-time.Duration(retentionDays) * 24 * time.Hour).Unix()
+			removed := a.store().PruneAuditLogsByAge(cutoff, preserveAdmin)
+			logs = append(logs, fmt.Sprintf("removed %d entries older than %d days (preserve_admin=%v)", removed, retentionDays, preserveAdmin))
 		}
 		return map[string]any{"success": true, "current": a.store().AuditLogCount()}, logs, nil
 	default:
@@ -590,7 +591,10 @@ func schedulerRequestParams(r *http.Request) map[string]any {
 	if params, ok := payload["params"].(map[string]any); ok {
 		return params
 	}
-	return payload
+	if params, ok := payload["runtime_params"].(map[string]any); ok {
+		return params
+	}
+	return nil
 }
 
 func (a *App) schedulerEffectiveParams(r *http.Request, jobID string) map[string]any {

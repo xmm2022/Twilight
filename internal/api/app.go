@@ -1303,6 +1303,10 @@ func intValue(payload map[string]any, key string, fallback int) int {
 		switch typed := v.(type) {
 		case float64:
 			return int(typed)
+		case int:
+			return typed
+		case int64:
+			return int(typed)
 		case string:
 			if i, err := strconv.Atoi(typed); err == nil {
 				return i

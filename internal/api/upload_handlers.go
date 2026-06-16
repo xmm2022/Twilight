@@ -506,11 +506,11 @@ func (a *App) handleUploadAuthBackground(w http.ResponseWriter, r *http.Request,
 		failWithCode(w, http.StatusInternalServerError, ErrUploadDirCreateFailed, "创建上传目录失败")
 		return
 	}
-	filePath := filepath.Join(dir, filename)
-	if err := store.WriteFileAtomicSync(filePath, data, 0o600); err != nil {
-		failWithCode(w, http.StatusInternalServerError, ErrUploadSaveFailed, "保存文件失败")
+	if info, lstatErr := os.Lstat(dir); lstatErr != nil || info.Mode()&os.ModeSymlink != 0 {
+		failWithCode(w, http.StatusInternalServerError, ErrUploadDirInvalid, "上传目录无效")
 		return
 	}
+	filePath := filepath.Join(dir, filename)
 	// 清理旧扩展名的 background 文件（如从 .png 切换到 .jpg）
 	for _, oldExt := range []string{".jpg", ".png", ".gif", ".webp", ".bmp"} {
 		if oldExt == ext {
@@ -550,7 +550,7 @@ func (a *App) handleAuthBackground(w http.ResponseWriter, r *http.Request, _ Par
 	setCacheHeader(w)
 	for _, ext := range []string{".jpg", ".png", ".gif", ".webp", ".bmp"} {
 		filePath := filepath.Join(dir, "background"+ext)
-		if info, statErr := os.Stat(filePath); statErr == nil && info.Mode().IsRegular() {
+		if info, statErr := os.Lstat(filePath); statErr == nil && info.Mode()&os.ModeSymlink == 0 && info.Mode().IsRegular() {
 			http.ServeFile(w, r, filePath)
 			return
 		}
@@ -559,7 +559,7 @@ func (a *App) handleAuthBackground(w http.ResponseWriter, r *http.Request, _ Par
 	if fileName := strings.TrimSpace(r.URL.Query().Get("file")); fileName != "" {
 		if uploadFilenamePattern.MatchString(fileName) {
 			if filePath, resolveErr := ResolveWithinRoot(dir, fileName); resolveErr == nil {
-				if info, statErr := os.Stat(filePath); statErr == nil && info.Mode().IsRegular() {
+				if info, statErr := os.Lstat(filePath); statErr == nil && info.Mode()&os.ModeSymlink == 0 && info.Mode().IsRegular() {
 					http.ServeFile(w, r, filePath)
 					return
 				}
@@ -567,9 +567,16 @@ func (a *App) handleAuthBackground(w http.ResponseWriter, r *http.Request, _ Par
 		}
 	}
 	if entries, readErr := os.ReadDir(dir); readErr == nil && len(entries) > 0 {
-		path := filepath.Join(dir, entries[len(entries)-1].Name())
-		http.ServeFile(w, r, path)
-		return
+		for i := len(entries) - 1; i >= 0; i-- {
+			e := entries[i]
+			if !e.Type().IsRegular() {
+				continue
+			}
+			if info, infoErr := e.Info(); infoErr == nil && info.Mode()&os.ModeSymlink == 0 {
+				http.ServeFile(w, r, filepath.Join(dir, e.Name()))
+				return
+			}
+		}
 	}
 	failWithCode(w, http.StatusNotFound, ErrAssetNotFound, "resource not found")
 }

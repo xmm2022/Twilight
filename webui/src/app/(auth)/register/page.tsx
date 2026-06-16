@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { motion } from "framer-motion";
 import { Eye, EyeOff, Loader2, ShieldPlus, UserPlus, Bot, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -320,12 +319,7 @@ export default function RegisterPage() {
 
   return (
     <main className="relative flex min-h-screen w-full items-center justify-center p-4">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        transition={{ duration: 0.35, ease: "easeOut" }}
-        className="relative z-10 w-full max-w-[1100px]"
-      >
+      <div className="relative z-10 w-full max-w-[1100px] animate-fade-in">
         <Card className="grid gap-6 overflow-hidden border-border/70 bg-card/78 shadow-2xl backdrop-blur-xl lg:grid-cols-[300px_minmax(0,1fr)]">
           <div className="space-y-6 border-b border-border/70 p-6 lg:border-b-0 lg:border-r lg:p-8">
             <div className="space-y-2">
@@ -624,7 +618,7 @@ export default function RegisterPage() {
             </form>
           </div>
         </Card>
-      </motion.div>
+      </div>
     </main>
   );
 }

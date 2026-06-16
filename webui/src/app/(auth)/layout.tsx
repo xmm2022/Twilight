@@ -5,6 +5,8 @@ import { useSystemStore } from "@/store/system";
 import { sanitizeImageUrl } from "@/lib/safe-url";
 import { API_BASE } from "@/lib/api-request";
 
+const authTextColor = process.env.NEXT_PUBLIC_AUTH_TEXT_COLOR;
+
 export default function AuthLayout({
   children,
 }: {
@@ -32,6 +34,8 @@ export default function AuthLayout({
       }
     : undefined;
 
+  const textStyle = authTextColor ? { color: authTextColor } : undefined;
+
   return (
     <div
       className="relative min-h-screen overflow-hidden bg-background"
@@ -47,7 +51,7 @@ export default function AuthLayout({
       {safeBg && (
         <div className="pointer-events-none absolute inset-0 -z-10 bg-background/50 backdrop-blur-[2px]" />
       )}
-      <div className="relative z-10 min-h-screen">
+      <div className="relative z-10 min-h-screen auth-card-text" style={textStyle}>
         {children}
       </div>
     </div>

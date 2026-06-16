@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { motion } from "framer-motion";
 import { Eye, EyeOff, ArrowRight, Loader2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -125,12 +124,7 @@ export default function LoginPage() {
 
   return (
     <main className="relative flex min-h-screen w-full items-center justify-center p-4">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        transition={{ duration: 0.35, ease: "easeOut" }}
-        className="relative z-10 w-full max-w-[440px]"
-      >
+      <div className="relative z-10 w-full max-w-[440px] animate-fade-in">
         <Card className="border-border/70 bg-card/78 shadow-2xl backdrop-blur-xl">
           <CardHeader className="space-y-2 pb-6 pt-8 text-center">
             {systemInfo?.server_icon ? (
@@ -246,7 +240,7 @@ export default function LoginPage() {
             </div>
           </CardContent>
         </Card>
-      </motion.div>
+      </div>
     </main>
   );
 }

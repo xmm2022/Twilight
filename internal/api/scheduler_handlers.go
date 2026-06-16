@@ -198,7 +198,8 @@ func (a *App) normalizeSchedulerRuntimeParams(jobID string, params map[string]an
 		return map[string]any{"enabled": enabled, "auto_enabled": enabled, "scope": "all"}
 	case "cleanup_audit_logs":
 		enabled := boolValue(params, "enabled", boolValue(params, "auto_enabled", a.cfg().AuditLogAutoCleanupEnabled))
-		retentionDays := clamp(intValue(params, "retention_days", a.cfg().AuditLogRetentionDays), 0, 3650)
+		// 前端可能发送 "days" 作为 "retention_days" 的别名
+		retentionDays := clamp(intValue(params, "retention_days", intValue(params, "days", a.cfg().AuditLogRetentionDays)), 0, 3650)
 		maxEntries := clamp(intValue(params, "max_entries", a.cfg().AuditLogMaxEntries), 0, 100000)
 		return map[string]any{"enabled": enabled, "auto_enabled": enabled, "retention_days": retentionDays, "max_entries": maxEntries, "preserve_admin": boolValue(params, "preserve_admin", a.cfg().AuditLogPreserveAdmin)}
 	case "kick_unknown_group_members":

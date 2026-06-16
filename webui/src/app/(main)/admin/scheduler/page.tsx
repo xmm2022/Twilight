@@ -225,7 +225,7 @@ function ScheduleEditor({ job, open, onOpenChange, onSaved }: ScheduleEditorProp
       setMinute(0);
       setIntervalValue(1);
       setIntervalUnit("hours");
-      setCleanupDays(String(Number(rp.days ?? 7) || 7));
+      setCleanupDays(String(Number((rp.retention_days ?? rp.days) ?? 7) || 7));
       setCleanupEnabled(job.id === "enforce_group_membership" ? Boolean(rp.auto_enable_rejoined) : Boolean(rp.enabled ?? rp.auto_enabled));
       return;
     }
@@ -288,7 +288,11 @@ function ScheduleEditor({ job, open, onOpenChange, onSaved }: ScheduleEditorProp
             toast({ title: t("adminScheduler.cleanupParamInvalidTitle"), description: t("adminScheduler.cleanupParamInvalidDescription"), variant: "destructive" });
             return;
           }
-          runtimeParams.days = Math.trunc(days);
+          if (job.id === "cleanup_audit_logs") {
+            runtimeParams.retention_days = Math.trunc(days);
+          } else {
+            runtimeParams.days = Math.trunc(days);
+          }
         }
         payload.runtime_params = runtimeParams;
       }

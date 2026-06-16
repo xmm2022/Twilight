@@ -8,7 +8,6 @@
 
 [![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js&logoColor=white)](https://nextjs.org/)
-[![Version](https://img.shields.io/badge/Version-0.0.6-blue)](docs/changelog.md)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
 [Telegram 频道](https://t.me/Twilightpanel) · [Telegram 群组](https://t.me/TwilightPanelChat) · [文档导航](docs/README.md)
@@ -56,7 +55,6 @@ docker compose up -d --build
 | [邀请树](docs/features/invite.md) | 邀请森林、级联删除与启停语义 |
 | [Telegram Bot 命令](docs/features/telegram-bot.md) | Bot 命令、私聊边界、管理员命令 |
 | [Bangumi 同步](docs/features/bangumi.md) | Emby Webhook 与 Bangumi Token 配置 |
-| [版本历史](docs/changelog.md) | 更新记录与发布文案 |
 
 ## 鸣谢
 
