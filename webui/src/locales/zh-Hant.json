@@ -99,6 +99,9 @@
       "optionalBindTip": "可選：綁定 Telegram 以便接收通知",
       "registerButton": "註冊",
       "backToLogin": "返回登入",
+      "stepBack": "上一步",
+      "stepNext": "下一步",
+      "stepSkip": "暫不綁定",
       "registrationCheckFailed": "檢查註冊可用性失敗"
     }
   },

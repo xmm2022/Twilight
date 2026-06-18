@@ -99,6 +99,9 @@
       "optionalBindTip": "Optional: bind Telegram for notifications and easier login.",
       "registerButton": "Register",
       "backToLogin": "Back to login",
+      "stepBack": "Back",
+      "stepNext": "Next",
+      "stepSkip": "Skip for now",
       "registrationCheckFailed": "Failed to check registration availability"
     }
   },

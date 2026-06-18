@@ -505,7 +505,7 @@ export default function RegisterPage() {
       >
         {TOTAL_STEPS > 1 ? (
           <>
-            {t("common.nextPage")}
+            {t("auth.register.stepNext")}
             <ArrowRight className="ml-2 h-5 w-5" />
           </>
         ) : (
@@ -635,7 +635,7 @@ export default function RegisterPage() {
           className="shrink-0"
         >
           <ArrowLeft className="mr-1.5 h-4 w-4" />
-          {t("common.previousPage")}
+          {t("auth.register.stepBack")}
         </Button>
         {!forceBindTelegram && (
           <Button
@@ -646,7 +646,7 @@ export default function RegisterPage() {
             onClick={skipTelegramAndSubmit}
             disabled={isRegisterLoading}
           >
-            {t("common.skip")}
+            {t("auth.register.stepSkip")}
           </Button>
         )}
         <Button

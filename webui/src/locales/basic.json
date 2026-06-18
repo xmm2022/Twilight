@@ -250,7 +250,10 @@
       "copyCommand": "复制命令",
       "waitingVerification": "等待 Bot 端验证…（剩余 {minutes} 分钟）",
       "submit": "注册账号",
-      "backToLogin": "已有账号？返回登录页"
+      "backToLogin": "已有账号？返回登录页",
+      "stepBack": "上一步",
+      "stepNext": "下一步",
+      "stepSkip": "暂不绑定"
     }
   },
   "errorBoundary": {
