@@ -513,6 +513,7 @@ export default function RegisterPage() {
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-wrap">
                     <Button
                       type="button"
+                      className="bg-foreground text-background hover:bg-foreground/90"
                       onClick={handleGetTelegramBindCode}
                       disabled={isBindCodeLoading}
                     >
@@ -556,7 +557,7 @@ export default function RegisterPage() {
                             {t("auth.register.copyCommand")}
                           </Button>
                           {botUrl ? (
-                            <Button asChild type="button" size="sm">
+                            <Button asChild type="button" size="sm" variant="outline">
                               <a
                                 href={botUrl}
                                 target="_blank"
@@ -591,7 +592,7 @@ export default function RegisterPage() {
               <div className="pt-2">
                 <Button
                   type="submit"
-                  className="h-11 w-full"
+                  className="h-11 w-full bg-foreground text-background hover:bg-foreground/90"
                   disabled={
                     isRegisterLoading ||
                     Boolean(registerAvailability && (!canRegister || !registerAvailability.available)) ||
@@ -608,7 +609,7 @@ export default function RegisterPage() {
               </div>
 
               <div className="pt-1 text-center">
-                <Button asChild variant="link" className="h-auto px-1 text-sm">
+                <Button asChild variant="link" className="h-auto px-1 text-sm text-foreground/80 hover:text-foreground">
                   <Link href="/login">{t("auth.register.backToLogin")}</Link>
                 </Button>
               </div>

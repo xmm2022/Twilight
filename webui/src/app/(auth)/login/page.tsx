@@ -208,7 +208,7 @@ export default function LoginPage() {
               <div className="pt-2">
                 <Button
                   type="submit"
-                  className="h-11 w-full"
+                  className="h-11 w-full bg-foreground text-background hover:bg-foreground/90"
                   disabled={isLoading}
                 >
                   {isLoading ? (

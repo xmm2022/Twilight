@@ -155,7 +155,7 @@ export default function ForgotPasswordPage() {
           <Label>{t("auth.forgotPassword.embyPassword")}</Label>
           <Input type="password" value={embyPassword} onChange={(e) => setEmbyPassword(e.target.value)} autoComplete="current-password" />
         </div>
-        <Button type="submit" className="w-full" disabled={embyLoading}>
+        <Button type="submit" className="h-11 w-full bg-foreground text-background hover:bg-foreground/90" disabled={embyLoading}>
           {embyLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           {t("auth.forgotPassword.submit")}
         </Button>
@@ -189,7 +189,7 @@ export default function ForgotPasswordPage() {
         <Label>{t("email.emailLabel")}</Label>
         <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t("email.emailPlaceholder")} autoComplete="email" />
       </div>
-      <Button type="submit" className="w-full" disabled={emailLoading || cooldown > 0}>
+      <Button type="submit" className="h-11 w-full bg-foreground text-background hover:bg-foreground/90" disabled={emailLoading || cooldown > 0}>
         {emailLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
         {cooldown > 0 ? t("email.resendIn", { seconds: cooldown }) : t("email.sendCode")}
       </Button>
@@ -206,7 +206,7 @@ export default function ForgotPasswordPage() {
         <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder={t("email.newPasswordPlaceholder")} autoComplete="new-password" />
       </div>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <Button type="submit" className="flex-1" disabled={emailLoading}>
+        <Button type="submit" className="flex-1 bg-foreground text-background hover:bg-foreground/90" disabled={emailLoading}>
           {emailLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           {t("email.forgot.submitReset")}
         </Button>
