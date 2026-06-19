@@ -145,8 +145,12 @@ export default function AdminTicketsPage() {
     catch (err: any) { toast({ title: err?.message || t("common.networkError"), variant: "destructive" }); }
   };
 
-  const types = Array.isArray(data?.types) && data.types.length ? data.types : DEFAULT_TYPES.map((t) => t.value);
+  const types = Array.isArray(data?.types) && data.types.length ? data.types : DEFAULT_TYPES.map((d) => d.value);
   const tickets = Array.isArray(data?.tickets) ? data.tickets : [];
+  const typeLabelFor = (value: string) => {
+    const known = DEFAULT_TYPES.find((d) => d.value === value);
+    return known ? t(known.labelKey as any) : value;
+  };
 
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
@@ -163,8 +167,7 @@ export default function AdminTicketsPage() {
         <Select value={typeFilter} onValueChange={setTypeFilter}>
           <SelectTrigger className="w-28"><SelectValue placeholder={t("adminTickets.filterAllTypes")} /></SelectTrigger>
           <SelectContent><SelectItem value="all">{t("adminTickets.filterAllTypes")}</SelectItem>
-            {DEFAULT_TYPES.map((o) => <SelectItem key={o.value} value={o.value}>{t(o.labelKey as any)}</SelectItem>)}
-            {types.filter((tp: string) => !DEFAULT_TYPES.find((d) => d.value === tp)).map((tp: string) => <SelectItem key={tp} value={tp}>{tp}</SelectItem>)}
+            {types.map((tp: string) => <SelectItem key={tp} value={tp}>{typeLabelFor(tp)}</SelectItem>)}
           </SelectContent>
         </Select>
         <Select value={priorityFilter} onValueChange={setPriorityFilter}>
@@ -194,7 +197,7 @@ export default function AdminTicketsPage() {
           {tickets.map((ticket: Ticket) => {
             const s = STATUS_MAP[ticket.status] || STATUS_MAP.open;
             const p = PRIORITY_MAP[ticket.priority] || PRIORITY_MAP.medium;
-            const typeLabel = DEFAULT_TYPES.find((dt) => dt.value === ticket.type)?.labelKey;
+            const typeLabel = ticket.type ? typeLabelFor(ticket.type) : "";
             const SI = s.icon;
             const isClosed = ticket.status === "closed";
             return (
@@ -205,7 +208,7 @@ export default function AdminTicketsPage() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <Badge variant="outline" className={`text-[10px] gap-1 ${s.className}`}><SI className="h-3 w-3" />{t(s.labelKey as any)}</Badge>
                         <Badge variant="outline" className={`text-[10px] ${p.className}`}>{t(p.labelKey as any)}</Badge>
-                        {typeLabel && <Badge variant="secondary" className="text-[10px]">{t(typeLabel as any)}</Badge>}
+                        {typeLabel && <Badge variant="secondary" className="text-[10px]">{typeLabel}</Badge>}
                         <Badge variant="secondary" className="text-[10px] font-mono">#{ticket.id}</Badge>
                       </div>
                       <p className="text-xs text-muted-foreground flex items-center gap-1"><User className="h-3 w-3" />{ticket.username} (UID: {ticket.uid})</p>
@@ -287,7 +290,7 @@ export default function AdminTicketsPage() {
                 <div className="space-y-2"><Label>{t("tickets.type")}</Label>
                   <Select value={editType} onValueChange={setEditType}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{DEFAULT_TYPES.map((o) => <SelectItem key={o.value} value={o.value}>{t(o.labelKey as any)}</SelectItem>)}</SelectContent>
+                    <SelectContent>{types.map((tp: string) => <SelectItem key={tp} value={tp}>{typeLabelFor(tp)}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
               </div>

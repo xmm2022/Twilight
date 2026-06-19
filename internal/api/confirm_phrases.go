@@ -15,4 +15,5 @@ const (
 	confirmClearViolations     = "CLEAR_VIOLATIONS"
 	confirmClearRegcodeUsage   = "CLEAR_REGCODE_USAGE"
 	confirmClearAuditLogs      = "CLEAR_AUDIT_LOGS"
+	confirmPruneAuditLogs      = "PRUNE_AUDIT_LOGS"
 )

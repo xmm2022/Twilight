@@ -1,9 +1,11 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/prejudice-studio/twilight/internal/store"
 )
@@ -22,6 +24,12 @@ func (a *App) auditWithUser(r *http.Request, uid int64, username, action, catego
 }
 
 func (a *App) auditEntry(r *http.Request, uid int64, username, action, category string, targetUID int64, detail map[string]any) {
+	a.auditEntryIP(a.clientIP(r), uid, username, action, category, targetUID, detail)
+}
+
+// auditEntryIP 是不依赖 *http.Request 的审计写入入口，供没有 HTTP 上下文的路径
+// （如 Telegram Bot 命令）使用，IP 由调用方显式传入（如 "telegram"）。
+func (a *App) auditEntryIP(ip string, uid int64, username, action, category string, targetUID int64, detail map[string]any) {
 	cfg := a.cfg()
 	if !cfg.AuditLogEnabled {
 		return
@@ -33,7 +41,7 @@ func (a *App) auditEntry(r *http.Request, uid int64, username, action, category 
 		Category:  category,
 		TargetUID: targetUID,
 		Detail:    detail,
-		IP:        a.clientIP(r),
+		IP:        ip,
 	}
 	if cfg.AuditLogMaxEntries > 0 {
 		_ = a.store().AddAuditLog(entry, cfg.AuditLogMaxEntries)
@@ -103,6 +111,45 @@ func (a *App) handleClearAuditLogs(w http.ResponseWriter, r *http.Request, _ Par
 		return
 	}
 	ok(w, "审计日志已清空", nil)
+}
+
+// handlePruneAuditLogs 条件清理审计日志：支持按条数裁剪（max_entries）和按天数裁剪（retention_days），
+// 两者可同时指定。需要确认短语。preserve_admin 控制是否保留管理员操作日志（仅对天数裁剪有效）。
+func (a *App) handlePruneAuditLogs(w http.ResponseWriter, r *http.Request, _ Params) {
+	payload := decodeMap(r)
+	if stringValue(payload, "confirm") != confirmPruneAuditLogs {
+		failWithCode(w, http.StatusBadRequest, ErrBadRequest, "需要确认短语 confirm="+confirmPruneAuditLogs)
+		return
+	}
+
+	logs := []string{}
+
+	// 按条数裁剪：保留最新 N 条
+	if maxEntries := intValue(payload, "max_entries", 0); maxEntries > 0 {
+		if err := a.store().PruneAuditLogs(maxEntries); err != nil {
+			failWithCode(w, http.StatusInternalServerError, ErrInternal, "裁剪失败")
+			return
+		}
+		logs = append(logs, fmt.Sprintf("保留最近 %d 条", maxEntries))
+	}
+
+	// 按天数裁剪：删除早于 retention_days 的记录
+	if retentionDays := intValue(payload, "retention_days", 0); retentionDays > 0 {
+		preserveAdmin := boolValue(payload, "preserve_admin", true)
+		cutoff := time.Now().Add(-time.Duration(retentionDays) * 24 * time.Hour).Unix()
+		removed := a.store().PruneAuditLogsByAge(cutoff, preserveAdmin)
+		logs = append(logs, fmt.Sprintf("删除 %d 天前 %d 条（保留管理员=%v）", retentionDays, removed, preserveAdmin))
+	}
+
+	if len(logs) == 0 {
+		failWithCode(w, http.StatusBadRequest, ErrBadRequest, "请指定 max_entries 或 retention_days")
+		return
+	}
+
+	ok(w, "审计日志已清理", map[string]any{
+		"current": a.store().AuditLogCount(),
+		"logs":    logs,
+	})
 }
 
 func auditLogDTO(log store.AuditLog) map[string]any {

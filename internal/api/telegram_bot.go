@@ -528,6 +528,115 @@ func (a *App) telegramHandleFind(ctx context.Context, chatID, telegramID int64, 
 	_ = a.telegramSendMessage(ctx, chatID, "用户搜索结果\n\n"+telegramUserList(users))
 }
 
+// telegramHandleBanWeb 禁用指定用户的 Web 账号（可选理由）。
+// 用法：/banweb <用户名/UID/关键词> [理由]
+func (a *App) telegramHandleBanWeb(ctx context.Context, chatID, telegramID int64, args []string) {
+	if len(args) == 0 {
+		_ = a.telegramSendMessage(ctx, chatID, "请发送 /banweb <用户名/UID/关键词> [理由]")
+		return
+	}
+	query := args[0]
+	reason := ""
+	if len(args) > 1 {
+		reason = strings.TrimSpace(strings.Join(args[1:], " "))
+		if len(reason) > 200 {
+			reason = reason[:200]
+		}
+	}
+	users := a.telegramFindUsers(query, 6)
+	if len(users) == 0 {
+		_ = a.telegramSendMessage(ctx, chatID, "未找到匹配用户。")
+		return
+	}
+	if len(users) > 1 {
+		_ = a.telegramSendMessage(ctx, chatID, "找到多个匹配项，请使用 UID 精确指定。\n\n"+telegramUserList(users))
+		return
+	}
+	target := users[0]
+	if a.telegramProtectedTarget(target) {
+		_ = a.telegramSendMessage(ctx, chatID, "受保护账号禁止通过 Telegram 禁用。")
+		return
+	}
+	updated, err := a.store().SetUserActiveAtomic(target.UID, false)
+	if err != nil {
+		_ = a.telegramSendMessage(ctx, chatID, "禁用 Web 账号失败: "+err.Error())
+		return
+	}
+	a.sessions().DeleteUser(ctx, updated.UID)
+	if _, syncErr := a.disableRemoteEmbyForWebState(ctx, updated); syncErr != nil {
+		_ = a.telegramSendMessage(ctx, chatID, "Web 账号已禁用，但 Emby 远端关停失败: "+syncErr.Error())
+	} else {
+		_ = a.telegramSendMessage(ctx, chatID, "已禁用 Web 账号（Emby 已同步关停）。")
+	}
+	// 审计日志
+	opUID, opName := a.telegramAdminIdentity(telegramID)
+	detail := map[string]any{"source": "telegram"}
+	if reason != "" {
+		detail["reason"] = reason
+	}
+	a.auditEntryIP("telegram", opUID, opName, "banweb_via_telegram", "admin", target.UID, detail)
+}
+
+// telegramHandleBanEmby 单独禁用指定用户的 Emby 账号，不影响 Web 账号（可选理由）。
+// 用法：/banemby <用户名/UID/关键词> [理由]
+func (a *App) telegramHandleBanEmby(ctx context.Context, chatID, telegramID int64, args []string) {
+	if len(args) == 0 {
+		_ = a.telegramSendMessage(ctx, chatID, "请发送 /banemby <用户名/UID/关键词> [理由]")
+		return
+	}
+	query := args[0]
+	reason := ""
+	if len(args) > 1 {
+		reason = strings.TrimSpace(strings.Join(args[1:], " "))
+		if len(reason) > 200 {
+			reason = reason[:200]
+		}
+	}
+	users := a.telegramFindUsers(query, 6)
+	if len(users) == 0 {
+		_ = a.telegramSendMessage(ctx, chatID, "未找到匹配用户。")
+		return
+	}
+	if len(users) > 1 {
+		_ = a.telegramSendMessage(ctx, chatID, "找到多个匹配项，请使用 UID 精确指定。\n\n"+telegramUserList(users))
+		return
+	}
+	target := users[0]
+	if a.telegramProtectedTarget(target) {
+		_ = a.telegramSendMessage(ctx, chatID, "受保护账号禁止通过 Telegram 禁用 Emby。")
+		return
+	}
+	if target.EmbyID == "" {
+		_ = a.telegramSendMessage(ctx, chatID, "目标用户未绑定 Emby 账号。")
+		return
+	}
+	if !a.embyConfigured() {
+		_ = a.telegramSendMessage(ctx, chatID, "Emby URL 或 API Token 未配置，无法操作远端账号。")
+		return
+	}
+	if err := a.embyApplyEnabledState(ctx, target.UID, target.EmbyID, false); err != nil {
+		_ = a.telegramSendMessage(ctx, chatID, "禁用 Emby 账号失败: "+telegramPanelSafeError(err))
+		return
+	}
+	_ = a.telegramSendMessage(ctx, chatID, "已禁用 Emby 账号（Web 账号保持不变）。")
+	// 审计日志
+	opUID, opName := a.telegramAdminIdentity(telegramID)
+	detail := map[string]any{"source": "telegram"}
+	if reason != "" {
+		detail["reason"] = reason
+	}
+	a.auditEntryIP("telegram", opUID, opName, "banemby_via_telegram", "admin", target.UID, detail)
+}
+
+// telegramAdminIdentity 返回 Telegram 管理员在系统中的 UID 和 Username
+// （UID=0/Username="" 表示配置管理员未绑定面板账号）。
+func (a *App) telegramAdminIdentity(telegramID int64) (int64, string) {
+	if u, ok := a.store().FindUserByTelegramID(telegramID); ok {
+		return u.UID, u.Username
+	}
+	return 0, ""
+}
+
 func (a *App) telegramHandleGroupUser(ctx context.Context, chatID, telegramID int64, fields []string, message map[string]any) {
 	messageID := numeric(message["message_id"])
 	anonymousCommand := telegramIsAnonymousGroupMessage(message)
@@ -646,7 +755,7 @@ func (a *App) telegramHelpText(admin bool) string {
 		"/about 查看服务说明",
 	)
 	if admin {
-		lines = append(lines, "", "管理员命令:", "/stats 服务统计", "/userinfo <关键词> 查看单个用户", "/twfind <关键词> 搜索用户", "/twishelp 管理员帮助")
+		lines = append(lines, "", "管理员命令:", "/stats 服务统计", "/userinfo <关键词> 查看单个用户", "/twfind <关键词> 搜索用户", "/banweb <用户> [理由] 禁用 Web 账号", "/banemby <用户> [理由] 禁用 Emby 账号", "/twishelp 管理员帮助")
 	}
 	if footer := strings.TrimSpace(a.cfg().TelegramBotHelpFooter); footer != "" {
 		lines = append(lines, "", a.telegramRenderText(footer))
@@ -658,7 +767,7 @@ func (a *App) telegramAdminHelpText() string {
 	if text := strings.TrimSpace(a.cfg().TelegramBotAdminHelpText); text != "" {
 		return a.telegramRenderText(text)
 	}
-	return "管理员帮助\n\n/stats 服务统计\n/userinfo <用户名/UID/关键词> 查看用户详情\n/twfind <用户名/UID/关键词> 搜索用户\n/twguser <关键词> 群组用户管理面板\n/twguser 回复群成员消息时按 Telegram 绑定关系查询\n\n/twguser 面板支持启用/禁用 Web 账号、启用/禁用 Emby、删除 Emby、本地删除用户、移出/封禁群组和授予 7/30/365 天或永久 Emby 注册资格。删除类操作需要二次确认；每次按钮操作都会重新鉴权。群组匿名管理员使用 /twguser 时需要先通过 inline 按钮验证身份。"
+	return "管理员帮助\n\n/stats 服务统计\n/userinfo <用户名/UID/关键词> 查看用户详情\n/twfind <用户名/UID/关键词> 搜索用户\n/banweb <用户名/UID/关键词> [理由] 禁用 Web 账号（可选理由，记入操作审计日志）\n/banemby <用户名/UID/关键词> [理由] 禁用 Emby 账号（可选理由，记入操作审计日志）\n/twguser <关键词> 群组用户管理面板\n/twguser 回复群成员消息时按 Telegram 绑定关系查询\n\n/twguser 面板支持启用/禁用 Web 账号、启用/禁用 Emby、删除 Emby、本地删除用户、移出/封禁群组和授予 7/30/365 天或永久 Emby 注册资格。删除类操作需要二次确认；每次按钮操作都会重新鉴权。群组匿名管理员使用 /twguser 时需要先通过 inline 按钮验证身份。"
 }
 
 func (a *App) telegramAboutText() string {

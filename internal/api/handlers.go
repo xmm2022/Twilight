@@ -2026,6 +2026,11 @@ func (a *App) handleAdminToggleUser(w http.ResponseWriter, r *http.Request, para
 	}
 	payload := decodeMap(r)
 	depth := intValue(payload, "cascade_depth", queryInt(r, "cascade_depth", 1))
+	// 禁用理由可选，仅在禁用方向有意义，超长截断防止审计 detail 膨胀。
+	reason := strings.TrimSpace(stringValue(payload, "reason"))
+	if len(reason) > 200 {
+		reason = reason[:200]
+	}
 	affected := []int64{}
 	skipped := []map[string]any{}
 	failed := []map[string]any{}
@@ -2065,7 +2070,12 @@ func (a *App) handleAdminToggleUser(w http.ResponseWriter, r *http.Request, para
 		if enable {
 			action = "enable_user"
 		}
-		a.audit(r, action, "admin", uid, map[string]any{"affected": affected, "cascade_depth": depth})
+		detail := map[string]any{"affected": affected, "cascade_depth": depth}
+		// 仅禁用方向记录理由，避免给启用操作附带无意义的旧理由。
+		if !enable && reason != "" {
+			detail["reason"] = reason
+		}
+		a.audit(r, action, "admin", uid, detail)
 	}
 	ok(w, "用户状态已更新", resp)
 }
@@ -2097,6 +2107,12 @@ func (a *App) handleAdminToggleEmby(w http.ResponseWriter, r *http.Request, para
 		failWithCode(w, http.StatusConflict, ErrConflict, "Web 账号已禁用或已过期，禁止绕过有效期直接启用 Emby")
 		return
 	}
+	// 禁用理由可选，仅在禁用方向有意义，超长截断防止审计 detail 膨胀。
+	payload := decodeMap(r)
+	reason := strings.TrimSpace(stringValue(payload, "reason"))
+	if len(reason) > 200 {
+		reason = reason[:200]
+	}
 	if err := a.embyApplyEnabledState(r.Context(), target.UID, target.EmbyID, enable); err != nil {
 		failWithCode(w, http.StatusBadGateway, ErrEmbyDisableFailed, "Emby 状态更新失败")
 		return
@@ -2105,7 +2121,12 @@ func (a *App) handleAdminToggleEmby(w http.ResponseWriter, r *http.Request, para
 	if enable {
 		action = "admin_enable_emby"
 	}
-	a.audit(r, action, "admin", target.UID, nil)
+	var detail map[string]any
+	// 仅禁用方向记录理由，避免给启用操作附带无意义的旧理由。
+	if !enable && reason != "" {
+		detail = map[string]any{"reason": reason}
+	}
+	a.audit(r, action, "admin", target.UID, detail)
 	ok(w, "Emby 状态已更新", map[string]any{"uid": target.UID, "emby_enabled": enable})
 }
 

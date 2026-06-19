@@ -349,6 +349,8 @@
     "embyToggleDisabled": "Emby account disabled",
     "embyToggleEnabled": "Emby account enabled",
     "embyToggleFail": "Failed to update Emby status",
+    "disableReasonLabel": "Reason (optional)",
+    "disableReasonPlaceholder": "Recorded in the audit log; can be left blank",
     "menuForceUnbind": "Force unbind",
     "menuClearQueue": "Clear registration queue",
     "menuGrantEntitlement": "Grant registration entitlement",
@@ -1783,5 +1785,20 @@
     "levelFair": "Fair",
     "levelGood": "Good",
     "levelStrong": "Strong"
+  },
+  "adminAuditLog": {
+    "prune": "Prune",
+    "pruneTitle": "Prune Audit Logs",
+    "pruneDescription": "Remove audit logs by count or age to manage disk usage.",
+    "pruneByDays": "By Age",
+    "pruneByEntries": "By Count",
+    "pruneDaysLabel": "Keep logs newer than (days)",
+    "pruneDaysHint": "Logs older than this will be deleted",
+    "pruneEntriesLabel": "Keep last N entries",
+    "pruneEntriesHint": "Older entries beyond this count will be deleted",
+    "prunePreserveAdmin": "Preserve admin operation logs (age-based only)",
+    "pruneConfirm": "Confirm Prune",
+    "pruneDone": "Prune completed",
+    "pruneFailed": "Prune failed"
   }
 }

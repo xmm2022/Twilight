@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   MessageSquareMore, Plus, Loader2, Clock, AlertCircle,
@@ -49,7 +49,7 @@ export default function UserTicketsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const [ticketType, setTicketType] = useState("bug");
+  const [ticketType, setTicketType] = useState("all");
   const [priority, setPriority] = useState("medium");
   const [saving, setSaving] = useState(false);
 
@@ -60,6 +60,12 @@ export default function UserTicketsPage() {
   }, [t]);
 
   const { data, isLoading, error, execute: reload } = useAsyncResource(loadTickets, { immediate: true });
+
+  const types = Array.isArray(data?.types) && data.types.length ? data.types : DEFAULT_TYPES.map((d) => d.value);
+  const typeLabelFor = (value: string) => {
+    const known = DEFAULT_TYPES.find((d) => d.value === value);
+    return known ? t(known.labelKey as any) : value;
+  };
 
   const handleCreate = async () => {
     if (!title.trim()) { toast({ title: t("tickets.titleRequired"), variant: "destructive" }); return; }
@@ -109,7 +115,7 @@ export default function UserTicketsPage() {
           </h1>
           <p className="text-sm text-muted-foreground mt-1">{t("tickets.pageDescription")}</p>
         </div>
-        <Button onClick={() => { setTitle(""); setContent(""); setCreateOpen(true); }} size="sm">
+        <Button onClick={() => { setTitle(""); setContent(""); setTicketType(types[0] || "all"); setCreateOpen(true); }} size="sm">
           <Plus className="h-4 w-4 mr-1" />{t("tickets.submit")}
         </Button>
       </div>
@@ -135,7 +141,7 @@ export default function UserTicketsPage() {
           {data.tickets.map((ticket: Ticket) => {
             const s = STATUS_MAP[ticket.status] || STATUS_MAP.open;
             const p = PRIORITY_MAP[ticket.priority] || PRIORITY_MAP.medium;
-            const typeLabel = DEFAULT_TYPES.find((dt) => dt.value === ticket.type)?.labelKey;
+            const typeLabel = ticket.type ? typeLabelFor(ticket.type) : "";
             const SI = s.icon;
             const isClosed = ticket.status === "closed";
             const isResolved = ticket.status === "resolved";
@@ -151,7 +157,7 @@ export default function UserTicketsPage() {
                         <Badge variant="outline" className={`text-[10px] ${p.className}`}>
                           {t(p.labelKey as any)}
                         </Badge>
-                        {typeLabel && <Badge variant="secondary" className="text-[10px]">{t(typeLabel as any)}</Badge>}
+                        {typeLabel && <Badge variant="secondary" className="text-[10px]">{typeLabel}</Badge>}
                         <Badge variant="secondary" className="text-[10px] font-mono">#{ticket.id}</Badge>
                       </div>
                       <h3 className="font-bold text-base">{ticket.title}</h3>
@@ -233,7 +239,7 @@ export default function UserTicketsPage() {
                 <Select value={ticketType} onValueChange={setTicketType}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {DEFAULT_TYPES.map((o) => <SelectItem key={o.value} value={o.value}>{t(o.labelKey as any)}</SelectItem>)}
+                    {types.map((tp: string) => <SelectItem key={tp} value={tp}>{typeLabelFor(tp)}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>

@@ -944,10 +944,14 @@ class ApiClient {
   }
 
   // 单独启停用户的 Emby 账号，不改动 Web 账号状态（与「禁用 Web 顺带关停 Emby」相对）。
-  async setUserEmbyEnabled(uid: number, enable: boolean) {
+  // reason 仅在禁用方向有意义，后端记入操作审计日志。
+  async setUserEmbyEnabled(uid: number, enable: boolean, reason?: string) {
     return this.request<{ uid: number; emby_enabled: boolean }>(
       `/admin/users/${uid}/emby/${enable ? "enable" : "disable"}`,
-      { method: "POST" },
+      {
+        method: "POST",
+        body: JSON.stringify(reason ? { reason } : {}),
+      },
     );
   }
 
@@ -2011,6 +2015,18 @@ class ApiClient {
     return this.request("/admin/audit-logs/clear", {
       method: "POST",
       body: JSON.stringify({ confirm: confirmPhrases.clearAuditLogs }),
+    });
+  }
+
+  async pruneAuditLogs(options: { maxEntries?: number; retentionDays?: number; preserveAdmin?: boolean }) {
+    return this.request<{ current: number; logs: string[] }>("/admin/audit-logs/prune", {
+      method: "POST",
+      body: JSON.stringify({
+        confirm: confirmPhrases.pruneAuditLogs,
+        ...(options.maxEntries ? { max_entries: options.maxEntries } : {}),
+        ...(options.retentionDays ? { retention_days: options.retentionDays } : {}),
+        ...(options.preserveAdmin !== undefined ? { preserve_admin: options.preserveAdmin } : {}),
+      }),
     });
   }
 

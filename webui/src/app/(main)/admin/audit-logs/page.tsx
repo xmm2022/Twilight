@@ -11,11 +11,14 @@ import {
   User,
   Shield,
   Bot,
+  Filter,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -76,6 +79,12 @@ export default function AdminAuditLogsPage() {
   const [searchInput, setSearchInput] = useState("");
   const [clearOpen, setClearOpen] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  const [pruneOpen, setPruneOpen] = useState(false);
+  const [pruneMode, setPruneMode] = useState<"entries" | "days">("days");
+  const [pruneEntries, setPruneEntries] = useState("1000");
+  const [pruneDays, setPruneDays] = useState("90");
+  const [prunePreserveAdmin, setPrunePreserveAdmin] = useState(true);
+  const [isPruning, setIsPruning] = useState(false);
   const perPage = 50;
 
   const loadLogs = useCallback(
@@ -133,6 +142,28 @@ export default function AdminAuditLogsPage() {
     }
   };
 
+  const handlePrune = async () => {
+    setIsPruning(true);
+    try {
+      const res = await api.pruneAuditLogs({
+        maxEntries: pruneMode === "entries" ? Math.max(1, parseInt(pruneEntries, 10) || 1000) : undefined,
+        retentionDays: pruneMode === "days" ? Math.max(1, parseInt(pruneDays, 10) || 90) : undefined,
+        preserveAdmin: prunePreserveAdmin,
+      });
+      if (res.success) {
+        toast({ title: t("adminAuditLog.pruneDone"), description: res.data?.logs?.join("；"), variant: "success" });
+        setPruneOpen(false);
+        reload();
+      } else {
+        toast({ title: t("adminAuditLog.pruneFailed"), description: res.message, variant: "destructive" });
+      }
+    } catch (err: unknown) {
+      toast({ title: t("adminAuditLog.pruneFailed"), description: (err as Error).message, variant: "destructive" });
+    } finally {
+      setIsPruning(false);
+    }
+  };
+
   const handleSearch = () => {
     setSearch(searchInput);
     setPage(1);
@@ -148,11 +179,16 @@ export default function AdminAuditLogsPage() {
         <div className="flex items-center gap-2">
           <ScrollText className="h-6 w-6 text-primary" />
           <h1 className="text-2xl font-bold">{t("adminAuditLog.title")}</h1>
-          {total > 0 && (
-            <Badge variant="secondary" className="ml-2">
-              {total}
-            </Badge>
-          )}
+        {total > 0 && (
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => { setPruneMode("days"); setPruneDays("90"); setPruneEntries("1000"); setPrunePreserveAdmin(true); setPruneOpen(true); }}>
+              <Filter className="h-4 w-4 mr-1" />{t("adminAuditLog.prune")}
+            </Button>
+            <Button variant="destructive" size="sm" onClick={() => setClearOpen(true)}>
+              {t("adminAuditLog.clearAll")}
+            </Button>
+          </div>
+        )}
         </div>
         {total > 0 && (
           <Button
@@ -346,6 +382,52 @@ export default function AdminAuditLogsPage() {
             >
               {isClearing && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               {t("adminAuditLog.clearConfirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 条件清理 */}
+      <Dialog open={pruneOpen} onOpenChange={setPruneOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("adminAuditLog.pruneTitle")}</DialogTitle>
+            <DialogDescription>{t("adminAuditLog.pruneDescription")}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex gap-3">
+              <Button type="button" variant={pruneMode === "days" ? "default" : "outline"} size="sm" onClick={() => setPruneMode("days")}>
+                {t("adminAuditLog.pruneByDays")}
+              </Button>
+              <Button type="button" variant={pruneMode === "entries" ? "default" : "outline"} size="sm" onClick={() => setPruneMode("entries")}>
+                {t("adminAuditLog.pruneByEntries")}
+              </Button>
+            </div>
+            {pruneMode === "days" ? (
+              <div className="space-y-2">
+                <Label>{t("adminAuditLog.pruneDaysLabel")}</Label>
+                <Input type="number" min={1} max={3650} value={pruneDays} onChange={(e) => setPruneDays(e.target.value)} />
+                <p className="text-xs text-muted-foreground">{t("adminAuditLog.pruneDaysHint")}</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>{t("adminAuditLog.pruneEntriesLabel")}</Label>
+                <Input type="number" min={1} max={100000} value={pruneEntries} onChange={(e) => setPruneEntries(e.target.value)} />
+                <p className="text-xs text-muted-foreground">{t("adminAuditLog.pruneEntriesHint")}</p>
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <Checkbox id="preserve-admin" checked={prunePreserveAdmin} onCheckedChange={(v) => setPrunePreserveAdmin(v === true)} />
+              <Label htmlFor="preserve-admin" className="text-sm">{t("adminAuditLog.prunePreserveAdmin")}</Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPruneOpen(false)} disabled={isPruning}>
+              {t("common.cancel")}
+            </Button>
+            <Button variant="destructive" onClick={handlePrune} disabled={isPruning}>
+              {isPruning && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {t("adminAuditLog.pruneConfirm")}
             </Button>
           </DialogFooter>
         </DialogContent>

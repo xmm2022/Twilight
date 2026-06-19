@@ -349,6 +349,8 @@
     "embyToggleDisabled": "已停用 Emby 帳號",
     "embyToggleEnabled": "已啟用 Emby 帳號",
     "embyToggleFail": "Emby 狀態更新失敗",
+    "disableReasonLabel": "原因（可選）",
+    "disableReasonPlaceholder": "將記入操作日誌，留空也可",
     "menuForceUnbind": "強制解綁",
     "menuClearQueue": "清理註冊佇列用戶",
     "menuGrantEntitlement": "給予佇列用戶註冊權利",
@@ -1783,5 +1785,20 @@
     "levelFair": "一般",
     "levelGood": "良好",
     "levelStrong": "強"
+  },
+  "adminAuditLog": {
+    "prune": "條件清理",
+    "pruneTitle": "條件清理操作日誌",
+    "pruneDescription": "依條數或天數清理審計日誌，保留的歷史記錄有助於追溯。",
+    "pruneByDays": "依天數清理",
+    "pruneByEntries": "依條數保留",
+    "pruneDaysLabel": "保留多少天內的日誌",
+    "pruneDaysHint": "超過此天數的記錄將被刪除",
+    "pruneEntriesLabel": "保留最新多少條",
+    "pruneEntriesHint": "超出此數量的舊記錄將被刪除",
+    "prunePreserveAdmin": "保留管理員操作日誌（僅對天數清理生效）",
+    "pruneConfirm": "確認清理",
+    "pruneDone": "條件清理完成",
+    "pruneFailed": "條件清理失敗"
   }
 }

@@ -788,13 +788,23 @@ func regcodeDecoyActionOptions() []map[string]any {
 	}
 }
 
-const telegramGroupUserPanelTemplateDescription = "自定义 /twguser 群组用户面板文本，支持换行；留空使用内置模板。安全限制：不会提供邮箱、Emby ID、密码、Token 或服务器线路占位符。" +
-	"占位符：{server_name}=站点名称；{username}=Web 用户名；{uid}=用户 UID；{role}=角色名称；{role_id}=角色数字；{is_admin}=是否管理员；{is_protected}=是否受保护；" +
-	"{web_status}=Web 账号启用/禁用；{web_active}=Web 是否启用；{expire_status}=到期状态摘要；{expired_at}=具体到期时间；{register_time}=注册时间；{created_at}=创建时间；" +
-	"{telegram_status}=Telegram 绑定摘要；{telegram_username}=Telegram 用户名（无用户名显示 None）；{telegram_userid}=Telegram 用户 ID；{emby_status}=本地 Emby 绑定摘要（含用户名）；{emby_bound_status}=本地 Emby 绑定状态（不含用户名）；{emby_bound}=是否已绑定 Emby；{emby_username}=本地 Emby 用户名；{emby_unbind_allowed}=是否允许用户自助解绑 Emby；" +
-	"{registration_source}=注册/授权来源；{registration_code}=注册/授权卡码；{pending_emby}=是否待补建 Emby；{pending_emby_days}=待补建授权天数；" +
-	"{emby_remote_block}=完整 Emby 远端信息块；{emby_remote_status}=远端查询状态；{emby_remote_username}=远端用户名；{emby_remote_enabled}=远端启用/禁用；{emby_remote_role}=远端权限；{emby_remote_hidden}=远端是否隐藏；{emby_last_activity}=远端最近活动；" +
-	"{bgm_mode}=BGM 同步开关；{bgm_token_status}=BGM Token 是否配置；{bgm_sync_status}=BGM 同步可用状态；{api_key_status}=旧 API Key 开关；{panel_ttl}=面板有效期；{panel_ttl_seconds}=面板有效秒数。"
+const telegramGroupUserPanelTemplateDescription = "自定义 /twguser 群组用户面板文本，支持换行；留空使用内置模板。安全限制：不会提供邮箱、Emby ID、密码、Token 或服务器线路占位符。\n\n" +
+	"== 用户信息 ==\n" +
+	"{server_name}=站点名称；{username}=Web 用户名；{uid}=用户 UID；{role}=角色名称；{role_id}=角色数字；{is_admin}=是否管理员；{is_protected}=是否受保护\n" +
+	"== Web 账号 ==\n" +
+	"{web_status}=账号启用/禁用；{web_active}=是否启用；{expire_status}=到期状态摘要；{expired_at}=具体到期时间；{register_time}=注册时间；{created_at}=创建时间\n" +
+	"== Telegram 绑定 ==\n" +
+	"{telegram_status}=绑定摘要；{telegram_username}=用户名（无用户名显示 None）；{telegram_userid}=用户 ID\n" +
+	"== Emby 绑定 ==\n" +
+	"{emby_status}=绑定摘要（含用户名）；{emby_bound_status}=绑定状态（不含用户名）；{emby_bound}=是否已绑定；{emby_username}=用户名；{emby_unbind_allowed}=是否允许自助解绑\n" +
+	"== 注册 ==\n" +
+	"{registration_source}=注册/授权来源；{registration_code}=注册/授权卡码；{pending_emby}=是否待补建；{pending_emby_days}=待补建授权天数\n" +
+	"== Emby 远端 ==\n" +
+	"{emby_remote_block}=完整远端信息块；{emby_remote_status}=远端查询状态；{emby_remote_username}=远端用户名；{emby_remote_enabled}=远端启用/禁用；{emby_remote_role}=远端权限；{emby_remote_hidden}=远端隐藏；{emby_last_activity}=最近活动\n" +
+	"== Bangumi ==\n" +
+	"{bgm_mode}=同步开关；{bgm_token_status}=Token 是否配置；{bgm_sync_status}=同步可用状态\n" +
+	"== 其它 ==\n" +
+	"{api_key_status}=旧 API Key 开关；{panel_ttl}=面板有效期；{panel_ttl_seconds}=面板有效秒数"
 
 func configSectionDefs() []configSectionDef {
 	selectDriver := []map[string]any{{"label": "PostgreSQL（推荐）", "value": "postgres"}, {"label": "Go JSON 文件（兼容）", "value": "json"}}

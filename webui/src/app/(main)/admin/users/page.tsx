@@ -201,6 +201,12 @@ export default function AdminUsersPage() {
   const [toggleCascadeDepth, setToggleCascadeDepth] = useState<number>(1);
   const [toggleReason, setToggleReason] = useState<string>("");
 
+  // 单独禁用 Emby 对话框（带可选理由，记入操作日志）
+  const [embyDisableOpen, setEmbyDisableOpen] = useState(false);
+  const [embyDisableTarget, setEmbyDisableTarget] = useState<UserInfo | null>(null);
+  const [embyDisableReason, setEmbyDisableReason] = useState<string>("");
+  const [embyDisableLoading, setEmbyDisableLoading] = useState(false);
+
   // 新建独立 Emby 账号（不写本地 users 表）
   const [standaloneOpen, setStandaloneOpen] = useState(false);
   const [standaloneName, setStandaloneName] = useState("");
@@ -1021,21 +1027,25 @@ export default function AdminUsersPage() {
   };
 
   // 单独启停某用户的 Emby 账号（不动 Web 账号）。启用方向后端会再校验 Web 未禁用/未过期。
+  // 禁用方向走带理由输入的专用对话框（理由记入操作日志）；启用方向无需理由，沿用简单确认。
   const handleEmbyToggle = async (user: UserInfo, enable: boolean) => {
+    if (!enable) {
+      setEmbyDisableTarget(user);
+      setEmbyDisableReason("");
+      setEmbyDisableOpen(true);
+      return;
+    }
     const confirmed = await confirmAction({
-      title: enable ? t("adminUsers.embyToggleEnableTitle") : t("adminUsers.embyToggleDisableTitle"),
-      description: enable ? t("adminUsers.embyToggleEnableDesc") : t("adminUsers.embyToggleDisableDesc"),
+      title: t("adminUsers.embyToggleEnableTitle"),
+      description: t("adminUsers.embyToggleEnableDesc"),
       tone: "warning",
-      confirmLabel: enable ? t("adminUsers.menuEmbyEnable") : t("adminUsers.menuEmbyDisable"),
+      confirmLabel: t("adminUsers.menuEmbyEnable"),
     });
     if (!confirmed) return;
     try {
-      const res = await api.setUserEmbyEnabled(user.uid, enable);
+      const res = await api.setUserEmbyEnabled(user.uid, true);
       if (res.success) {
-        toast({
-          title: enable ? t("adminUsers.embyToggleEnabled") : t("adminUsers.embyToggleDisabled"),
-          variant: "success",
-        });
+        toast({ title: t("adminUsers.embyToggleEnabled"), variant: "success" });
         invalidateUsersCache();
         await loadUsers();
       } else {
@@ -1043,6 +1053,27 @@ export default function AdminUsersPage() {
       }
     } catch (err: any) {
       toast({ title: t("adminUsers.embyToggleFail"), description: err.message || "网络异常", variant: "destructive" });
+    }
+  };
+
+  // 提交单独禁用 Emby（携带可选理由）。
+  const confirmEmbyDisable = async () => {
+    if (!embyDisableTarget) return;
+    setEmbyDisableLoading(true);
+    try {
+      const res = await api.setUserEmbyEnabled(embyDisableTarget.uid, false, embyDisableReason.trim() || undefined);
+      if (res.success) {
+        toast({ title: t("adminUsers.embyToggleDisabled"), variant: "success" });
+        invalidateUsersCache();
+        await loadUsers();
+        setEmbyDisableOpen(false);
+      } else {
+        toast({ title: t("adminUsers.embyToggleFail"), description: res.message, variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: t("adminUsers.embyToggleFail"), description: err.message || "网络异常", variant: "destructive" });
+    } finally {
+      setEmbyDisableLoading(false);
     }
   };
 
@@ -2677,6 +2708,43 @@ export default function AdminUsersPage() {
         onConfirm={confirmToggleActive}
         isLoading={isToggling}
       />
+
+      {/* 单独禁用 Emby（带可选理由，记入操作日志） */}
+      <Dialog open={embyDisableOpen} onOpenChange={setEmbyDisableOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("adminUsers.embyToggleDisableTitle")}</DialogTitle>
+            <DialogDescription>{t("adminUsers.embyToggleDisableDesc")}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            {embyDisableTarget && (
+              <p className="text-xs text-muted-foreground">
+                {embyDisableTarget.username} (UID: {embyDisableTarget.uid})
+              </p>
+            )}
+            <div className="space-y-1.5">
+              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                {t("adminUsers.disableReasonLabel")}
+              </Label>
+              <Input
+                value={embyDisableReason}
+                onChange={(e) => setEmbyDisableReason(e.target.value)}
+                placeholder={t("adminUsers.disableReasonPlaceholder")}
+                maxLength={200}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEmbyDisableOpen(false)} disabled={embyDisableLoading}>
+              {t("common.cancel")}
+            </Button>
+            <Button variant="destructive" onClick={() => void confirmEmbyDisable()} disabled={embyDisableLoading}>
+              {embyDisableLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {t("adminUsers.menuEmbyDisable")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 绑定 Emby 对话框 */}
       <BindEmbyDialog

@@ -131,6 +131,20 @@ var telegramCommandRegistry = map[string]telegramCommandSpec{
 			_ = a.telegramSendMessage(ctx, c.ChatID, a.telegramAdminHelpText())
 		},
 	},
+	"/banweb": {
+		private: true,
+		admin:   true,
+		handler: func(a *App, ctx context.Context, c telegramCommandCtx) {
+			a.telegramHandleBanWeb(ctx, c.ChatID, c.FromID, c.Args)
+		},
+	},
+	"/banemby": {
+		private: true,
+		admin:   true,
+		handler: func(a *App, ctx context.Context, c telegramCommandCtx) {
+			a.telegramHandleBanEmby(ctx, c.ChatID, c.FromID, c.Args)
+		},
+	},
 }
 
 // telegramDispatchRegistry 在 dispatcher 中统一执行注册表里命令的 gating，

@@ -32,6 +32,11 @@ func (a *App) handleBatchToggleUsers(w http.ResponseWriter, r *http.Request, ena
 	if !okPayload {
 		return
 	}
+	// 禁用理由可选，仅在禁用方向有意义，超长截断防止审计 detail 膨胀。
+	reason := strings.TrimSpace(stringValue(payload, "reason"))
+	if len(reason) > 200 {
+		reason = reason[:200]
+	}
 	result := batchResult(len(uids))
 	for _, uid := range uids {
 		target, okUser := a.store().User(uid)
@@ -56,9 +61,13 @@ func (a *App) handleBatchToggleUsers(w http.ResponseWriter, r *http.Request, ena
 	if enable {
 		action = "batch_enable_users"
 	}
-	a.audit(r, action, "admin", 0, map[string]any{
-		"success": result["success"], "failed": result["failed"],
-	})
+	a.audit(r, action, "admin", 0, func() map[string]any {
+		d := map[string]any{"success": result["success"], "failed": result["failed"]}
+		if !enable && reason != "" {
+			d["reason"] = reason
+		}
+		return d
+	}())
 	ok(w, "批量操作完成", result)
 }
 

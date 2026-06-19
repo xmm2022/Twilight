@@ -256,6 +256,7 @@ func (a *App) registerAdminRoutes() {
 	a.add(http.MethodGet, "/api/v1/admin/audit-logs", AuthAdmin, a.handleListAuditLogs)
 	a.add(http.MethodDelete, "/api/v1/admin/audit-logs/:log_id", AuthAdmin, a.handleDeleteAuditLog)
 	a.add(http.MethodPost, "/api/v1/admin/audit-logs/clear", AuthAdmin, a.handleClearAuditLogs)
+	a.add(http.MethodPost, "/api/v1/admin/audit-logs/prune", AuthAdmin, a.handlePruneAuditLogs)
 	a.add(http.MethodGet, "/api/v1/admin/bangumi/users", AuthAdmin, a.handleAdminBangumiUsers)
 	a.add(http.MethodGet, "/api/v1/admin/bangumi/records/:uid", AuthAdmin, a.handleAdminBangumiRecords)
 	a.add(http.MethodPost, "/api/v1/admin/bangumi/sync/:uid", AuthAdmin, a.handleAdminBangumiSyncUser)
