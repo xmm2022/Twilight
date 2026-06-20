@@ -143,6 +143,8 @@ bash start_backend_dev.sh
 - 登录支持用户名和邮箱两种方式：`api.ts` 的 `login()` 自动检测 `@` 将 payload 从 `{username}` 切换为 `{email}`，后端 `handleLogin` 对应走 `FindUserByEmail`。
 - 认证页采用右侧固定面板布局：面板外壳由 `(auth)/layout.tsx` 渲染（跨页持久化，无闪动），各页面仅提供表单内容；共享样式常量与组件定义在 `(auth)/auth-ui.tsx`。
 - 页面按目录分组：`webui/src/app/(auth)`（登录 / 注册 / 找回密码）、`webui/src/app/(main)`（用户面板与各管理页）。新增页面时优先复用 `webui/src/components` 下的既有组件。
+- 后台总入口为 `webui/src/app/(main)/admin/page.tsx`（管理导航）。迁移出的配置模块必须有独立管理页：邮箱管理、Telegram 管理、邀请森林、安全中心；配置管理只保留默认折叠的兼容入口和跳转提示。
+- 独立管理页若需要编辑配置，必须复用 `/system/admin/config/schema` 与 `api.updateConfigBySchema()`，写回同一个 `config.toml`；不要在前端或 store 中复制第二套配置源。
 
 ## API 与安全规范
 
@@ -168,6 +170,15 @@ bash start_backend_dev.sh
 
 被禁用账号会按到期（`AccountExpired`）与手动禁用（`AccountDisabled`）返回不同 error_code，便于前端区分「续费」与「申诉」两条引导。
 
+新增后台页面、接口和 Bot 管理能力的默认权限边界：
+
+| 场景 | 要求 |
+| ---- | ---- |
+| Web 管理页 | 路由/API 使用 `AuthAdmin`；前端只做体验守卫，不能替代后端鉴权。 |
+| 状态变更 | 成功后调用 `a.audit()` 或无 HTTP 上下文时调用 `a.auditEntryIP()`。 |
+| 配置查看/编辑 | 必须脱敏显示 secret，未修改 secret 通过服务端哨兵保留，禁止明文回显。 |
+| Telegram Bot 自定义 JS | 仅开发者模式文档/预检入口可编辑；生产 Bot 仅执行 `bot_custom_commands` 中 `js:` 前缀脚本，运行在受控 Goja 沙箱。 |
+
 ### Cookie 写请求
 
 Twilight 不对 Cookie 鉴权的变更类请求做 CSRF 令牌校验，也不做额外来源校验。登录态依赖 `HttpOnly` session cookie，机器调用可使用 Bearer Token 或 API Key。`X-Twilight-Client: webui` 仅用于前端请求识别/CORS，不是鉴权手段。
@@ -185,6 +196,12 @@ Twilight 不对 Cookie 鉴权的变更类请求做 CSRF 令牌校验，也不做
 - Git 更新、systemd 设置等命令执行必须使用 `exec.Command` 参数数组，禁止拼接 shell 命令字符串。
 - Git 更新 URL 必须拒绝凭据、query string 和 fragment，避免把 token 写入 remote 或响应日志。
 - 除一次性生成的密码、API Key 创建 / 重置响应外，不返回任何密钥明文。
+
+### 开发者模式
+
+- 仪表盘输入 `DEBUGMODE` 时，前端必须要求管理员二次输入当前密码，并调用 `POST /admin/developer-mode/activate`；成功只在当前浏览器会话记录开发者模式状态。
+- 开发者模式页面提供 Telegram JS 自定义命令文档、示例、风险提示和 `POST /admin/developer/js-sandbox` 预检。沙箱仅暴露 `ctx`、`args`、`user`、`reply(text)`、`log(text)`，不提供网络、文件、进程、环境变量或配置读取。
+- Bot 运行时保持向后兼容：普通 `bot_custom_commands` 仍是固定文本回复；只有回复内容以 `js:` 开头才按 JS 执行。执行结果和日志不得包含 Token、密码、API Key、服务器线路等敏感信息。
 
 ## 数据模型与迁移约定
 

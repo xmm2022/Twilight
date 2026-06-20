@@ -7,6 +7,7 @@
 ## 1. 敏感配置与密钥管理
 
 - 不要把真实密钥写入仓库版本历史。
+- Web 配置查看/编辑接口会脱敏 API Key、Token、密码、Secret 等敏感字段；schema 保存使用服务端哨兵保留未修改密钥，原始 TOML 保存会在文本层还原未修改密钥，禁止通过配置管理明文回显。
 - 推荐做法：
   - 把通用配置放在 `config.toml`。
   - 把真实密钥放在 `config.local.toml`（同名 `.local` 文件会被自动合并覆盖，且应被 `.gitignore` 忽略；也可通过环境变量 `TWILIGHT_CONFIG_LOCAL_FILE` 指定其他路径）。
@@ -149,6 +150,12 @@ allow_credential = true
 - 建议保留并审计：管理员关键操作日志、登录失败与封禁日志、API Key 调用轨迹。
 - 设备 / IP 审查有两套来源，勿混淆：**Emby 登录用户**的设备与真实登录 IP 来自 Emby API——`GET /api/v1/admin/emby/device-audit`（`emby_device_audit.go`）按用户聚合：以 `/Devices` 设备清单为基底、用实时 `/Sessions` 的 `RemoteEndPoint`（经 `parseRemoteIP` 剥离端口，覆盖 IPv4/IPv6）补当前 IP 与在线状态，并从 `/System/ActivityLog` 抽取历史登录 IP（离线设备也能审查来源 IP），映射回完整本地账号（网页/Emby/Telegram），独立页「设备 / IP 审查」可归类/排序/搜索；**Web 面板自身**的登录设备记录在本地 `store.Device`（含 UA / `LastIP` / 首末时间 / 信任 / 封禁），登录写入走 `UpdateDevice` 读改写以保留信任/封禁标记，`GET /api/v1/security/login-history` 另有按 IP 的登录历史。
 
+### 10.1 安全中心与迁移入口
+
+- 后台「安全中心」集中展示操作审计、运行日志、违规风控、设备/IP 审查，并内嵌 `[Security]`、`[RateLimit]`、`[AuditLog]`、`[DeviceLimit]` 的结构化配置编辑。
+- 配置管理中的安全相关配置段保留兼容入口，但默认折叠并提示跳转安全中心；所有保存仍写入同一个 `config.toml`，不创建第二套配置源。
+- 所有新增管理端接口均使用 `AuthAdmin`，状态变更与沙箱执行写入审计日志。
+
 ## 11. 最小权限原则
 
 - API Key 仅授予必要 scope；`?apikey=` query 传参仅对显式允许 query 的 Key 生效（默认不允许）。
@@ -161,6 +168,7 @@ allow_credential = true
 
 - 启用 Bot 内部回调时，必须配置强随机的 `Security.bot_internal_secret`。内部绑定确认端点 `POST /api/v1/users/me/telegram/bind-confirm`（`internal/api/telegram_bind_secure.go`）虽然挂在免登录路由上，但要求请求携带 `X-Internal-Secret`（或 `Authorization: Bearer <secret>`）并与配置值做常量时间比对；未配置密钥时该端点直接拒绝。
 - 开启群组 / 频道强制校验时，确保 Bot 在目标群有足够权限，避免误判。
+- 开发者模式下的 Telegram JS 自定义命令只在 `bot_custom_commands` 的回复内容以 `js:` 开头时启用；沙箱仅暴露 `ctx`、`args`、`user`、`reply(text)`、`log(text)`，不提供网络、文件、进程、环境变量或配置读取能力，并有执行超时与危险 token 静态拦截。每次执行会写入 `telegram_js_command_execute` 审计日志。
 - **退群完全封禁模式（`Telegram.ban_on_leave`）**：
   - 默认 `false`；开启后定时巡检发现退群用户会被 Bot 永久封禁（不会自动解封），无法重新加入。
   - 依赖 Bot 在每个 `group_id` 群里是管理员且具备「封禁成员」权限。

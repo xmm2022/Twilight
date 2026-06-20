@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { AdminConfigSections } from "@/components/admin/config-section-editor";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import type { EmailAdminData } from "@/lib/api-types";
@@ -54,7 +55,7 @@ export default function AdminEmailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [tab, setTab] = useState<"pending" | "accounts">("pending");
+  const [tab, setTab] = useState<"pending" | "accounts" | "config">("pending");
   const [pendingSearch, setPendingSearch] = useState("");
   const [accountSearch, setAccountSearch] = useState("");
   const [verifiedFilter, setVerifiedFilter] = useState<VerifiedFilter>("all");
@@ -255,7 +256,7 @@ export default function AdminEmailPage() {
           </CardContent>
         </Card>
       ) : (
-        <Tabs value={tab} onValueChange={(v) => setTab(v as "pending" | "accounts")}>
+        <Tabs value={tab} onValueChange={(v) => setTab(v as "pending" | "accounts" | "config")}>
           <TabsList>
             <TabsTrigger value="pending">
               {t("emailAdmin.tabPending")} ({data?.pending.length ?? 0})
@@ -263,6 +264,7 @@ export default function AdminEmailPage() {
             <TabsTrigger value="accounts">
               {t("emailAdmin.tabAccounts")} ({data?.accounts.length ?? 0})
             </TabsTrigger>
+            <TabsTrigger value="config">{t("emailAdmin.tabConfig")}</TabsTrigger>
           </TabsList>
 
           {/* Pending verification codes */}
@@ -490,6 +492,20 @@ export default function AdminEmailPage() {
                   </table>
                 </div>
               </div>
+            </div>
+          )}
+
+          {tab === "config" && (
+            <div className="mt-4">
+              <AdminConfigSections
+                sectionKeys={["Email", "Notification", "RateLimit"]}
+                sectionFieldKeys={{
+                  RateLimit: ["email_code_ip_per_10m", "email_code_uid_per_10m", "email_code_addr_per_10m"],
+                }}
+                title={t("emailAdmin.configTitle")}
+                description={t("emailAdmin.configDescription")}
+                notice={t("emailAdmin.configNotice")}
+              />
             </div>
           )}
         </Tabs>

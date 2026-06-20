@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Calendar,
   Clock,
@@ -29,7 +30,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
@@ -78,6 +79,7 @@ interface StoredEmbyRegisterRequest {
 type CodeCheckInfo = CodeUsePreview;
 
 export default function DashboardPage() {
+  const router = useRouter();
   const { user, fetchUser } = useAuthStore();
   const { info: systemInfo, fetchInfo: fetchSystemInfo } = useSystemStore();
   const { toast } = useToast();
@@ -86,6 +88,9 @@ export default function DashboardPage() {
   const [regCodeInfo, setRegCodeInfo] = useState<CodeCheckInfo | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [isUsingCode, setIsUsingCode] = useState(false);
+  const [showDeveloperDialog, setShowDeveloperDialog] = useState(false);
+  const [developerPassword, setDeveloperPassword] = useState("");
+  const [activatingDeveloper, setActivatingDeveloper] = useState(false);
   const [embyUsername, setEmbyUsername] = useState("");
   const [registerAvailability, setRegisterAvailability] = useState<RegisterAvailability | null>(null);
   const [showDirectRegisterDialog, setShowDirectRegisterDialog] = useState(false);
@@ -475,6 +480,15 @@ export default function DashboardPage() {
       toast({ title: t("dashboard.codeRequired"), variant: "destructive" });
       return;
     }
+    if (code.toUpperCase() === "DEBUGMODE") {
+      if (!isAdmin) {
+        toast({ title: t("dashboard.developerAdminOnly"), variant: "destructive" });
+        return;
+      }
+      setDeveloperPassword("");
+      setShowDeveloperDialog(true);
+      return;
+    }
     try {
       const res = await api.useCode(code, { checkOnly: true });
       if (res.success && res.data?.source && res.data.type_name) {
@@ -725,6 +739,31 @@ export default function DashboardPage() {
       toast({ title: t("score.signinFailed"), description: err?.message || t("common.networkError"), variant: "destructive" });
     } finally {
       setSigningIn(false);
+    }
+  };
+
+  const handleActivateDeveloperMode = async () => {
+    if (!developerPassword) {
+      toast({ title: t("dashboard.developerPasswordRequired"), variant: "destructive" });
+      return;
+    }
+    setActivatingDeveloper(true);
+    try {
+      const res = await api.activateDeveloperMode({ code: "DEBUGMODE", password: developerPassword });
+      if (res.success) {
+        sessionStorage.setItem("twilight:developer-mode", "1");
+        toast({ title: t("dashboard.developerEnabled"), variant: "success" });
+        setShowDeveloperDialog(false);
+        setDeveloperPassword("");
+        setRegCode("");
+        router.push("/admin/developer");
+      } else {
+        toast({ title: t("dashboard.developerEnableFailed"), description: res.message, variant: "destructive" });
+      }
+    } catch (err) {
+      toast({ title: t("dashboard.developerEnableFailed"), description: err instanceof Error ? err.message : undefined, variant: "destructive" });
+    } finally {
+      setActivatingDeveloper(false);
     }
   };
 
@@ -1321,6 +1360,42 @@ export default function DashboardPage() {
               {isUsingCode ? <Loader2 className="h-4 w-4 animate-spin" /> : regCodeInfo?.submit_label || t("common.confirm")}
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showDeveloperDialog} onOpenChange={setShowDeveloperDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("dashboard.developerDialogTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("dashboard.developerDialogDescription")}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="developerPassword">{t("dashboard.developerPasswordLabel")}</Label>
+            <Input
+              id="developerPassword"
+              type="password"
+              value={developerPassword}
+              onChange={(event) => setDeveloperPassword(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void handleActivateDeveloperMode();
+              }}
+              disabled={activatingDeveloper}
+            />
+            <p className="text-xs text-muted-foreground">
+              {t("dashboard.developerRiskHint")}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeveloperDialog(false)} disabled={activatingDeveloper}>
+              {t("common.cancel")}
+            </Button>
+            <Button onClick={() => void handleActivateDeveloperMode()} disabled={activatingDeveloper}>
+              {activatingDeveloper && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {t("dashboard.developerEnable")}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </motion.div>

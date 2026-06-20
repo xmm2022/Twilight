@@ -1705,6 +1705,28 @@ class ApiClient {
     });
   }
 
+  async activateDeveloperMode(payload: { code: string; password: string }) {
+    return this.request<{ enabled: boolean; scope: string; features: string[] }>("/admin/developer-mode/activate", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async previewDeveloperJSCommand(code: string) {
+    return this.request<{
+      ok: boolean;
+      errors: string[];
+      warnings: string[];
+      example: string;
+      bindings: string[];
+      output?: string;
+      logs?: string[];
+    }>("/admin/developer/js-sandbox", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    });
+  }
+
   async getApiKeyStatus() {
     return this.request<{ enabled: boolean; has_key: boolean }>("/auth/apikey");
   }

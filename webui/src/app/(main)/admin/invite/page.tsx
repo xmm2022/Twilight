@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { AdminConfigSections } from "@/components/admin/config-section-editor";
 import { useToast } from "@/hooks/use-toast";
 import { api, type InviteForest, type InviteForestNode } from "@/lib/api";
 import { useI18n, type MessageKey } from "@/lib/i18n";
@@ -529,6 +530,26 @@ export default function AdminInviteTreePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AdminConfigSections
+        sectionKeys={["SAR"]}
+        sectionFieldKeys={{
+          SAR: [
+            "invite_enabled",
+            "invite_limit",
+            "invite_root_user_limit",
+            "invite_max_depth",
+            "invite_require_emby",
+            "invite_code_default_days",
+            "permanent_invite_max_days",
+            "invite_code_format",
+            "invite_code_random_algorithm",
+          ],
+        }}
+        title={t("adminInvite.configTitle")}
+        description={t("adminInvite.configDescription")}
+        notice={t("adminInvite.configNotice")}
+      />
     </div>
   );
 }

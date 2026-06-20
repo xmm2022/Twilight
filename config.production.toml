@@ -164,6 +164,9 @@ bot_admin_help_text = "" # /twishelp 完整文本；留空使用内置默认
 bot_help_header = ""    # 旧配置：内置 /twihelp 命令列表前段
 bot_help_footer = ""    # 旧配置：内置 /twihelp 末尾段
 bot_about = ""          # 关于 Bot / 服务说明（预留 /about 用）
+# 自定义命令：普通文本保持固定回复；以 js: 开头时仅在受控沙箱内执行（需管理员通过开发者模式预检）。
+# 示例："/hello = js:reply('Hello ' + (user.username || 'user'))"
+bot_custom_commands = []
 
 # ───────── 注册 / 用户策略 ─────────
 [SAR]

@@ -674,6 +674,18 @@ function FieldRow({
 
 // ==================== Section 卡片（可折叠） ====================
 
+// collapsedSectionsMap 记录应折叠到专用管理页面的配置段。
+const COLLAPSED_LINKS: Record<string, { href: string; labelKey: string }> = {
+  Email: { href: "/admin/email", labelKey: "adminConfig.manageInEmail" },
+  Ticket: { href: "/admin/tickets", labelKey: "adminConfig.manageInTickets" },
+  Security: { href: "/admin/security", labelKey: "adminConfig.manageInSecurity" },
+  RateLimit: { href: "/admin/security", labelKey: "adminConfig.manageInSecurity" },
+  DeviceLimit: { href: "/admin/security", labelKey: "adminConfig.manageInSecurity" },
+  AuditLog: { href: "/admin/security", labelKey: "adminConfig.manageInSecurity" },
+  Telegram: { href: "/admin/telegram", labelKey: "adminConfig.manageInTelegram" },
+  SAR: { href: "/admin/invite", labelKey: "adminConfig.manageInInvite" },
+};
+
 function SectionCard({
   section,
   values,
@@ -732,6 +744,15 @@ function SectionCard({
                 </CardTitle>
                 <CardDescription className="text-xs mt-0.5">
                   {section.description}
+                  {section.collapsed && COLLAPSED_LINKS[section.key] && (
+                    <a
+                      href={COLLAPSED_LINKS[section.key].href}
+                      className="ml-1 text-primary underline underline-offset-2 hover:text-primary/80"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {t(COLLAPSED_LINKS[section.key].labelKey as any)} →
+                    </a>
+                  )}
                 </CardDescription>
               </div>
               <div className="text-muted-foreground">

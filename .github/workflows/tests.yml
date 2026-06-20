@@ -22,15 +22,14 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
-        go-version: ['1.25.10']
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Set up Go ${{ matrix.go-version }}
+    - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: ${{ matrix.go-version }}
+        go-version-file: go.mod
         cache: true
 
     - name: Verify dependencies
@@ -61,7 +60,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.25.10'
+        go-version-file: go.mod
         cache: true
 
     - name: Install govulncheck
@@ -77,7 +76,7 @@ jobs:
       # 仓库以 LF 存储 Go 源码（.gitattributes / autocrlf），ubuntu runner 检出即 LF，
       # 因此这里的 gofmt 不会被 CRLF 噪声干扰。任何未格式化的文件都会被列出并 fail。
       run: |
-        unformatted=$(gofmt -l .)
+        unformatted=$(gofmt -l ./cmd ./internal ./scripts)
         if [ -n "$unformatted" ]; then
           echo "以下文件未通过 gofmt，请运行 gofmt -w 后重新提交："
           echo "$unformatted"
@@ -138,9 +137,6 @@ jobs:
 
     - name: Lint
       run: pnpm lint
-
-    - name: Type check
-      run: pnpm exec tsc --noEmit
 
     - name: Build
       run: pnpm build

@@ -5,8 +5,8 @@ import Link from "next/link";
 import {
   Users, Megaphone, MessageSquareMore, FileText, Network, Film, ShieldAlert,
   ClipboardList, BookOpen, Mail, MessageSquare, Server, MonitorSmartphone,
-  TimerReset, Database, FileCode, ScrollText, TestTube, BarChart3,
-  AlertTriangle, Settings, Shield,
+  TimerReset, Database, FileCode, ScrollText, TestTube,
+  AlertTriangle, Settings, Shield, Code2,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { useI18n } from "@/lib/i18n";
@@ -28,16 +28,18 @@ const adminPages: AdminNavEntry[] = [
   { href: "/admin/announcements", labelKey: "navigation.adminAnnouncements", icon: Megaphone, category: "content" },
   { href: "/admin/tickets", labelKey: "navigation.adminTickets", icon: MessageSquareMore, category: "content" },
   { href: "/admin/bangumi", labelKey: "navigation.bangumiAdmin", icon: BookOpen, category: "content" },
+  { href: "/admin/security", labelKey: "navigation.securityCenter", icon: Shield, category: "security" },
   { href: "/admin/audit-logs", labelKey: "navigation.auditLogs", icon: ClipboardList, category: "security" },
   { href: "/admin/device-audit", labelKey: "navigation.embyDeviceAudit", icon: MonitorSmartphone, category: "security" },
   { href: "/admin/scheduler", labelKey: "navigation.scheduler", icon: TimerReset, category: "ops" },
   { href: "/admin/database", labelKey: "navigation.databaseBackup", icon: Database, category: "ops" },
   { href: "/admin/config", labelKey: "navigation.configAdmin", icon: FileCode, category: "ops" },
   { href: "/admin/logs", labelKey: "navigation.runtimeLogs", icon: ScrollText, category: "ops" },
+  { href: "/admin/developer", labelKey: "navigation.developerMode", icon: Code2, category: "ops" },
   { href: "/admin/test", labelKey: "navigation.serverInfo", icon: TestTube, category: "ops" },
   { href: "/admin/emby", labelKey: "navigation.embyAdmin", icon: Server, category: "integration" },
   { href: "/admin/email", labelKey: "navigation.emailAdmin", icon: Mail, category: "integration" },
-  { href: "/admin/telegram-rebind-requests", labelKey: "navigation.telegramRebind", icon: MessageSquare, category: "integration" },
+  { href: "/admin/telegram", labelKey: "navigation.telegramAdmin", icon: MessageSquare, category: "integration" },
 ];
 
 const categoryConfig: Record<string, { labelKey: string; icon: LucideIcon }> = {

@@ -151,6 +151,32 @@ Bot 由二进制子命令 `bot`（或 `all`）启动，轮询逻辑见 `internal
 
 `bot_custom_commands` 允许配置一组"命令 → 固定回复"的映射，命中后直接返回对应文本（`telegramCustomCommandReply`）。每条形如 `命令 = 回复`，命令会被规范化：转小写、补 `/` 前缀、仅允许字母数字与下划线、长度不超过 32 字符（`normalizeTelegramCommand`），重复命令以首次出现为准。自定义命令在内置命令之后匹配，不会覆盖内置命令。
 
+开发者模式启用后，可把某条回复写成 `js:` 前缀脚本，让 Bot 在受控 Goja 沙箱中执行：
+
+```toml
+[Telegram]
+bot_custom_commands = [
+  "/hello = js:reply('Hello ' + (user.username || 'user'))",
+]
+```
+
+沙箱只暴露以下绑定：
+
+| 绑定 | 说明 |
+| ---- | ---- |
+| `ctx` | 当前 Telegram 上下文摘要：`private_chat`、`command_time`。不向脚本暴露 Telegram ID 或群组 ID。 |
+| `args` | 命令参数数组。 |
+| `user` | 绑定的 Twilight 用户摘要：`uid`、`username`、`role`、`active`、`has_emby`，不含邮箱、Token、Emby ID、密码。 |
+| `reply(text)` | 追加一段回复文本，最多 4 段，最终用换行合并发送。 |
+| `log(text)` | 写入本次执行的审计详情，最多 8 条。 |
+
+安全约束：
+
+- 不提供 `fetch`、`require`、文件系统、进程、环境变量或配置读取能力。
+- 后端会静态拒绝危险 token，并用 200ms 超时中断长循环。
+- 每次执行都会写入 `telegram_js_command_execute` 审计日志；开发者页面的沙箱预检写入 `developer_js_sandbox_preview`。
+- 纯文本自定义命令保持原行为；只有 `js:` 前缀会启用脚本执行，避免破坏历史配置。
+
 ### 文案占位符
 
 自定义文案支持以下占位符（`telegramRenderText`）：

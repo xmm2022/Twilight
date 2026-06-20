@@ -707,8 +707,8 @@ export interface ConfigSection {
   title: string;
   description: string;
   fields: ConfigField[];
-  /** 类别 key，与 ConfigSchema.categories 中的 key 对应。后端可缺省。 */
   category?: string;
+  collapsed?: boolean;
 }
 
 export interface ConfigCategory {

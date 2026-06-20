@@ -281,6 +281,9 @@
     "inviteForest": "邀請森林",
     "requestReview": "求片審核",
     "violations": "違規審計",
+    "telegramAdmin": "Telegram 管理",
+    "securityCenter": "安全中心",
+    "developerMode": "開發者模式",
     "telegramRebind": "Telegram 換綁",
     "embyAdmin": "Emby 管理",
     "embyDeviceAudit": "裝置 / IP 稽核",
@@ -294,7 +297,8 @@
     "bangumi": "Bangumi 同步",
     "bangumiAdmin": "Bangumi 管理",
     "tickets": "我的工單",
-    "adminTickets": "工單處理"
+    "adminTickets": "工單處理",
+    "adminHome": "管理首頁"
   },
   "signinRenewal": {
     "successTitle": "續期成功",
@@ -375,6 +379,22 @@
     "batchDeleteEmbyGeneric": "同時刪除已綁定的 Emby 帳號",
     "batchDeleteLocalOnly": "僅刪除本地帳號",
     "cancel": "取消"
+  },
+  "dashboard": {
+    "developerAdminOnly": "開發者模式僅限管理員啟用",
+    "developerPasswordRequired": "請輸入管理員密碼",
+    "developerEnabled": "開發者模式已啟用",
+    "developerEnableFailed": "開發者模式啟用失敗",
+    "developerDialogTitle": "啟用開發者模式",
+    "developerDialogDescription": "請輸入目前管理員密碼完成二次驗證。啟用後僅目前瀏覽器工作階段進入開發者模式。",
+    "developerPasswordLabel": "管理員密碼",
+    "developerRiskHint": "JavaScript 自訂指令只允許進入受控沙箱預檢；生產 Bot 不會執行任意主機命令或讀取敏感配置。",
+    "developerEnable": "啟用"
+  },
+  "adminInvite": {
+    "configTitle": "邀請配置",
+    "configDescription": "這裡直接編輯 config.toml 中的邀請樹配置，不建立第二套配置來源。",
+    "configNotice": "配置管理中的註冊/邀請折疊入口仍保留相容；建議後續在邀請森林維護邀請相關配置。"
   },
   "settings": {
     "loading": "正在載入設定...",
@@ -791,12 +811,16 @@
     "currentAvatarUrl": "目前頭像地址",
     "avatarUsageHint": "頭像會在全站展示。為避免裁切失真，建議使用主體置中的正方形圖片。",
     "themeTab": "全域主題",
+    "previewLightMode": "淺色模式",
+    "previewDarkMode": "深色模式",
     "theme": {
       "hueLabel": "強調色 / 主色",
       "radiusLabel": "圓角大小",
       "glassBlurLabel": "玻璃模糊強度",
       "compactLabel": "緊湊模式",
       "compactDesc": "減小間距和內邊距，適合需要更多資訊密度的場景",
+      "reduceMotionLabel": "降低動效",
+      "reduceMotionDesc": "減少頁面動畫和過渡，適合需要更穩定視覺回饋的場景",
       "save": "儲存主題",
       "saved": "主題已儲存",
       "reset": "恢復預設主題",
@@ -885,7 +909,11 @@
     "notBound": "未綁定",
     "adminBadge": "管理員",
     "disabledBadge": "已停用",
-    "emptyAccounts": "暫無相符帳號"
+    "emptyAccounts": "暫無相符帳號",
+    "tabConfig": "信箱配置",
+    "configTitle": "信箱配置",
+    "configDescription": "這裡直接編輯 config.toml 中的信箱、通知和郵件驗證碼限流配置。",
+    "configNotice": "配置管理中的信箱折疊入口仍保留相容；建議後續在信箱管理維護。敏感欄位只會脫敏顯示，未修改時不會回寫明文。"
   },
   "deviceAudit": {
     "title": "裝置 / IP 稽核",
@@ -1316,7 +1344,72 @@
     "confirmRestore": "確認恢復",
     "saveDialogTitle": "確認儲存配置",
     "saveDialogDescription": "以下配置項將被更新，儲存前將自動備份原配置檔案。",
-    "confirmSave": "確認儲存"
+    "confirmSave": "確認儲存",
+    "manageInEmail": "前往信箱管理",
+    "manageInTickets": "前往工單處理",
+    "manageInAuditLogs": "前往操作日誌",
+    "manageInTelegram": "前往 Telegram 管理",
+    "manageInRegcodes": "前往註冊碼管理",
+    "manageInInvite": "前往邀請森林",
+    "manageInSecurity": "前往安全中心",
+    "sectionEditor": {
+      "showSecret": "顯示敏感欄位",
+      "hideSecret": "隱藏敏感欄位",
+      "loadFailed": "載入配置失敗",
+      "saveFailed": "儲存配置失敗",
+      "saved": "配置已儲存",
+      "migrationNotice": "遷移提示"
+    }
+  },
+  "adminSecurity": {
+    "title": "安全中心",
+    "description": "集中處理安全審計、執行日誌、風控記錄、裝置和限流策略。",
+    "auditTitle": "安全審計",
+    "auditDescription": "查看和清理管理員、使用者、系統操作日誌。",
+    "logsTitle": "執行日誌",
+    "logsDescription": "查看即時執行狀態、後端日誌和服務健康資訊。",
+    "riskTitle": "風控記錄",
+    "riskDescription": "查看誘餌碼等違規行為記錄並執行清理。",
+    "deviceTitle": "裝置與 IP",
+    "deviceDescription": "稽核 Emby 裝置、IP、線上工作階段和本地帳號映射。",
+    "configTitle": "安全配置",
+    "configDescription": "這裡直接編輯 config.toml 中的安全、審計、限流和裝置限制配置。",
+    "configNotice": "配置管理中的安全相關折疊入口仍保留相容；建議後續在安全中心維護。"
+  },
+  "adminTelegram": {
+    "title": "Telegram 管理",
+    "description": "集中維護 Bot、群組/頻道校驗、面板文案和換綁審核入口。",
+    "testBot": "測試 Bot",
+    "testSuccess": "Telegram 測試完成",
+    "testFailed": "Telegram 測試失敗",
+    "rebindTitle": "換綁審核",
+    "rebindDescription": "處理使用者 Telegram 換綁申請和批次審核。",
+    "rosterTitle": "群組花名冊任務",
+    "rosterDescription": "查看群組巡檢、回群恢復和踢出未綁定使用者任務。",
+    "configTitle": "Telegram 配置",
+    "configDescription": "這裡直接編輯 config.toml 中的 [Telegram] 配置，不建立第二套配置來源。",
+    "configNotice": "配置管理中的 Telegram 折疊入口仍保留相容；建議後續在 Telegram 管理維護。"
+  },
+  "adminDeveloper": {
+    "title": "開發者模式",
+    "description": "透過儀表板輸入 DEBUGMODE 並完成管理員二次驗證後啟用。",
+    "riskTitle": "風險提示",
+    "riskDescription": "JavaScript 自訂指令只允許在受控沙箱內執行。Telegram 自訂命令的回覆內容以 js: 開頭時才會啟用 JS；純文字命令保持原行為。",
+    "sandboxTitle": "自訂指令沙箱",
+    "sandboxDescription": "用於檢查語法和危險 API，實際啟用前仍需程式碼審查。",
+    "runPreview": "沙箱預檢",
+    "previewPassed": "沙箱預檢通過",
+    "previewBlocked": "沙箱預檢未通過",
+    "previewFailed": "沙箱預檢失敗",
+    "apiTitle": "受控 API",
+    "apiDescription": "沙箱只暴露最小上下文；配置時在 Telegram 自訂命令回覆前加 js:。",
+    "resultTitle": "預檢結果",
+    "resultPassed": "通過",
+    "resultBlocked": "阻止",
+    "errors": "錯誤",
+    "warnings": "警告",
+    "output": "輸出",
+    "logs": "日誌"
   },
   "adminScheduler": {
     "boolYes": "是",

@@ -281,6 +281,9 @@
     "inviteForest": "Invite Forest",
     "requestReview": "Request Review",
     "violations": "Violation Audit",
+    "telegramAdmin": "Telegram Admin",
+    "securityCenter": "Security Center",
+    "developerMode": "Developer Mode",
     "telegramRebind": "Telegram Rebind",
     "embyAdmin": "Emby Admin",
     "embyDeviceAudit": "Devices / IP audit",
@@ -294,7 +297,8 @@
     "bangumi": "Bangumi Sync",
     "bangumiAdmin": "Bangumi Admin",
     "tickets": "My Tickets",
-    "adminTickets": "Ticket Management"
+    "adminTickets": "Ticket Management",
+    "adminHome": "Admin Home"
   },
   "signinRenewal": {
     "successTitle": "Renewal successful",
@@ -375,6 +379,22 @@
     "batchDeleteEmbyGeneric": "Also delete bound Emby accounts",
     "batchDeleteLocalOnly": "Delete local account only",
     "cancel": "Cancel"
+  },
+  "dashboard": {
+    "developerAdminOnly": "Developer mode is only available to administrators",
+    "developerPasswordRequired": "Enter the administrator password",
+    "developerEnabled": "Developer mode enabled",
+    "developerEnableFailed": "Failed to enable developer mode",
+    "developerDialogTitle": "Enable developer mode",
+    "developerDialogDescription": "Enter the current administrator password to complete second-factor verification. Developer mode is enabled only for this browser session.",
+    "developerPasswordLabel": "Administrator password",
+    "developerRiskHint": "JavaScript custom commands are limited to controlled sandbox previews. Production bots cannot execute host commands or read sensitive configuration.",
+    "developerEnable": "Enable"
+  },
+  "adminInvite": {
+    "configTitle": "Invite configuration",
+    "configDescription": "Edit invite-tree settings directly in config.toml without creating a second configuration source.",
+    "configNotice": "The legacy folded registration/invite entry remains in Configuration for compatibility; maintain invite-related settings in Invite Forest going forward."
   },
   "settings": {
     "loading": "Loading settings...",
@@ -791,12 +811,16 @@
     "currentAvatarUrl": "Current avatar URL",
     "avatarUsageHint": "The avatar is shown across the site. To avoid cropping distortion, use a centered square image.",
     "themeTab": "Theme",
+    "previewLightMode": "Light mode",
+    "previewDarkMode": "Dark mode",
     "theme": {
       "hueLabel": "Accent / primary color",
       "radiusLabel": "Border radius",
       "glassBlurLabel": "Glass blur intensity",
       "compactLabel": "Compact mode",
       "compactDesc": "Reduces spacing and padding for higher information density",
+      "reduceMotionLabel": "Reduce motion",
+      "reduceMotionDesc": "Minimizes page animations and transitions for steadier visual feedback",
       "save": "Save theme",
       "saved": "Theme saved",
       "reset": "Reset to defaults",
@@ -885,7 +909,11 @@
     "notBound": "Not bound",
     "adminBadge": "Admin",
     "disabledBadge": "Disabled",
-    "emptyAccounts": "No matching accounts"
+    "emptyAccounts": "No matching accounts",
+    "tabConfig": "Email configuration",
+    "configTitle": "Email configuration",
+    "configDescription": "Edit email, notification, and email-code rate-limit settings directly in config.toml.",
+    "configNotice": "The legacy folded email entry remains in Configuration for compatibility. Maintain it in Email Admin going forward. Sensitive fields are masked and unchanged secrets are never echoed back in plaintext."
   },
   "deviceAudit": {
     "title": "Devices / IP audit",
@@ -1316,7 +1344,72 @@
     "confirmRestore": "Confirm restore",
     "saveDialogTitle": "Confirm configuration save",
     "saveDialogDescription": "The following configuration items will be updated. The original file will be backed up before saving.",
-    "confirmSave": "Confirm save"
+    "confirmSave": "Confirm save",
+    "manageInEmail": "Open Email Admin",
+    "manageInTickets": "Open Ticket Management",
+    "manageInAuditLogs": "Open Audit Logs",
+    "manageInTelegram": "Open Telegram Admin",
+    "manageInRegcodes": "Open Registration Codes",
+    "manageInInvite": "Open Invite Forest",
+    "manageInSecurity": "Open Security Center",
+    "sectionEditor": {
+      "showSecret": "Show secret",
+      "hideSecret": "Hide secret",
+      "loadFailed": "Failed to load configuration",
+      "saveFailed": "Failed to save configuration",
+      "saved": "Configuration saved",
+      "migrationNotice": "Migration notice"
+    }
+  },
+  "adminSecurity": {
+    "title": "Security Center",
+    "description": "Centralized security audits, runtime logs, risk records, devices, and rate-limit policies.",
+    "auditTitle": "Security audit",
+    "auditDescription": "View and clean administrator, user, and system operation logs.",
+    "logsTitle": "Runtime logs",
+    "logsDescription": "View live runtime status, backend logs, and service health.",
+    "riskTitle": "Risk records",
+    "riskDescription": "Review decoy-code and other violation records, then clean them up.",
+    "deviceTitle": "Devices and IPs",
+    "deviceDescription": "Audit Emby devices, IPs, online sessions, and local account mapping.",
+    "configTitle": "Security configuration",
+    "configDescription": "Edit security, audit, rate-limit, and device-limit settings directly in config.toml.",
+    "configNotice": "The legacy folded security entry remains in Configuration for compatibility; maintain it here going forward."
+  },
+  "adminTelegram": {
+    "title": "Telegram Admin",
+    "description": "Maintain the bot, group/channel checks, panel text, and rebind review entry in one place.",
+    "testBot": "Test bot",
+    "testSuccess": "Telegram test completed",
+    "testFailed": "Telegram test failed",
+    "rebindTitle": "Rebind review",
+    "rebindDescription": "Handle Telegram rebind requests and bulk review.",
+    "rosterTitle": "Group roster jobs",
+    "rosterDescription": "View group audits, rejoin recovery, and unbound-user kick jobs.",
+    "configTitle": "Telegram configuration",
+    "configDescription": "Edit the [Telegram] section in config.toml directly without creating a second configuration source.",
+    "configNotice": "The legacy folded Telegram entry remains in Configuration for compatibility; maintain it here going forward."
+  },
+  "adminDeveloper": {
+    "title": "Developer Mode",
+    "description": "Enable it by entering DEBUGMODE on the dashboard and completing administrator verification.",
+    "riskTitle": "Risk notice",
+    "riskDescription": "JavaScript custom commands can only run inside the controlled sandbox. Telegram custom replies execute JS only when prefixed with js:; plain text commands keep their existing behavior.",
+    "sandboxTitle": "Custom command sandbox",
+    "sandboxDescription": "Checks syntax and dangerous APIs. Code review is still required before enabling real commands.",
+    "runPreview": "Run sandbox preview",
+    "previewPassed": "Sandbox preview passed",
+    "previewBlocked": "Sandbox preview blocked",
+    "previewFailed": "Sandbox preview failed",
+    "apiTitle": "Controlled API",
+    "apiDescription": "The sandbox exposes only minimal context; prefix Telegram custom command replies with js: to configure JS.",
+    "resultTitle": "Preview result",
+    "resultPassed": "Passed",
+    "resultBlocked": "Blocked",
+    "errors": "Errors",
+    "warnings": "Warnings",
+    "output": "Output",
+    "logs": "Logs"
   },
   "adminScheduler": {
     "boolYes": "Yes",

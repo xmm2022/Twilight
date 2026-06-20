@@ -549,7 +549,7 @@ export default function AppearanceSettingsPage() {
               <div className="relative z-10 flex min-h-[260px] flex-col justify-between p-4 text-white">
                 <div>
                   <p className="text-xs uppercase tracking-[0.25em] text-white/70">Twilight</p>
-                  <p className="mt-2 text-lg font-semibold">{isLight ? "Light Mode" : "Dark Mode"}</p>
+                  <p className="mt-2 text-lg font-semibold">{isLight ? t("appearance.previewLightMode") : t("appearance.previewDarkMode")}</p>
                 </div>
                 <div className="rounded-xl border border-white/20 bg-white/15 p-3 backdrop-blur-md">
                   <p className="text-sm font-medium">{t("appearance.previewArea")}</p>
@@ -706,7 +706,7 @@ export default function AppearanceSettingsPage() {
             <h1 className="text-2xl font-bold sm:text-3xl">{t("appearance.title")}</h1>
             <p className="text-sm text-muted-foreground">{t("appearance.description")}</p>
           </div>
-          <TabsList className="grid h-auto w-full grid-cols-3 sm:w-auto">
+          <TabsList className="i18n-stable-tabs grid h-auto w-full grid-cols-3 sm:w-auto">
             <TabsTrigger value="background" className="gap-2">
               <Palette className="h-4 w-4" />
               {t("appearance.backgroundTab")}
@@ -733,11 +733,11 @@ export default function AppearanceSettingsPage() {
                 <p className="text-xs text-muted-foreground">{t("appearance.saveBackgroundDescription")}</p>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-                <Button onClick={handleResetBg} variant="outline" disabled={saving} className="sm:w-auto">
+                <Button onClick={handleResetBg} variant="outline" disabled={saving} className="min-h-10 whitespace-normal leading-tight sm:w-auto">
                   <Trash2 className="mr-2 h-4 w-4" />
                   {t("appearance.resetDefault")}
                 </Button>
-                <Button onClick={handleSaveBg} disabled={saving} className="sm:w-auto">
+                <Button onClick={handleSaveBg} disabled={saving} className="min-h-10 whitespace-normal leading-tight sm:w-auto">
                   {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
                   {t("appearance.saveBackground")}
                 </Button>

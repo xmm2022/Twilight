@@ -328,6 +328,16 @@ pnpm build
 - 写本地 Web 登录设备用 `UpdateDevice`（读改写，保留 `FirstSeen`/`Trusted`/`Blocked`），不要用 `UpsertDevice` 整条覆盖（会把信任/封禁标记和首次时间冲掉）。
 - 注册码更新走 `PUT /admin/regcodes/:code` 的**部分更新**（仅改 payload 中出现的字段：`note`/`active`/`validity_time`/`days`/`use_count_limit`），`UpsertRegCode` 的「强制 active=true」兜底只对新建码生效，更新已存在码可正常停用。
 
+## 后台模块迁移约定（2026-06）
+
+- 后台总入口为「管理导航」：`webui/src/app/(main)/admin/page.tsx`。新增后台页面需同步侧边栏、管理导航、API 客户端和文档。
+- 邮箱、Telegram、邀请、安全配置已迁移到独立管理页：`/admin/email`、`/admin/telegram`、`/admin/invite`、`/admin/security`。配置管理只保留默认折叠的兼容入口和跳转提示。
+- 迁移模块仍必须使用同一个配置源：通过 `/system/admin/config/schema` 读写 `config.toml`，不得新增前端本地配置、store 配置实体或重复保存逻辑。
+- `Ticket.types` 不在配置管理中编辑，统一使用「工单处理 → 工单类型配置」。工单类型变更需要同步写回 `config.toml`，避免热重载或重启后回退。
+- 配置查看、schema 编辑和备份查看不得泄露 API Key、Token、密码、Secret 等敏感字段；未修改的 secret 必须使用服务端哨兵保留，禁止明文回显。
+- 新增后台接口默认使用 `AuthAdmin`；所有创建、更新、删除、启停、沙箱执行等状态变更成功后必须写审计日志。无 HTTP 上下文的 Bot 路径使用 `a.auditEntryIP("telegram", ...)`。
+- 开发者模式入口固定为仪表盘输入 `DEBUGMODE`，再调用 `POST /admin/developer-mode/activate` 做管理员密码二次验证。Telegram JS 自定义命令仅允许 `bot_custom_commands` 中 `js:` 前缀脚本，必须运行在受控沙箱中，不得暴露网络、文件、进程、环境变量或配置读取能力。
+
 ## 前端约定
 
 - 所有后端调用集中维护在 `webui/src/lib/api.ts`，底层请求统一走 `webui/src/lib/api-request.ts`。不要在页面中散落裸 `fetch`，除非有明确理由并保持相同的 credentials、超时和错误处理语义。

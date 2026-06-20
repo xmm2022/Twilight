@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/prejudice-studio/twilight/internal/store"
+	"go.uber.org/zap"
 )
 
 // handleMyTickets 用户查看自己提交的工单。
@@ -262,6 +263,7 @@ func (a *App) handleAdminAddTicketType(w http.ResponseWriter, r *http.Request, _
 	if err := a.store().AddTicketType(name); statusFromError(w, err) {
 		return
 	}
+	a.persistTicketTypesFromStore()
 	a.audit(r, "add_ticket_type", "admin", 0, map[string]any{"name": name})
 	ok(w, "类型已添加", map[string]any{"name": name, "types": a.store().TicketTypes()})
 }
@@ -276,6 +278,7 @@ func (a *App) handleAdminDeleteTicketType(w http.ResponseWriter, r *http.Request
 	if err := a.store().DeleteTicketType(name); statusFromError(w, err) {
 		return
 	}
+	a.persistTicketTypesFromStore()
 	a.audit(r, "delete_ticket_type", "admin", 0, map[string]any{"name": name})
 	ok(w, "类型已删除", map[string]any{"name": name, "types": a.store().TicketTypes()})
 }
@@ -296,6 +299,18 @@ func (a *App) handleAdminRenameTicketType(w http.ResponseWriter, r *http.Request
 	if statusFromError(w, err) {
 		return
 	}
+	a.persistTicketTypesFromStore()
 	a.audit(r, "rename_ticket_type", "admin", 0, map[string]any{"old": oldName, "new": newName, "tickets_renamed": count})
 	ok(w, "类型已重命名", map[string]any{"old_name": oldName, "new_name": newName, "types": a.store().TicketTypes()})
+}
+
+func (a *App) persistTicketTypesFromStore() {
+	values := configValues(*a.cfg())
+	if values["Ticket"] == nil {
+		values["Ticket"] = map[string]any{}
+	}
+	values["Ticket"]["types"] = a.store().TicketTypes()
+	if _, status, message := a.saveConfigContent(renderConfigTOML(values)); status != http.StatusOK {
+		zap.L().Warn("failed to persist ticket types to config.toml", zap.Int("status", status), zap.String("message", message))
+	}
 }

@@ -6,7 +6,7 @@ import type { ComponentType } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { motion } from "framer-motion";
+import { motion, LayoutGroup } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 import {
@@ -35,6 +35,8 @@ import {
   ClipboardList,
   BookOpen,
   MessageSquareMore,
+  Shield,
+  Code2,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
@@ -86,7 +88,9 @@ export const adminNavItems: SidebarNavItem[] = [
   { href: "/admin/audit-logs", labelKey: "navigation.auditLogs", icon: ClipboardList },
   { href: "/admin/bangumi", labelKey: "navigation.bangumiAdmin", icon: BookOpen },
   { href: "/admin/email", labelKey: "navigation.emailAdmin", icon: Mail },
-  { href: "/admin/telegram-rebind-requests", labelKey: "navigation.telegramRebind", icon: MessageSquare },
+  { href: "/admin/telegram", labelKey: "navigation.telegramAdmin", icon: MessageSquare },
+  { href: "/admin/security", labelKey: "navigation.securityCenter", icon: Shield },
+  { href: "/admin/developer", labelKey: "navigation.developerMode", icon: Code2 },
   { href: "/admin/emby", labelKey: "navigation.embyAdmin", icon: Server },
   { href: "/admin/device-audit", labelKey: "navigation.embyDeviceAudit", icon: MonitorSmartphone },
   { href: "/admin/scheduler", labelKey: "navigation.scheduler", icon: TimerReset },
@@ -115,6 +119,24 @@ export function filterNavItems(
     }
     return true;
   });
+}
+
+function isActivePath(pathname: string, href: string) {
+  if (href === "/admin") return pathname === "/admin";
+  if (href === "/admin/telegram") {
+    return pathname === href || pathname.startsWith(`${href}/`) || pathname.startsWith("/admin/telegram-rebind-requests");
+  }
+  if (href === "/admin/security") {
+    return (
+      pathname === href ||
+      pathname.startsWith(`${href}/`) ||
+      pathname.startsWith("/admin/audit-logs") ||
+      pathname.startsWith("/admin/logs") ||
+      pathname.startsWith("/admin/violations") ||
+      pathname.startsWith("/admin/device-audit")
+    );
+  }
+  return pathname === href || pathname.startsWith(`${href}/`);
 }
 
 export function Sidebar() {
@@ -257,37 +279,67 @@ export function Sidebar() {
 
         <nav className="sidebar-nav">
           <p className="sidebar-label">{t("navigation.userMenu")}</p>
-          {visibleUserNavItems.map((item) => {
-            const active = pathname === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn("sidebar-link", active && "sidebar-link-active")}
-              >
-                <item.icon className="h-4 w-4" />
-                <span>{t(item.labelKey)}</span>
-                {active && <span className="sidebar-dot" />}
-              </Link>
-            );
-          })}
+          <LayoutGroup>
+            {visibleUserNavItems.map((item) => {
+              const active = isActivePath(pathname, item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn("sidebar-link", active && "sidebar-link-active")}
+                >
+                  {active && (
+                    <motion.span
+                      layoutId="sidebar-user-active-bg"
+                      className="sidebar-active-bg"
+                      transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                    />
+                  )}
+                  <item.icon className="relative z-10 h-4 w-4 shrink-0" />
+                  <span className="relative z-10">{t(item.labelKey)}</span>
+                  {active && (
+                    <motion.span
+                      layoutId="sidebar-user-active-dot"
+                      className="sidebar-dot"
+                      transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                    />
+                  )}
+                </Link>
+              );
+            })}
+          </LayoutGroup>
           {isAdmin && (
             <>
               <p className="sidebar-label mt-5">{t("navigation.adminMenu")}</p>
-              {visibleAdminNavItems.map((item) => {
-                const active = pathname.startsWith(item.href);
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={cn("sidebar-link", active && "sidebar-link-active")}
-                  >
-                    <item.icon className="h-4 w-4" />
-                    <span>{t(item.labelKey)}</span>
-                    {active && <span className="sidebar-dot" />}
-                  </Link>
-                );
-              })}
+              <LayoutGroup>
+                {visibleAdminNavItems.map((item) => {
+                  const active = isActivePath(pathname, item.href);
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={cn("sidebar-link", active && "sidebar-link-active")}
+                    >
+                      {active && (
+                        <motion.span
+                          layoutId="sidebar-admin-active-bg"
+                          className="sidebar-active-bg"
+                          transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                        />
+                      )}
+                      <item.icon className="relative z-10 h-4 w-4 shrink-0" />
+                      <span className="relative z-10">{t(item.labelKey)}</span>
+                      {active && (
+                        <motion.span
+                          layoutId="sidebar-admin-active-dot"
+                          className="sidebar-dot"
+                          transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                        />
+                      )}
+                    </Link>
+                  );
+                })}
+              </LayoutGroup>
             </>
           )}
         </nav>

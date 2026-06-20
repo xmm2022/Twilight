@@ -62,7 +62,7 @@
  *     `@media (prefers-reduced-motion: no-preference)` 反向开启。
  */
 @media (prefers-reduced-motion: reduce) {
-  *
+  *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
@@ -438,6 +438,7 @@
     color: hsl(var(--muted-foreground));
     transition: all 180ms ease;
     min-width: 0;
+    overflow: hidden;
   }
 
   .sidebar-link span {
@@ -448,14 +449,21 @@
 
   .sidebar-link:hover {
     color: hsl(var(--foreground));
-    background: hsl(var(--accent) / 0.45);
     border-color: hsl(var(--border) / 0.6);
   }
 
   .sidebar-link-active {
     color: hsl(var(--foreground));
-    background: hsl(var(--accent) / 0.72);
     border-color: hsl(var(--border));
+  }
+
+  .sidebar-active-bg {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: hsl(var(--accent) / 0.72);
+    box-shadow: inset 0 0 0 1px hsl(var(--border) / 0.8);
+    z-index: 0;
   }
 
   .sidebar-dot {
@@ -465,6 +473,7 @@
     width: 0.34rem;
     border-radius: 9999px;
     background: hsl(var(--primary));
+    z-index: 10;
   }
 
   .sidebar-footer {
@@ -509,6 +518,27 @@
   }
   .no-scrollbar::-webkit-scrollbar {
     display: none;
+  }
+
+  .i18n-stable-tabs [role="tab"] {
+    min-width: 0;
+    min-height: 2.5rem;
+    white-space: normal;
+    text-align: center;
+    line-height: 1.15;
+  }
+
+  .i18n-stable-tabs [role="tab"] svg {
+    flex-shrink: 0;
+  }
+
+  .tw-reduce-motion *,
+  .tw-reduce-motion *::before,
+  .tw-reduce-motion *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 
   ::selection {

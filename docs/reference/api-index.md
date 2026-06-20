@@ -149,6 +149,8 @@
 | GET | `/api/v1/system/admin/apis` | Admin | 当前路由列表 |
 | POST | `/api/v1/system/admin/bot/test` | Admin | Telegram Bot 连通性测试 |
 
+> 配置管理页面继续保留迁移模块的兼容入口，但邮箱、Telegram、邀请、安全配置推荐分别在「邮箱管理」「Telegram 管理」「邀请森林」「安全中心」维护。`/system/admin/config/toml` 与 `/system/admin/config/schema` 返回的敏感字段会脱敏；未修改的 secret 以服务端哨兵值保留，不回显明文。
+
 ## Emby
 
 | 方法 | 路径 | 鉴权 | 说明 |
@@ -199,6 +201,8 @@
 | 方法 | 路径 | 鉴权 | 说明 |
 | ---- | ---- | ---- | ---- |
 | GET | `/api/v1/admin/users` | Admin | 用户列表 |
+| POST | `/api/v1/admin/developer-mode/activate` | Admin | 仪表盘 `DEBUGMODE` 二次验证后启用当前浏览器会话的开发者模式 |
+| POST | `/api/v1/admin/developer/js-sandbox` | Admin | 在受控沙箱中预检/执行 Telegram JS 自定义指令片段 |
 | PUT | `/api/v1/admin/me/update` | Admin | 更新管理员自身信息 |
 | GET | `/api/v1/admin/users/{uid}` | Admin | 用户详情 |
 | PUT | `/api/v1/admin/users/{uid}` | Admin | 更新用户 |

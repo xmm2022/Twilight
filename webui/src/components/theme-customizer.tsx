@@ -72,7 +72,8 @@ export default function ThemeCustomizer() {
     draft.primaryHueShift !== saved.primaryHueShift ||
     draft.radius !== saved.radius ||
     draft.glassBlur !== saved.glassBlur ||
-    draft.compact !== saved.compact;
+    draft.compact !== saved.compact ||
+    draft.reduceMotion !== saved.reduceMotion;
 
   return (
     <div className="space-y-8">
@@ -93,12 +94,12 @@ export default function ThemeCustomizer() {
           className="hue-slider"
           aria-label={t("appearance.theme.hueLabel")}
         />
-        <div className="flex gap-2">
+        <div className="grid grid-cols-7 gap-2">
           {[257, 200, 160, 120, 40, 0, 310].map((h) => (
             <button
               key={h}
               type="button"
-              className="h-6 w-6 rounded-full border-2 border-border transition-shadow hover:shadow-md"
+              className="h-7 w-7 rounded-full border-2 border-border transition-shadow hover:shadow-md"
               style={{ background: `hsl(${h}, 90%, 58%)` }}
               onClick={() => change({ primaryHueShift: h - 257 })}
               aria-label={`Hue ${h}`}
@@ -148,8 +149,8 @@ export default function ThemeCustomizer() {
       </div>
 
       {/* 紧凑模式 */}
-      <div className="flex items-center justify-between">
-        <div className="space-y-0.5">
+      <div className="flex min-h-14 items-center justify-between gap-4 rounded-lg border bg-muted/20 p-3">
+        <div className="min-w-0 space-y-0.5">
           <Label className="text-sm font-medium">{t("appearance.theme.compactLabel")}</Label>
           <p className="text-xs text-muted-foreground">{t("appearance.theme.compactDesc")}</p>
         </div>
@@ -159,13 +160,25 @@ export default function ThemeCustomizer() {
         />
       </div>
 
+      <div className="flex min-h-14 items-center justify-between gap-4 rounded-lg border bg-muted/20 p-3">
+        <div className="min-w-0 space-y-0.5">
+          <Label className="text-sm font-medium">{t("appearance.theme.reduceMotionLabel")}</Label>
+          <p className="text-xs text-muted-foreground">{t("appearance.theme.reduceMotionDesc")}</p>
+        </div>
+        <Switch
+          checked={draft.reduceMotion}
+          onCheckedChange={(v) => change({ reduceMotion: v })}
+        />
+      </div>
+
       {/* 操作按钮 */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button
             onClick={save}
             disabled={!isDirty || saving}
             size="sm"
+            className="min-h-9 whitespace-normal text-left leading-tight"
           >
             {saving ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -180,6 +193,7 @@ export default function ThemeCustomizer() {
               size="sm"
               onClick={revert}
               disabled={saving}
+              className="min-h-9 whitespace-normal leading-tight"
             >
               {t("common.cancel")}
             </Button>

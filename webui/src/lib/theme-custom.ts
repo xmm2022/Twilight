@@ -12,6 +12,7 @@ export interface ThemeCustom {
   glassBlur: number;
   /** 紧凑模式 */
   compact: boolean;
+  reduceMotion: boolean;
 }
 
 const DEFAULTS: ThemeCustom = {
@@ -19,6 +20,7 @@ const DEFAULTS: ThemeCustom = {
   radius: 1.0,
   glassBlur: 12,
   compact: false,
+  reduceMotion: false,
 };
 
 export function getThemeCustom(): ThemeCustom {
@@ -72,6 +74,12 @@ export function applyThemeCustom(tc: ThemeCustom): void {
     root.classList.add("tw-compact");
   } else {
     root.classList.remove("tw-compact");
+  }
+
+  if (tc.reduceMotion) {
+    root.classList.add("tw-reduce-motion");
+  } else {
+    root.classList.remove("tw-reduce-motion");
   }
 }
 

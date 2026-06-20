@@ -107,13 +107,22 @@ out/
 .vite/
 .parcel-cache/
 .opennextjs/
+.open-next/
 .wrangler/
 .vercel/
 .netlify/
 # 测试
 coverage/
+coverage.xml
+*.lcov
+.nyc_output/
+.coverage
+junit.xml
+test-report.xml
 playwright-report/
 test-results/
+storybook-static/
+*.sarif
 # 类型锁文件
 webui/.next-env.d.ts.lock
 *.next-env.d.ts.lock

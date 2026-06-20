@@ -183,6 +183,7 @@ func (a *App) handleConfigTOMLPutSafe(w http.ResponseWriter, r *http.Request, _ 
 		failWithCode(w, status, ErrConfigBackupInvalid, message)
 		return
 	}
+	a.audit(r, "update_config_toml", "admin", 0, map[string]any{"bytes": len(content)})
 	ok(w, "配置已保存并热重载", info)
 }
 
@@ -205,6 +206,7 @@ func (a *App) handleConfigBackup(w http.ResponseWriter, r *http.Request, _ Param
 		failWithCode(w, http.StatusInternalServerError, ErrConfigBackupCreateFailed, "配置备份失败")
 		return
 	}
+	a.audit(r, "create_config_backup", "admin", 0, map[string]any{"backup": info.Name})
 	ok(w, "配置备份已创建", map[string]any{"backup": info})
 }
 
@@ -262,6 +264,7 @@ func (a *App) handleConfigRestore(w http.ResponseWriter, r *http.Request, _ Para
 	result["pre_restore_backup"] = info["backup"]
 	result["pre_operation_backup"] = info["backup"]
 	result["reload"] = info["reload"]
+	a.audit(r, "restore_config_backup", "admin", 0, map[string]any{"backup": backup.Name, "bytes": len(content)})
 	ok(w, "配置已恢复并热重载", result)
 }
 
@@ -280,6 +283,7 @@ func (a *App) handleConfigBackupDelete(w http.ResponseWriter, r *http.Request, p
 		failWithCode(w, http.StatusInternalServerError, ErrConfigBackupDeleteFailed, "删除配置备份失败")
 		return
 	}
+	a.audit(r, "delete_config_backup", "admin", 0, map[string]any{"backup": info.Name})
 	ok(w, "配置备份已删除", map[string]any{"backup": info})
 }
 
@@ -289,6 +293,9 @@ func (a *App) handleConfigSchemaFull(w http.ResponseWriter, r *http.Request, _ P
 	for _, def := range configSectionDefs() {
 		fields := make([]map[string]any, 0, len(def.Fields))
 		for _, field := range def.Fields {
+			if def.Key == "Ticket" && field.Key == "types" {
+				continue
+			}
 			rawValue := values[def.Key][field.Key]
 			// 密钥字段不回传明文：非空 → sentinel；空 → 空串。前端 SecretField
 			// 在用户没有改动时会原样回传 sentinel，handleConfigSchemaUpdateSafe
@@ -317,6 +324,7 @@ func (a *App) handleConfigSchemaFull(w http.ResponseWriter, r *http.Request, _ P
 			"title":       def.Title,
 			"description": def.Description,
 			"category":    def.Category,
+			"collapsed":   def.Collapsed,
 			"fields":      fields,
 		})
 	}
@@ -373,6 +381,7 @@ func (a *App) handleConfigSchemaUpdateSafe(w http.ResponseWriter, r *http.Reques
 		failWithCode(w, status, ErrConfigBackupInvalid, message)
 		return
 	}
+	a.audit(r, "update_config_schema", "admin", 0, map[string]any{"sections": sortedKeys(rawSections)})
 	ok(w, "配置已保存并热重载", info)
 }
 
@@ -741,6 +750,7 @@ type configSectionDef struct {
 	Title       string
 	Description string
 	Category    string
+	Collapsed   bool
 	Fields      []configFieldDef
 }
 
@@ -852,7 +862,7 @@ func configSectionDefs() []configSectionDef {
 			{Key: "emby_url_list", Label: "普通线路", Type: "list", Description: "格式：名称 : URL"},
 			{Key: "emby_url_list_for_whitelist", Label: "白名单线路", Type: "list", Description: "管理员和白名单用户可见线路"},
 		}},
-		{Key: "Telegram", Title: "Telegram", Description: "Bot、订阅校验和群组管理", Category: "integration", Fields: []configFieldDef{
+		{Key: "Telegram", Title: "Telegram", Description: "Bot、订阅校验和群组管理\n推荐在 Telegram 管理页面操作 Bot 基础设置，高级参数在此调整", Category: "integration", Collapsed: true, Fields: []configFieldDef{
 			{Key: "telegram_api_url", Label: "Bot API URL", Type: "string", Description: "Telegram Bot API 基础地址"},
 			{Key: "bot_token", Label: "Bot Token", Type: "secret", Description: "Telegram Bot Token"},
 			{Key: "admin_id", Label: "管理员 Telegram ID", Type: "list", Description: "Bot 管理员 ID 列表"},
@@ -877,9 +887,9 @@ func configSectionDefs() []configSectionDef {
 			{Key: "bot_help_header", Label: "帮助页前缀", Type: "textarea", Description: "追加到内置用户帮助顶部，支持换行"},
 			{Key: "bot_help_footer", Label: "帮助页后缀", Type: "textarea", Description: "追加到内置用户帮助底部，支持换行"},
 			{Key: "bot_about", Label: "Bot 关于文案", Type: "textarea", Description: "/about 的服务说明，支持换行"},
-			{Key: "bot_custom_commands", Label: "Bot 自定义指令回复", Type: "command_map", Description: "自定义 /command 与回复内容的映射，回复支持换行"},
+			{Key: "bot_custom_commands", Label: "Bot 自定义指令回复", Type: "command_map", Description: "自定义 /command 与回复内容的映射，回复支持换行；以 js: 开头时进入受控 JS 沙箱"},
 		}},
-		{Key: "SAR", Title: "注册/邀请", Description: "注册、卡码、邀请树和求片", Category: "policy", Fields: []configFieldDef{
+		{Key: "SAR", Title: "注册/邀请", Description: "注册、卡码、邀请树和求片\n推荐在「注册码管理」和「邀请森林」页面操作", Category: "policy", Collapsed: true, Fields: []configFieldDef{
 			{Key: "register_mode", Label: "开放注册", Type: "bool", Description: "是否允许注册系统账号"},
 			{Key: "register_code_limit", Label: "注册必须用码", Type: "bool", Description: "注册时必须提供注册码"},
 			{Key: "allow_pending_register", Label: "允许待补建", Type: "bool", Description: "允许无 Emby 账号先注册"},
@@ -920,12 +930,12 @@ func configSectionDefs() []configSectionDef {
 			{Key: "signin_renewal_cost", Label: "续期消耗积分", Type: "int", Description: "每次积分续期需要消耗的积分数，必须大于 0"},
 			{Key: "signin_renewal_days", Label: "续期天数", Type: "int", Description: "每次积分续期增加的天数，必须大于 0"},
 		}},
-		{Key: "DeviceLimit", Title: "设备限制", Description: "设备和并发播放限制", Category: "policy", Fields: []configFieldDef{
+		{Key: "DeviceLimit", Title: "设备限制", Description: "设备和并发播放限制\n推荐在「安全中心」页面维护", Category: "policy", Collapsed: true, Fields: []configFieldDef{
 			{Key: "device_limit_enabled", Label: "启用设备限制", Type: "bool", Description: "限制设备数量"},
 			{Key: "max_devices", Label: "最大设备数", Type: "int", Description: "每个用户最大设备数"},
 			{Key: "max_streams", Label: "最大播放流", Type: "int", Description: "每个用户最大并发流"},
 		}},
-		{Key: "RateLimit", Title: "限流策略", Description: "接口请求频率限制；0 或负数表示不限制", Category: "security", Fields: []configFieldDef{
+		{Key: "RateLimit", Title: "限流策略", Description: "接口请求频率限制；0 或负数表示不限制\n推荐在「安全中心」页面维护", Category: "security", Collapsed: true, Fields: []configFieldDef{
 			{Key: "enabled", Label: "启用后端限流", Type: "bool", Description: "关闭后不执行 Go 后端限流"},
 			{Key: "global_per_minute", Label: "全局每分钟", Type: "int", Description: "同一 IP 每分钟总请求数"},
 			{Key: "login_per_minute", Label: "登录每分钟", Type: "int", Description: "同一 IP 登录请求数"},
@@ -953,7 +963,7 @@ func configSectionDefs() []configSectionDef {
 			{Key: "trust_proxy_headers", Label: "信任代理 IP", Type: "bool", Description: "仅在可信反代后开启"},
 			{Key: "trusted_proxy_cidrs", Label: "可信反代 CIDR", Type: "list", Description: "上游反代的 IP / CIDR；启用 trust_proxy_headers 时必须配置，否则任何客户端都可伪造 X-Forwarded-For"},
 		}},
-		{Key: "Security", Title: "安全", Description: "内部密钥和安全开关", Category: "ops", Fields: []configFieldDef{
+		{Key: "Security", Title: "安全", Description: "内部密钥和安全开关\n推荐在「安全中心」页面维护", Category: "ops", Collapsed: true, Fields: []configFieldDef{
 			{Key: "forgot_password_enabled", Label: "启用找回密码", Type: "bool", Description: "总开关：关闭后所有找回密码途径均不可用"},
 			{Key: "forgot_password_emby_enabled", Label: "Emby 找回密码", Type: "bool", Description: "允许通过 Emby 账号验证重置 Web 面板密码；依赖上图总开关"},
 			{Key: "forgot_password_email_enabled", Label: "邮箱找回密码", Type: "bool", Description: "允许通过绑定邮箱验证码重置 Web 面板密码；依赖上图总开关"},
@@ -991,11 +1001,11 @@ func configSectionDefs() []configSectionDef {
 			{Key: "enabled", Label: "启用同步", Type: "bool", Description: "启用 Bangumi 同步"},
 			{Key: "webhook_secret", Label: "Webhook 密钥", Type: "secret", Description: "Bangumi webhook 校验密钥"},
 		}},
-		{Key: "Ticket", Title: "工单系统", Description: "用户提交工单与管理员处理；工单类型请在「工单处理」页面管理", Category: "policy", Fields: []configFieldDef{
+		{Key: "Ticket", Title: "工单系统", Description: "用户提交工单与管理员处理；工单类型请在「工单处理」页面管理", Category: "policy", Collapsed: true, Fields: []configFieldDef{
 			{Key: "enabled", Label: "启用工单系统", Type: "bool", Description: "开启后用户可提交工单，管理员可在后台管理"},
 			{Key: "types", Label: "工单类型", Type: "list", Description: "自定义工单类型列表，默认仅含 all；管理员可在工单管理页随时增删改"},
 		}},
-		{Key: "AuditLog", Title: "操作审计", Description: "审计日志记录与自动清理策略", Category: "security", Fields: []configFieldDef{
+		{Key: "AuditLog", Title: "操作审计", Description: "审计日志记录与自动清理策略\n推荐在「安全中心」页面统一维护", Category: "security", Collapsed: true, Fields: []configFieldDef{
 			{Key: "enabled", Label: "启用审计日志", Type: "bool", Description: "关闭后不再记录新的审计日志；已有日志不受影响"},
 			{Key: "auto_cleanup_enabled", Label: "启用自动清理", Type: "bool", Description: "开启后调度任务按下方策略自动清理过期审计日志；默认关闭"},
 			{Key: "retention_days", Label: "保留天数", Type: "int", Description: "超出此天数的日志将被清理；0=不限天数"},
@@ -1003,7 +1013,7 @@ func configSectionDefs() []configSectionDef {
 			{Key: "preserve_admin", Label: "保留管理员操作", Type: "bool", Description: "按天数清理时跳过管理员 (category=admin) 的操作日志"},
 			{Key: "cleanup_check_time", Label: "清理检查时间", Type: "string", Description: "每日执行清理检查的时间 HH:MM"},
 		}},
-		{Key: "Email", Title: "邮箱验证", Description: "SMTP 发信、验证码与强制绑定策略\n推荐在「邮箱管理」页面操作基础发信配置，高级参数在此调整", Category: "integration", Fields: []configFieldDef{
+		{Key: "Email", Title: "邮箱验证", Description: "SMTP 发信、验证码与强制绑定策略\n推荐在「邮箱管理」页面操作基础发信配置，高级参数在此调整", Category: "integration", Collapsed: true, Fields: []configFieldDef{
 			{Key: "enabled", Label: "启用邮箱验证", Type: "bool", Description: "总开关：关闭后所有发码 / 邮箱找回 / 强制绑定均降级，前端隐藏入口"},
 			{Key: "smtp_host", Label: "SMTP 主机", Type: "string", Description: "发信服务器地址，如 smtp.gmail.com"},
 			{Key: "smtp_port", Label: "SMTP 端口", Type: "int", Description: "常见：465（SSL）、587（STARTTLS）、25（明文）"},

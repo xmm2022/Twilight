@@ -111,6 +111,8 @@ func (a *App) registerRoutes() {
 	a.add(http.MethodPost, "/api/v1/system/admin/config/sweep", AuthAdmin, a.handleConfigSweep)
 	a.add(http.MethodGet, "/api/v1/system/admin/apis", AuthAdmin, a.handleAPIRoutes)
 	a.add(http.MethodPost, "/api/v1/system/admin/bot/test", AuthAdmin, a.handleBotTest)
+	a.add(http.MethodPost, "/api/v1/admin/developer-mode/activate", AuthAdmin, a.handleDeveloperModeActivate)
+	a.add(http.MethodPost, "/api/v1/admin/developer/js-sandbox", AuthAdmin, a.handleDeveloperJSSandbox)
 
 	a.add(http.MethodGet, "/api/v1/emby/status", AuthUser, a.handleEmbyStatus)
 	a.add(http.MethodGet, "/api/v1/emby/urls", AuthPublic, a.handleDeprecatedEmbyURLs)

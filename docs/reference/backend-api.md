@@ -1536,7 +1536,7 @@ curl -N "http://localhost:5000/api/v1/system/admin/runtime/logs/stream?limit=100
 
 `PUT /system/admin/config/toml` — 写入 config.toml（管理员）。保存前会创建备份。
 
-> 重要：配置改动 **不走热重载**。保存后由进程自身退出，依赖外部 supervisor（systemd）重新拉起后整进程生效。详见 [Go 后端架构与配置](../reference/backend.md)。
+> 重要：配置读取与备份查看会对 API Key、Token、密码、Secret 等敏感字段脱敏；schema 保存路径使用服务端哨兵保留未修改 secret，原始 TOML 保存路径也会在文本层还原未修改 secret，禁止明文回显。邮箱、Telegram、邀请、安全等迁移模块仍可从配置管理折叠入口跳转，但推荐在对应独立管理页维护，所有页面仍写回同一个 `config.toml`。
 
 - 请求体：
 
@@ -1685,6 +1685,32 @@ curl -N "http://localhost:5000/api/v1/system/admin/runtime/logs/stream?limit=100
 
 - 说明：获取后端注册的全部路由列表。
 - 认证：管理员（`AuthAdmin`）
+
+### 10.15 开发者模式与 JS 沙箱
+
+`POST /admin/developer-mode/activate`
+
+- 说明：管理员在仪表盘输入 `DEBUGMODE` 后，提交当前管理员密码完成二次验证。成功后前端只在当前浏览器会话启用开发者模式入口。
+- 认证：管理员（`AuthAdmin`）
+- 审计：成功写入 `developer_mode_activate`。
+
+请求体：
+
+```json
+{ "code": "DEBUGMODE", "password": "<admin_password>" }
+```
+
+`POST /admin/developer/js-sandbox`
+
+- 说明：在受控 Goja 沙箱中预检/执行 Telegram JS 自定义指令片段。沙箱仅暴露 `ctx`、`args`、`user`、`reply(text)`、`log(text)`，不提供网络、文件、进程或配置访问能力。
+- 认证：管理员（`AuthAdmin`）
+- 审计：每次预检写入 `developer_js_sandbox_preview`；Bot 命中 `js:` 自定义命令时写入 `telegram_js_command_execute`。
+
+请求体：
+
+```json
+{ "code": "reply('hello ' + (user.username || 'user'));" }
+```
 
 ## 11. 其它模块
 

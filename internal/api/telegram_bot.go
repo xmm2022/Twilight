@@ -178,8 +178,7 @@ func (a *App) handleTelegramUpdate(ctx context.Context, update map[string]any) {
 		// 私聊也允许，gating 逻辑和注册表的"private + admin"模式不一样。
 		a.telegramHandleGroupUser(ctx, chatID, fromID, fields, message)
 	default:
-		if reply, ok := a.telegramCustomCommandReply(command); ok {
-			_ = a.telegramSendMessage(ctx, chatID, a.telegramRenderText(reply))
+		if a.telegramHandleCustomCommand(ctx, command, cmdCtx, privateChat) {
 			return
 		}
 		if privateChat && telegramBindCodePattern.MatchString(command) && !strings.HasPrefix(command, "/") {
