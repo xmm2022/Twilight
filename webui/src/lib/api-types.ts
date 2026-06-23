@@ -1246,6 +1246,15 @@ export interface PlaybackRecordWithSync {
 
 // ==================== Tickets ====================
 
+export interface TicketAttachment {
+  filename: string;
+  content_type: string;
+  size: number;
+  uploaded_uid: number;
+  created_at: number;
+  url: string;
+}
+
 export interface Ticket {
   id: number;
   uid: number;
@@ -1256,6 +1265,7 @@ export interface Ticket {
   status: "open" | "in_progress" | "resolved" | "closed";
   priority: "low" | "medium" | "high" | "urgent";
   admin_note?: string;
+  attachments?: TicketAttachment[];
   created_at: number;
   updated_at: number;
   resolved_at?: number;

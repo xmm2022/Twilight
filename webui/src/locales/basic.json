@@ -1094,6 +1094,7 @@
     "configNotice": "配置管理中的注册/邀请入口仅作兼容保留；建议在邀请系统管理中维护邀请配置。"
   },
   "adminUsers": {
+    "perPage": "每页",
     "clearEmailsAction": "清空所有邮箱",
     "previewFailed": "预览失败",
     "cleanupFailed": "清理失败",
@@ -1359,7 +1360,18 @@
     "reopenTicket": "重开工单",
     "closed": "工单已关闭",
     "reopened": "工单已重开",
-    "adminReply": "管理员回复"
+    "adminReply": "管理员回复",
+    "images": "交流图片",
+    "imagesHint": "最多 {count} 张，单张不超过 {size}MB，支持 JPG / PNG / GIF / WEBP / BMP",
+    "addImage": "添加图片",
+    "uploading": "上传中…",
+    "imageUploaded": "图片已上传",
+    "imageDeleted": "图片已删除",
+    "deleteImage": "删除图片",
+    "imageTooLarge": "图片大小超过限制（单张最大 {size}MB）",
+    "imageTooMany": "图片数量已达上限（每个工单最多 {count} 张）",
+    "imageInvalidType": "无效的图片文件，仅支持 JPG / PNG / GIF / WEBP / BMP",
+    "imageClosedHint": "工单已关闭，无法继续上传图片"
   },
   "adminTickets": {
     "title": "工单管理",
@@ -1396,7 +1408,12 @@
     "deleteTypeTitle": "删除工单类型",
     "deleteTypeDesc": "确定要删除类型「{name}」吗？已有工单的类型不会受影响。",
     "cannotDeleteLastType": "不能删除最后一个类型",
-    "reopenTicket": "重开"
+    "reopenTicket": "重开",
+    "images": "交流图片",
+    "addImage": "添加图片",
+    "imageUploaded": "图片已上传",
+    "imageDeleted": "图片已删除",
+    "deleteImage": "删除图片"
   },
   "bangumi": {
     "title": "Bangumi 同步",
@@ -2463,6 +2480,14 @@
     "exampleEnvDesc": "读取白名单内的非敏感 TWILIGHT_* 环境变量。",
     "exampleRouter": "参数分支示例",
     "exampleRouterDesc": "根据第一个参数分派不同功能，适合多功能工具命令。",
+    "exampleDbAnnouncements": "公告列表示例（简单）",
+    "exampleDbAnnouncementsDesc": "使用 db.listAnnouncements 读取最新公告并格式化输出。",
+    "exampleDbMyRequests": "我的求片示例（简单）",
+    "exampleDbMyRequestsDesc": "使用 db.listMediaRequests 列出当前用户的求片记录与状态。",
+    "exampleDbRegcodeReport": "注册码统计示例（复杂·管理员）",
+    "exampleDbRegcodeReportDesc": "管理员遍历注册码并按状态聚合统计，生成报表。",
+    "exampleDbTicketTriage": "工单分诊示例（复杂·管理员）",
+    "exampleDbTicketTriageDesc": "管理员筛选未关闭工单，排序后提示最早的一条。",
     "exampleApply": "载入到编辑器",
     "authBadge": "管理员鉴权",
     "sandboxBadge": "受控沙箱",
@@ -2474,6 +2499,7 @@
     "custom": "自定义",
     "saveTemplateTitle": "保存当前模板",
     "templateName": "模板名称",
+    "templateNamePlaceholder": "为预设取一个便于识别的名称",
     "templateDescription": "模板说明",
     "saveAsTemplate": "保存为新预设",
     "templateNameRequired": "请填写预设名称",
@@ -2485,6 +2511,9 @@
     "editorDescription": "编辑单条 js: 脚本，预检通过后可复制为 bot_custom_commands 配置值。",
     "copyCommandReply": "复制配置行",
     "commandReplyPreview": "配置行预览",
+    "copyCode": "复制脚本",
+    "bindCommandNotice": "脚本绑定 / 指令请前往「Telegram 自定义指令」统一管理，本页仅用于编写与调试脚本。",
+    "openCommandManager": "打开自定义指令管理",
     "snippetReply": "回复",
     "snippetLog": "日志",
     "snippetAdminGuard": "管理员鉴权",
@@ -2503,6 +2532,7 @@
     "snippetArray": "数组工具",
     "snippetInline": "Inline 操作",
     "snippetWaitText": "等待文本",
+    "snippetDbList": "数据库列表",
     "docsTitle": "变量、常量与函数文档",
     "docsDescription": "这里列出的 API 才能在沙箱中使用；未列出的对象不会注入。",
     "docsPageTitle": "JS 接口文档",
@@ -2562,6 +2592,7 @@
     "envInviteEnabled": "邀请功能环境开关。"
   },
   "adminRegcodes": {
+    "perPage": "每页",
     "pageTitle": "卡码管理",
     "pageSubtitle": "管理注册码、续期码、白名单码和邀请码",
     "tabRegcodes": "注册码",
@@ -2810,6 +2841,12 @@
     "algoDesc_legacy-sha1": "旧版 SHA1 截断格式，用于兼容历史卡码风格。",
     "deselectAll": "取消全选",
     "selectAll": "全选",
+    "selectAllMatching": "选中全部匹配（{count}）",
+    "selectAllMatchingActive": "已选中符合当前筛选的全部 {count} 个注册码",
+    "clearSelection": "清除选择",
+    "crossPageCount": "跨页共 {count} 个",
+    "batchDeleteAllMatchTitle": "删除符合筛选的全部 {count} 个注册码？",
+    "batchDeleteAllMatchDesc": "将删除符合当前筛选条件（类型 / 状态 / 来源 / 关键词）的全部 {count} 个注册码，包含已有使用记录的卡码也会被移除，且无法恢复。",
     "jumpToPage": "跳转："
   },
   "validators": {

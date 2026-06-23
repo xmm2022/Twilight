@@ -276,12 +276,20 @@ func (a *App) handleBatchDeleteRegcodes(w http.ResponseWriter, r *http.Request, 
 		failWithCode(w, http.StatusBadRequest, ErrRegcodeBatchConfirm, "missing confirm "+confirmBatchDeleteRegcodes)
 		return
 	}
-	codes := regcodePayloadCodes(payload["codes"])
+	var codes []string
+	selectAll := boolValue(payload, "select_all", false)
+	if selectAll {
+		// 跨页“选中全部匹配”：按与列表完全一致的筛选口径解析目标码，
+		// 再扣除前端明确排除的 exclude_codes，避免把筛选外的码卷入删除。
+		codes = a.filteredBatchRegcodeCodes(payload, 0)
+	} else {
+		codes = regcodePayloadCodes(payload["codes"])
+	}
 	if len(codes) == 0 {
 		failWithCode(w, http.StatusBadRequest, ErrRegcodeBatchEmpty, "请选择要删除的注册码")
 		return
 	}
-	if len(codes) > 200 {
+	if !selectAll && len(codes) > 200 {
 		failWithCode(w, http.StatusBadRequest, ErrRegcodeBatchTooLarge, "单次最多删除 200 个注册码")
 		return
 	}
@@ -291,7 +299,7 @@ func (a *App) handleBatchDeleteRegcodes(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	a.audit(r, "batch_delete_regcode", "admin", 0, map[string]any{
-		"count": len(deleted), "deleted": deleted, "missing": len(missing),
+		"count": len(deleted), "deleted": deleted, "missing": len(missing), "select_all": selectAll,
 	})
 	ok(w, "注册码已批量删除", map[string]any{
 		"deleted":       len(deleted),
@@ -424,6 +432,58 @@ func regcodePayloadCodes(value any) []string {
 		}
 		seen[code] = true
 		out = append(out, code)
+	}
+	return out
+}
+
+// filteredBatchRegcodeCodes 按与 handleListRegcodes 完全一致的筛选口径
+// （type / status / source / search）解析“选中全部匹配”要删除的注册码集合，
+// 并扣除前端 exclude_codes 中明确排除的码。filter 口径必须与列表 handler
+// 保持一致，否则“按筛选全选”会把筛选外的码卷入批量删除（AGENTS.md filter 口径一致约定）。
+// limit<=0 表示不限制返回数量。
+func (a *App) filteredBatchRegcodeCodes(payload map[string]any, limit int) []string {
+	filter, _ := payload["filter"].(map[string]any)
+	typeFilter := strings.TrimSpace(asString(filter["type"]))
+	statusFilter := strings.ToLower(strings.TrimSpace(asString(filter["status"])))
+	sourceFilter := strings.ToLower(strings.TrimSpace(asString(filter["source"])))
+	search := strings.ToLower(strings.TrimSpace(asString(filter["search"])))
+
+	excluded := map[string]bool{}
+	for _, code := range regcodePayloadCodes(payload["exclude_codes"]) {
+		excluded[code] = true
+	}
+
+	codes := a.store().ListRegCodes()
+	out := make([]string, 0, len(codes))
+	for _, code := range codes {
+		dto := a.regcodeDTO(code)
+		if typeFilter != "" && strconv.Itoa(code.Type) != typeFilter {
+			continue
+		}
+		if sourceFilter != "" && sourceFilter != "all" {
+			codeSource := code.Source
+			if codeSource == "" {
+				codeSource = "admin"
+			}
+			if codeSource != sourceFilter {
+				continue
+			}
+		}
+		if statusFilter != "" && statusFilter != "all" && dto["status"] != statusFilter {
+			if !(statusFilter == "decoy" && code.IsDecoy) && !(statusFilter == "active" && code.Active) {
+				continue
+			}
+		}
+		if search != "" && !strings.Contains(strings.ToLower(code.Code+" "+code.Note+" "+code.TargetUsername+" "+code.TargetTelegramUsername+" "+strconv.FormatInt(code.TargetTelegramID, 10)+" "+joinInt64(regcodeUsedByUIDs(code))+" "+joinInt64(code.UsedByTelegramIDs)), search) {
+			continue
+		}
+		if excluded[code.Code] {
+			continue
+		}
+		out = append(out, code.Code)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
 	}
 	return out
 }

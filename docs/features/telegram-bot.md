@@ -158,7 +158,7 @@ Web 后台的入口是「Telegram 管理 → Bot 指令管理」（`/admin/teleg
 
 `bot_custom_commands` 允许配置一组"命令 → 固定回复"的映射，命中后直接返回对应文本（`telegramCustomCommandReply`）。每条形如 `命令 = 回复`，命令会被规范化：转小写、补 `/` 前缀、仅允许字母数字与下划线、长度不超过 32 字符（`normalizeTelegramCommand`），重复命令以首次出现为准。自定义命令在内置命令之后匹配，不会覆盖内置命令。
 
-开发者模式启用后，可把某条回复写成 `js:` 前缀脚本，让 Bot 在受控 Goja（`github.com/dop251/goja`）沙箱中执行。脚本同步执行，单次运行 200ms 超时；独立页面 `/admin/developer/js-docs` 会通过 `GET /admin/developer/js-docs` 拉取完整接口文档，并以类似 Swagger 的方式展示内置对象、命名空间、函数、配置键、环境变量和示例。
+开发者模式启用后，可把某条回复写成 `js:` 前缀脚本，让 Bot 在受控 Goja（`github.com/dop251/goja`）沙箱中执行。脚本同步执行，单次运行 8 秒墙钟超时；独立页面 `/admin/developer/js-docs` 会通过 `GET /admin/developer/js-docs` 拉取完整接口文档，并以类似 Swagger 的方式展示内置对象、命名空间、函数、配置键、环境变量和示例。
 
 ```toml
 [Telegram]
@@ -192,9 +192,10 @@ bot_custom_commands = [
 
 - `fetch` 是受限同步能力，仅支持公开 `http/https` 的 `GET` / `POST` / `HEAD`；会阻断 localhost、内网、链路本地目标、跳转和凭据。仍不提供 `require`、文件系统或进程能力；配置与环境变量只能通过白名单函数读取非敏感值。
 - Token、Secret、密码、API Key、数据库 URL、服务器线路等敏感信息不会注入沙箱，也不会通过 `config` / `env` 返回。
-- 后端会静态拒绝危险 token，并用 200ms 超时中断长循环。
+- 后端会静态拒绝危险 token，并用 8 秒墙钟超时中断长循环或卡死脚本。
 - `getUser(uid)` / `users.get(uid)` / `users.byUID(uid)` 只支持按精确 UID 读取脱敏快照：普通用户只能读取自己，读取其他用户必须当前 Telegram 绑定用户为管理员；不会返回密码、Token、API Key、BGM Token 明文、Emby 内部 ID 或数据库连接信息。
 - `users.search(query, limit)` / `users.list(options)` / `admin.*` 支持管理员受控搜索、列表和单用户写操作；普通用户只能读取自己。开发者模式预览中 `ctx.preview=true`，写操作只返回 `dry_run=true`，不会写入用户数据。
+- `regcodes.generate` / `invites.generate` / `announcements.create`（及对应的 `admin.generateRegcode` / `admin.generateInviteCode` / `admin.createAnnouncement`）只允许管理员调用，预览模式只返回 `dry_run=true` 不写入；成功写入会分别记录 `telegram_js_regcode_generate`、`telegram_js_invite_generate`、`telegram_js_announcement_create` 审计日志，来源标记 `telegram_js`。邀请码生成受 `invite_enabled` 功能开关约束。
 - 每次执行都会写入 `telegram_js_command_execute` 审计日志；开发者页面的沙箱预检写入 `developer_js_sandbox_preview`。
 - Bot 实际执行 `users.setLoginNotify` 成功写入时，会额外记录 `telegram_js_user_notify_update`。
 - `interactions.inline` 的 callback 只接受创建该消息的同一 Telegram 用户、同一 chat、同一 message，默认 2 分钟过期；callback 动作只能使用预定义 `answer` / `edit` / `reply` 静态文本，不会再次执行 JS。
@@ -227,16 +228,35 @@ bot_custom_commands = [
 | `db.count(name)` | `name: string` | `number` | 返回允许的集合计数；无权限返回 `-1`。 |
 | `db.currentUser()` / `users.current()` | 无 | `UserSnapshot` | 返回当前绑定用户脱敏快照。 |
 | `db.getUser(uid)` / `users.get(uid)` / `users.byUID(uid)` | `uid: number\|string` | `UserSnapshot\|null` | 按精确 UID 读取脱敏快照。 |
-| `db.findUsers(query, limit)` / `users.search(query, limit)` | `query: string`, `limit?: number` | `UserSnapshot[]` | 管理员搜索，最多 50 条。 |
+| `db.findUsers(query, limit)` / `users.search(query, limit)` / `users.find(query, limit)` | `query: string`, `limit?: number` | `UserSnapshot[]` | 管理员搜索，最多 50 条；`find` 为 `search` 简化别名。 |
+| `users.exists(uid)` | `uid: number\|string` | `boolean` | 该 UID 是否存在；跨用户查询需管理员，否则 `false`。 |
 | `db.listUsers(options)` / `users.list(options)` | `limit?`, `offset?`, `role?`, `active?` | `UserSnapshot[]` | 管理员可分页/筛选；普通用户仅返回自己。 |
+| `db.listRegcodes(options)` | `limit?`, `offset?` | `RegCodeSnapshot[]` | 管理员专用，脱敏注册码快照，不含用户密钥。 |
+| `db.listInviteCodes(options)` | `limit?`, `offset?` | `InviteCodeSnapshot[]` | 管理员看全部；普通用户只看自己拥有的邀请码。 |
+| `db.listMediaRequests(options)` | `limit?`, `offset?` | `MediaRequestSnapshot[]` | 管理员看全部；普通用户只看自己的求片记录。 |
+| `db.listAnnouncements(options)` | `limit?`, `offset?` | `AnnouncementSnapshot[]` | 可见公告快照，不含正文。 |
+| `db.listTickets(options)` | `limit?`, `offset?` | `TicketSnapshot[]` | 管理员看全部；普通用户只看自己的工单，不含正文。 |
+| `db.listPresets(options)` | `limit?`, `offset?` | `PresetSnapshot[]` | 管理员专用，开发者 JS 预设元数据，仅含 `code_length`。 |
 | `db.updateCurrentUser(patch)` | `notify_on_login_telegram?`, `notify_on_login_email?`, `telegram?`, `email?` | `{ ok, dry_run?, user?, error? }` | 只修改当前用户登录通知偏好。 |
 | `users.setLoginNotify(options)` | `telegram?: boolean`, `email?: boolean` | `{ ok, dry_run?, user?, error? }` | `db.updateCurrentUser` 的便捷形式。 |
 | `users.setActive(uid, active)` / `admin.setActive(uid, active)` | `uid`, `active: boolean` | `{ ok, dry_run?, user?, error? }` | 管理员启停 Web 账号，带最后管理员保护。 |
+| `users.enable(uid)` / `users.disable(uid)` | `uid` | `{ ok, dry_run?, user?, error? }` | `setActive(uid, true/false)` 的简化别名。 |
 | `users.setRole(uid, role)` / `admin.setRole(uid, role)` | `uid`, `role: number` | `{ ok, dry_run?, user?, error? }` | 管理员修改角色。 |
 | `users.setExpiry(uid, expiredAt)` / `admin.setExpiry(uid, expiredAt)` | `uid`, `expiredAt: number` | `{ ok, dry_run?, user?, error? }` | 管理员修改到期时间，`-1` 表示永久。 |
+| `users.extend(uid, days)` | `uid`, `days: number` | `{ ok, dry_run?, uid?, expired_at?, note?, error? }` | 在当前到期（或现在，取较晚者）上顺延 `days` 天；永久用户原样返回。 |
 | `users.update(uid, patch)` / `admin.updateUser(uid, patch)` | `uid`, `patch` | `{ ok, dry_run?, user?, error? }` | 管理员组合更新受控字段。 |
 | `admin.ok()` / `admin.ensure()` | 无 | `boolean` | 管理员快捷判断；`ensure()` 会在失败时写沙箱日志。 |
 | `admin.searchUsers(query, limit)` / `admin.listUsers(options)` | 同 `users.search/list` | `UserSnapshot[]` | 管理员快捷读接口。 |
+| `regcodes.list(options)` | `limit?`, `offset?` | `RegCodeSnapshot[]` | 管理员专用，等价 `db.listRegcodes`。 |
+| `regcodes.get(code)` | `code: string` | `RegCodeSnapshot\|null` | 管理员按精确码值查询脱敏快照。 |
+| `regcodes.generate(options)` / `admin.generateRegcode(options)` | `count?`, `type?`, `days?`, `use_count_limit?`, `validity_time?`, `note?`, `target_username?`, `decoy?` | `{ ok, dry_run?, codes?, count?, type?, days?, error? }` | 管理员批量生成注册/续期/白名单码，写审计日志。 |
+| `regcodes.quick(days?, count?, type?)` | `days?`, `count?`, `type?` | 同 `regcodes.generate` | `generate` 的位置参数简化别名。 |
+| `invites.list(options)` | `limit?`, `offset?` | `InviteCodeSnapshot[]` | 管理员看全部；普通用户看自己的邀请码。 |
+| `invites.generate(options)` / `admin.generateInviteCode(options)` | `days?`, `expires_at?`, `note?`, `target_username?` | `{ ok, dry_run?, code?, invite?, days?, error? }` | 管理员生成邀请码（需 `invite_enabled`），写审计日志。 |
+| `invites.quick(days?)` | `days?` | 同 `invites.generate` | `generate` 的位置参数简化别名（需 `invite_enabled`）。 |
+| `announcements.list(options)` | `limit?`, `offset?` | `AnnouncementSnapshot[]` | 可见公告快照，不含正文。 |
+| `announcements.create(options)` / `admin.createAnnouncement(options)` | `title?`, `content?`, `level?`, `render_mode?`, `visible?`, `pinned?`, `expires_at?` | `{ ok, dry_run?, announcement?, error? }` | 管理员创建公告，写审计日志。 |
+| `announcements.post(title, content, level?)` | `title`, `content`, `level?` | 同 `announcements.create` | `create` 的位置参数简化别名。 |
 | `admin.stats()` / `system.stats()` | 无 | `object` | 返回安全聚合统计；管理员可看到更多计数。 |
 | `system.info()` | 无 | `object` | 返回安全系统元信息、功能开关和限制。 |
 | `system.feature(key)` | `key: string` | `boolean` | 读取一个安全功能开关。 |

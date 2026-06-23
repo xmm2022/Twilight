@@ -351,6 +351,7 @@
     "successDescription": "已消耗 {spent} {currencyName}，目前有效期：{expireStatus}"
   },
   "adminUsers": {
+    "perPage": "每頁",
     "clearEmailsAction": "清空所有信箱",
     "previewFailed": "預覽失敗",
     "cleanupFailed": "清理失敗",
@@ -629,7 +630,18 @@
     "reopenTicket": "重開工單",
     "closed": "工單已關閉",
     "reopened": "工單已重開",
-    "adminReply": "管理員回覆"
+    "adminReply": "管理員回覆",
+    "images": "交流圖片",
+    "imagesHint": "最多 {count} 張，單張不超過 {size}MB，支援 JPG / PNG / GIF / WEBP / BMP",
+    "addImage": "新增圖片",
+    "uploading": "上傳中…",
+    "imageUploaded": "圖片已上傳",
+    "imageDeleted": "圖片已刪除",
+    "deleteImage": "刪除圖片",
+    "imageTooLarge": "圖片大小超過限制（單張最大 {size}MB）",
+    "imageTooMany": "圖片數量已達上限（每個工單最多 {count} 張）",
+    "imageInvalidType": "無效的圖片檔案，僅支援 JPG / PNG / GIF / WEBP / BMP",
+    "imageClosedHint": "工單已關閉，無法繼續上傳圖片"
   },
   "adminTickets": {
     "title": "工單管理",
@@ -666,7 +678,12 @@
     "typeRenamed": "類型已重新命名",
     "deleteTypeTitle": "刪除工單類型",
     "deleteTypeDesc": "確定要刪除類型「{name}」嗎？已有工單的類型不會受影響。",
-    "cannotDeleteLastType": "不能刪除最後一個類型"
+    "cannotDeleteLastType": "不能刪除最後一個類型",
+    "images": "交流圖片",
+    "addImage": "新增圖片",
+    "imageUploaded": "圖片已上傳",
+    "imageDeleted": "圖片已刪除",
+    "deleteImage": "刪除圖片"
   },
   "bangumi": {
     "title": "Bangumi 同步",
@@ -1543,6 +1560,14 @@
     "exampleEnvDesc": "讀取白名單內的非敏感 TWILIGHT_* 環境變數。",
     "exampleRouter": "參數分支範例",
     "exampleRouterDesc": "根據第一個參數分派不同功能，適合多功能工具命令。",
+    "exampleDbAnnouncements": "公告列表範例（簡單）",
+    "exampleDbAnnouncementsDesc": "使用 db.listAnnouncements 讀取最新公告並格式化輸出。",
+    "exampleDbMyRequests": "我的求片範例（簡單）",
+    "exampleDbMyRequestsDesc": "使用 db.listMediaRequests 列出目前使用者的求片記錄與狀態。",
+    "exampleDbRegcodeReport": "註冊碼統計範例（複雜·管理員）",
+    "exampleDbRegcodeReportDesc": "管理員遍歷註冊碼並按狀態彙總統計，產生報表。",
+    "exampleDbTicketTriage": "工單分診範例（複雜·管理員）",
+    "exampleDbTicketTriageDesc": "管理員篩選未關閉工單，排序後提示最早的一條。",
     "exampleApply": "載入到編輯器",
     "authBadge": "管理員鑑權",
     "sandboxBadge": "受控沙箱",
@@ -1554,6 +1579,7 @@
     "custom": "自訂",
     "saveTemplateTitle": "儲存目前範本",
     "templateName": "範本名稱",
+    "templateNamePlaceholder": "為預設取一個便於識別的名稱",
     "templateDescription": "範本說明",
     "saveAsTemplate": "儲存為新預設",
     "templateNameRequired": "請填寫預設名稱",
@@ -1565,6 +1591,9 @@
     "editorDescription": "編輯單條 js: 腳本，預檢通過後可複製為 bot_custom_commands 配置值。",
     "copyCommandReply": "複製配置行",
     "commandReplyPreview": "配置行預覽",
+    "copyCode": "複製腳本",
+    "bindCommandNotice": "腳本綁定 / 指令請前往「Telegram 自訂指令」統一管理，本頁僅用於編寫與除錯腳本。",
+    "openCommandManager": "開啟自訂指令管理",
     "snippetReply": "回覆",
     "snippetLog": "日誌",
     "snippetAdminGuard": "管理員鑑權",
@@ -1583,6 +1612,7 @@
     "snippetArray": "陣列工具",
     "snippetInline": "Inline 操作",
     "snippetWaitText": "等待文字",
+    "snippetDbList": "資料庫列表",
     "docsTitle": "變數、常數與函式文件",
     "docsDescription": "這裡列出的 API 才能在沙箱中使用；未列出的物件不會注入。",
     "docsPageTitle": "JS 介面文件",
@@ -1832,6 +1862,7 @@
     }
   },
   "adminRegcodes": {
+    "perPage": "每頁",
     "pageTitle": "卡碼管理",
     "pageSubtitle": "管理註冊碼、續期碼、白名單碼和邀請碼",
     "tabRegcodes": "註冊碼",
@@ -2080,6 +2111,12 @@
     "algoDesc_legacy-sha1": "舊版 SHA1 截斷格式，用於相容歷史卡碼風格。",
     "deselectAll": "取消全選",
     "selectAll": "全選",
+    "selectAllMatching": "選中全部符合（{count}）",
+    "selectAllMatchingActive": "已選中符合目前篩選的全部 {count} 個註冊碼",
+    "clearSelection": "清除選擇",
+    "crossPageCount": "跨頁共 {count} 個",
+    "batchDeleteAllMatchTitle": "刪除符合篩選的全部 {count} 個註冊碼？",
+    "batchDeleteAllMatchDesc": "將刪除符合目前篩選條件（類型 / 狀態 / 來源 / 關鍵字）的全部 {count} 個註冊碼，包含已有使用紀錄的卡碼也會被移除，且無法復原。",
     "jumpToPage": "跳轉："
   },
   "validators": {

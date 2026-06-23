@@ -1136,7 +1136,7 @@ func (a *App) handleSystemInfo(w http.ResponseWriter, r *http.Request, _ Params)
 			"ticket_system":                 cfg.TicketSystemEnabled,
 		},
 		"auth_background_url": cfg.AuthBackgroundURL,
-		"limits":              map[string]any{"user_limit": cfg.UserLimit, "stream_limit": cfg.MaxStreams},
+		"limits":              map[string]any{"user_limit": cfg.UserLimit, "stream_limit": cfg.MaxStreams, "ticket_image_max_size": cfg.TicketImageMaxSize, "ticket_image_max_count": cfg.TicketImageMaxCount},
 		"telegram_bot":        a.publicTelegramBotInfo(r.Context()),
 		"setup":               a.setupStatusData(),
 		"telegram_links":      publicTelegramLinks(cfg.TelegramGroupIDs, cfg.TelegramChannelIDs),

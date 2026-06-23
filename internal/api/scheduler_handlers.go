@@ -22,6 +22,7 @@ var schedulerJobs = []map[string]any{
 	{"id": "system_auto_update", "name": "系统自动更新", "description": "按配置拉取可信 Git 仓库更新，并可选择重启服务。", "manual_only": false, "enabled": false},
 	{"id": "cleanup_unused_uploads", "name": "清理未使用上传文件", "description": "删除未被头像、背景或服务器图标引用的历史上传文件。", "manual_only": false, "enabled": true},
 	{"id": "cleanup_audit_logs", "name": "审计日志自动清理", "description": "按配置的保留天数/最大条数策略清理过期审计日志，可保留管理员操作。", "manual_only": false, "enabled": true},
+	{"id": "cleanup_ticket_images", "name": "清理过期工单图片", "description": "按配置的保留天数清理已关闭工单的交流图片附件，并同步清空元数据。", "manual_only": false, "enabled": true},
 	{"id": "kick_unknown_group_members", "name": "踢出未知 Telegram 群成员", "description": "根据已观察到的群成员名册，踢出无系统账号、未绑定 Emby 或已禁用的成员。", "manual_only": true, "enabled": true, "runtime_params": []string{"dry_run", "max_per_run"}},
 }
 
@@ -150,6 +151,8 @@ func (a *App) schedulerDefaultRuntimeParams(jobID string) map[string]any {
 		return map[string]any{"enabled": a.cfg().AutoCleanupPendingEmby, "auto_enabled": a.cfg().AutoCleanupPendingEmby, "scope": "all"}
 	case "cleanup_audit_logs":
 		return map[string]any{"enabled": a.cfg().AuditLogAutoCleanupEnabled, "auto_enabled": a.cfg().AuditLogAutoCleanupEnabled, "retention_days": a.cfg().AuditLogRetentionDays, "max_entries": a.cfg().AuditLogMaxEntries, "preserve_admin": a.cfg().AuditLogPreserveAdmin}
+	case "cleanup_ticket_images":
+		return map[string]any{"retention_days": a.cfg().TicketImageRetentionDays}
 	case "kick_unknown_group_members":
 		return map[string]any{"dry_run": true, "max_per_run": 200}
 	case "enforce_group_membership":
@@ -202,6 +205,9 @@ func (a *App) normalizeSchedulerRuntimeParams(jobID string, params map[string]an
 		retentionDays := clamp(intValue(params, "retention_days", intValue(params, "days", a.cfg().AuditLogRetentionDays)), 0, 3650)
 		maxEntries := clamp(intValue(params, "max_entries", a.cfg().AuditLogMaxEntries), 0, 100000)
 		return map[string]any{"enabled": enabled, "auto_enabled": enabled, "retention_days": retentionDays, "max_entries": maxEntries, "preserve_admin": boolValue(params, "preserve_admin", a.cfg().AuditLogPreserveAdmin)}
+	case "cleanup_ticket_images":
+		retentionDays := clamp(intValue(params, "retention_days", intValue(params, "days", a.cfg().TicketImageRetentionDays)), 0, 3650)
+		return map[string]any{"retention_days": retentionDays}
 	case "kick_unknown_group_members":
 		return map[string]any{"dry_run": boolValue(params, "dry_run", true), "max_per_run": clamp(intValue(params, "max_per_run", 200), 1, 500)}
 	case "enforce_group_membership":

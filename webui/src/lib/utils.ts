@@ -5,6 +5,30 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+// 读取本地保存的每页数量偏好；非法值或 SSR 环境回退到 fallback。
+// allowed 用于约束到 UI 选项集合，避免历史值落在选项之外导致选择器显示异常。
+export function readStoredPerPage(key: string, fallback: number, allowed: number[]): number {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return fallback;
+    const value = Number(raw);
+    if (Number.isInteger(value) && allowed.includes(value)) return value;
+  } catch {
+    // localStorage 不可用（隐私模式等），忽略并使用 fallback
+  }
+  return fallback;
+}
+
+export function storePerPage(key: string, value: number): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, String(value));
+  } catch {
+    // localStorage 写入失败时静默降级，不影响功能
+  }
+}
+
 const PERMANENT_EXPIRY_UNIX_SECONDS = 253402214400;
 
 export function isPermanentDateValue(date: string | Date | number | null | undefined): boolean {

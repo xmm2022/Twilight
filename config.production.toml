@@ -378,6 +378,8 @@ cleanup_pending_emby_time = "03:45"
 cleanup_unused_uploads_time = "02:20"
 # 审计日志自动清理（每日 HH:MM）
 cleanup_audit_logs_time = "04:30"
+# 过期工单图片清理（每日 HH:MM）
+cleanup_ticket_images_time = "04:45"
 
 # ───────── 系统自动更新 ─────────
 [SystemUpdate]
@@ -420,6 +422,16 @@ min_progress_percent = 80
 [Ticket]
 enabled = false
 types = ["all"]
+# 单用户同时处于待处理/处理中的工单上限；0=不限制
+user_open_limit = 5
+# 全局同时处于待处理/处理中的工单总上限；0=不限制
+global_open_limit = 0
+# 工单交流图片单张最大字节数（默认 5MB）
+image_max_size = 5242880
+# 每个工单最多上传图片数量
+image_max_count = 5
+# 工单关闭后图片保留天数，到期由调度任务清理；0=不自动清理
+image_retention_days = 30
 
 # ───────── 操作审计 ─────────
 [AuditLog]

@@ -64,7 +64,10 @@ import { api, type UserInfo } from "@/lib/api";
 import { ApiError } from "@/lib/api-request";
 import { useI18n } from "@/lib/i18n";
 import { ErrCodes } from "@/lib/errcode";
-import { formatDate } from "@/lib/utils";
+import { formatDate, readStoredPerPage, storePerPage } from "@/lib/utils";
+
+const USERS_PER_PAGE_OPTIONS = [20, 50, 100];
+const USERS_PER_PAGE_STORAGE_KEY = "twilight.admin.users.perPage";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { sanitizeImageUrl } from "@/lib/safe-url";
 import { API_BASE } from "@/lib/api-request";
@@ -125,7 +128,9 @@ export default function AdminUsersPage() {
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState(20);
+  const [perPage, setPerPage] = useState(() =>
+    readStoredPerPage(USERS_PER_PAGE_STORAGE_KEY, 20, USERS_PER_PAGE_OPTIONS)
+  );
   const [pages, setPages] = useState(1);
   const [search, setSearch] = useState("");
   // 筛选 / 排序
@@ -377,6 +382,19 @@ export default function AdminUsersPage() {
     setExcludedUserIds(new Set());
     setSelectionScope("manual");
     setSelectionScopeCount(0);
+  };
+
+  // 切换每页数量：持久化偏好、重置到第 1 页并清空选择。
+  // 清空选择是因为 manual 范围选中的是当前页 UID，换页大小后页边界变化，
+  // 保留旧选中集会让用户对“当前页全选”状态产生误解；scope 类选择同样重置更直观。
+  const handlePerPageChange = (value: number) => {
+    if (value === perPage) return;
+    storePerPage(USERS_PER_PAGE_STORAGE_KEY, value);
+    clearUserSelection();
+    invalidateUsersCache();
+    setExpandedUserIds(new Set());
+    setPage(1);
+    setPerPage(value);
   };
 
   const embyMatchingFilter = () => ({
@@ -2527,22 +2545,39 @@ export default function AdminUsersPage() {
       </Card>
 
       {/* Pagination */}
-      {pages > 1 && (
-        <div className="flex items-center justify-center gap-2">
-          <Button variant="outline" size="icon" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <span className="text-sm">第 {page} 页，共 {pages} 页</span>
-          <Button variant="outline" size="icon" onClick={() => setPage((p) => Math.min(pages, p + 1))} disabled={page === pages}>
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-          <div className="flex items-center gap-1 ml-2">
-            <span className="text-xs text-muted-foreground">跳转：</span>
-            <Input type="number" min={1} max={pages} className="h-8 w-16 text-xs"
-              onKeyDown={(e) => { if (e.key === "Enter") { const v = parseInt((e.target as HTMLInputElement).value, 10); if (v >= 1 && v <= pages) setPage(v); }}} />
-          </div>
+      <div className="flex flex-wrap items-center justify-center gap-3">
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-muted-foreground">{t("adminUsers.perPage")}</span>
+          <Select value={String(perPage)} onValueChange={(value) => handlePerPageChange(Number(value))}>
+            <SelectTrigger className="h-8 w-24 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {USERS_PER_PAGE_OPTIONS.map((option) => (
+                <SelectItem key={option} value={String(option)}>
+                  {option} / {t("adminUsers.perPage")}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-      )}
+        {pages > 1 && (
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="icon" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="text-sm">第 {page} 页，共 {pages} 页</span>
+            <Button variant="outline" size="icon" onClick={() => setPage((p) => Math.min(pages, p + 1))} disabled={page === pages}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+            <div className="flex items-center gap-1 ml-2">
+              <span className="text-xs text-muted-foreground">跳转：</span>
+              <Input type="number" min={1} max={pages} className="h-8 w-16 text-xs"
+                onKeyDown={(e) => { if (e.key === "Enter") { const v = parseInt((e.target as HTMLInputElement).value, 10); if (v >= 1 && v <= pages) setPage(v); }}} />
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Edit Dialog */}
       <EditUserDialog

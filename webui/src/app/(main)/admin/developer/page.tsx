@@ -31,7 +31,6 @@ type DeveloperTemplate = {
   presetId?: number;
   title: MessageKey | string;
   description: MessageKey | string;
-  command: string;
   code: string;
   builtin?: boolean;
   updatedAt?: number;
@@ -85,12 +84,74 @@ if (action === "ping") {
   reply("Usage: /tool ping | me");
 }`;
 
+const dbAnnouncementsTemplate = `// Simple: list latest announcements
+const list = db.listAnnouncements({ limit: 5 });
+if (!list.length) {
+  reply("No announcements");
+  return;
+}
+const lines = list.map(function (a) {
+  return "- " + a.title + (a.pinned ? " (pinned)" : "");
+});
+reply(lines.join("\\n"));`;
+
+const dbMyRequestsTemplate = `// Simple: show my own media requests
+const mine = db.listMediaRequests({ limit: 10 });
+if (!mine.length) {
+  reply("You have no media requests");
+  return;
+}
+const lines = mine.map(function (r) {
+  return "- " + r.title + " [" + r.status + "]";
+});
+reply(lines.join("\\n"));`;
+
+const dbRegcodeReportTemplate = `// Complex (admin): summarize registration codes by status
+if (!auth("admin")) {
+  reply("Permission denied");
+  return;
+}
+const codes = db.listRegcodes({ limit: 200 });
+const buckets = {};
+codes.forEach(function (c) {
+  const key = c.status || "unknown";
+  buckets[key] = (buckets[key] || 0) + 1;
+});
+const lines = Object.keys(buckets).sort().map(function (k) {
+  return k + ": " + buckets[k];
+});
+reply(["RegCode report (" + codes.length + " scanned)"].concat(lines).join("\\n"));`;
+
+const dbTicketTriageTemplate = `// Complex (admin): triage open tickets and ping the oldest
+if (!auth("admin")) {
+  reply("Permission denied");
+  return;
+}
+const tickets = db.listTickets({ limit: 100 });
+const open = tickets.filter(function (t) {
+  return t.status !== "closed" && t.status !== "resolved";
+});
+if (!open.length) {
+  reply("No open tickets");
+  return;
+}
+open.sort(function (a, b) {
+  return (a.created_at || 0) - (b.created_at || 0);
+});
+const oldest = open[0];
+const lines = [
+  "Open tickets: " + open.length,
+  "Oldest: #" + oldest.id + " " + (oldest.title || ""),
+  "Opened: " + time.formatUnix(oldest.created_at),
+  "Type: " + (oldest.type || "n/a")
+];
+reply(lines.join("\\n"));`;
+
 const builtInTemplates: DeveloperTemplate[] = [
   {
     id: "hello",
     title: "adminDeveloper.exampleHello",
     description: "adminDeveloper.exampleHelloDesc",
-    command: "/hello",
     code: helloTemplate,
     builtin: true,
   },
@@ -98,7 +159,6 @@ const builtInTemplates: DeveloperTemplate[] = [
     id: "stats",
     title: "adminDeveloper.exampleStats",
     description: "adminDeveloper.exampleStatsDesc",
-    command: "/me",
     code: statsTemplate,
     builtin: true,
   },
@@ -106,7 +166,6 @@ const builtInTemplates: DeveloperTemplate[] = [
     id: "admin-guard",
     title: "adminDeveloper.exampleGuard",
     description: "adminDeveloper.exampleGuardDesc",
-    command: "/admin_tool",
     code: adminGuardTemplate,
     builtin: true,
   },
@@ -114,7 +173,6 @@ const builtInTemplates: DeveloperTemplate[] = [
     id: "config",
     title: "adminDeveloper.exampleConfig",
     description: "adminDeveloper.exampleConfigDesc",
-    command: "/site",
     code: configTemplate,
     builtin: true,
   },
@@ -122,7 +180,6 @@ const builtInTemplates: DeveloperTemplate[] = [
     id: "env",
     title: "adminDeveloper.exampleEnv",
     description: "adminDeveloper.exampleEnvDesc",
-    command: "/runtime",
     code: envTemplate,
     builtin: true,
   },
@@ -130,8 +187,35 @@ const builtInTemplates: DeveloperTemplate[] = [
     id: "router",
     title: "adminDeveloper.exampleRouter",
     description: "adminDeveloper.exampleRouterDesc",
-    command: "/tool",
     code: argsRouterTemplate,
+    builtin: true,
+  },
+  {
+    id: "db-announcements",
+    title: "adminDeveloper.exampleDbAnnouncements",
+    description: "adminDeveloper.exampleDbAnnouncementsDesc",
+    code: dbAnnouncementsTemplate,
+    builtin: true,
+  },
+  {
+    id: "db-my-requests",
+    title: "adminDeveloper.exampleDbMyRequests",
+    description: "adminDeveloper.exampleDbMyRequestsDesc",
+    code: dbMyRequestsTemplate,
+    builtin: true,
+  },
+  {
+    id: "db-regcode-report",
+    title: "adminDeveloper.exampleDbRegcodeReport",
+    description: "adminDeveloper.exampleDbRegcodeReportDesc",
+    code: dbRegcodeReportTemplate,
+    builtin: true,
+  },
+  {
+    id: "db-ticket-triage",
+    title: "adminDeveloper.exampleDbTicketTriage",
+    description: "adminDeveloper.exampleDbTicketTriageDesc",
+    code: dbTicketTriageTemplate,
     builtin: true,
   },
 ];
@@ -244,16 +328,15 @@ reply(res.ok ? text.truncate(res.text, 200) : ("fetch failed: " + (res.error || 
   max_chars: 120
 });`,
   },
+  {
+    labelKey: "adminDeveloper.snippetDbList",
+    code: `const list = db.listAnnouncements({ limit: 5 });
+reply(list.map(function (a) { return "- " + a.title; }).join("\\n"));`,
+  },
 ] as const;
 
 function templateText(value: MessageKey | string, t: (key: MessageKey) => string): string {
   return value.startsWith("adminDeveloper.") ? t(value as MessageKey) : value;
-}
-
-function commandReply(command: string, code: string, presetId?: number): string {
-  const normalized = command.trim().startsWith("/") ? command.trim() : `/${command.trim() || "custom"}`;
-  if (presetId) return `${normalized} = js:preset:${presetId}`;
-  return `${normalized} = js:${code.trim()}`;
 }
 
 function presetToTemplate(preset: DeveloperJSPreset): DeveloperTemplate {
@@ -262,7 +345,6 @@ function presetToTemplate(preset: DeveloperJSPreset): DeveloperTemplate {
     presetId: preset.id,
     title: preset.name,
     description: preset.description || "",
-    command: "/custom",
     code: preset.code || "",
     updatedAt: preset.updated_at,
   };
@@ -273,7 +355,6 @@ export default function AdminDeveloperPage() {
   const { t } = useI18n();
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const [code, setCode] = useState(helloTemplate);
-  const [command, setCommand] = useState("/hello");
   const [running, setRunning] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [templateName, setTemplateName] = useState("");
@@ -300,12 +381,10 @@ export default function AdminDeveloperPage() {
   const customTemplates = useMemo(() => serverPresets.map(presetToTemplate), [serverPresets]);
   const allTemplates = useMemo(() => [...builtInTemplates, ...customTemplates], [customTemplates]);
   const activeTemplate = allTemplates.find((item) => item.id === activeTemplateId);
-  const commandPreview = useMemo(() => commandReply(command, code, activeTemplate?.presetId), [activeTemplate?.presetId, code, command]);
 
   const applyTemplate = useCallback((template: DeveloperTemplate) => {
     setActiveTemplateId(template.id);
     setCode(template.code);
-    setCommand(template.command || "/custom");
     setTemplateName(template.builtin ? "" : String(template.title));
     setTemplateDescription(template.builtin ? "" : String(template.description || ""));
     setResult(null);
@@ -331,7 +410,6 @@ export default function AdminDeveloperPage() {
   const newBlankTemplate = useCallback(() => {
     setActiveTemplateId("blank");
     setCode("");
-    setCommand("/custom");
     setTemplateName("");
     setTemplateDescription("");
     setResult(null);
@@ -398,12 +476,12 @@ export default function AdminDeveloperPage() {
 
   const copyCommandReply = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(commandPreview);
+      await navigator.clipboard.writeText(code.trim());
       toast({ title: t("common.copied"), variant: "success" });
     } catch {
       toast({ title: t("common.copyFailed"), variant: "destructive" });
     }
-  }, [commandPreview, t, toast]);
+  }, [code, t, toast]);
 
   const preview = async () => {
     setRunning(true);
@@ -476,23 +554,35 @@ export default function AdminDeveloperPage() {
                     </Badge>
                   </div>
                   <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{templateText(template.description, t)}</p>
-                  <code className="mt-2 block truncate text-[11px] text-muted-foreground">{template.command}</code>
                 </button>
               ))}
             </div>
 
             <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
               <p className="text-sm font-medium">{t("adminDeveloper.saveTemplateTitle")}</p>
-              <Input value={templateName} onChange={(event) => setTemplateName(event.target.value)} placeholder={t("adminDeveloper.templateName")} inputSize="sm" />
-              <Input value={templateDescription} onChange={(event) => setTemplateDescription(event.target.value)} placeholder={t("adminDeveloper.templateDescription")} inputSize="sm" />
+              <div className="space-y-1">
+                <label className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                  {t("adminDeveloper.templateName")}
+                  <span className="text-destructive">*</span>
+                </label>
+                <Input
+                  value={templateName}
+                  onChange={(event) => setTemplateName(event.target.value)}
+                  placeholder={t("adminDeveloper.templateNamePlaceholder")}
+                  inputSize="sm"
+                  maxLength={80}
+                  aria-invalid={!templateName.trim()}
+                />
+              </div>
+              <Input value={templateDescription} onChange={(event) => setTemplateDescription(event.target.value)} placeholder={t("adminDeveloper.templateDescription")} inputSize="sm" maxLength={500} />
               <div className="grid gap-2">
-                <Button size="sm" onClick={saveAsTemplate} disabled={savingTemplate} className="min-h-9 whitespace-normal leading-tight">
+                <Button size="sm" onClick={saveAsTemplate} disabled={savingTemplate || !templateName.trim()} className="min-h-9 whitespace-normal leading-tight">
                   {savingTemplate ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
                   {t("adminDeveloper.saveAsTemplate")}
                 </Button>
                 {activeTemplate?.presetId && (
                   <div className="grid grid-cols-2 gap-2">
-                    <Button size="sm" variant="outline" onClick={updateTemplate} disabled={savingTemplate}>
+                    <Button size="sm" variant="outline" onClick={updateTemplate} disabled={savingTemplate || !templateName.trim()}>
                       {savingTemplate ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                       {t("common.save")}
                     </Button>
@@ -513,11 +603,10 @@ export default function AdminDeveloperPage() {
             <CardDescription>{t("adminDeveloper.editorDescription")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px]">
-              <Input value={command} onChange={(event) => setCommand(event.target.value)} placeholder="/hello" />
-              <Button variant="outline" onClick={copyCommandReply} className="min-h-10 whitespace-normal leading-tight">
+            <div className="flex justify-end">
+              <Button variant="outline" size="sm" onClick={copyCommandReply} className="whitespace-normal leading-tight">
                 <Copy className="mr-2 h-4 w-4" />
-                {t("adminDeveloper.copyCommandReply")}
+                {t("adminDeveloper.copyCode")}
               </Button>
             </div>
             <Textarea
@@ -527,10 +616,17 @@ export default function AdminDeveloperPage() {
               className="min-h-[440px] font-mono text-sm"
               spellCheck={false}
             />
-            <div className="rounded-lg border bg-muted/20 p-3">
-              <p className="mb-2 text-xs font-medium text-muted-foreground">{t("adminDeveloper.commandReplyPreview")}</p>
-              <pre className="max-h-28 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background p-2 text-xs">{commandPreview}</pre>
-            </div>
+            <Alert className="border-sky-500/40 bg-sky-500/10">
+              <BookOpen className="h-4 w-4" />
+              <AlertDescription className="flex flex-col gap-2 text-xs">
+                <span>{t("adminDeveloper.bindCommandNotice")}</span>
+                <Button asChild variant="outline" size="sm" className="w-fit">
+                  <Link href="/admin/telegram/commands">
+                    {t("adminDeveloper.openCommandManager")}
+                  </Link>
+                </Button>
+              </AlertDescription>
+            </Alert>
             <div className="flex flex-wrap gap-2">
               <Button onClick={() => void preview()} disabled={running} className="min-h-10 whitespace-normal leading-tight">
                 {running ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}

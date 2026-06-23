@@ -351,6 +351,7 @@
     "successDescription": "Spent {spent} {currencyName}. Current expiry: {expireStatus}"
   },
   "adminUsers": {
+    "perPage": "Per Page",
     "clearEmailsAction": "Clear all emails",
     "previewFailed": "Preview failed",
     "cleanupFailed": "Cleanup failed",
@@ -629,7 +630,18 @@
     "reopenTicket": "Reopen Ticket",
     "closed": "Ticket closed",
     "reopened": "Ticket reopened",
-    "adminReply": "Admin Reply"
+    "adminReply": "Admin Reply",
+    "images": "Communication Images",
+    "imagesHint": "Up to {count} images, max {size}MB each, JPG / PNG / GIF / WEBP / BMP",
+    "addImage": "Add Image",
+    "uploading": "Uploading…",
+    "imageUploaded": "Image uploaded",
+    "imageDeleted": "Image deleted",
+    "deleteImage": "Delete image",
+    "imageTooLarge": "Image exceeds size limit (max {size}MB each)",
+    "imageTooMany": "Image count limit reached (max {count} per ticket)",
+    "imageInvalidType": "Invalid image file, only JPG / PNG / GIF / WEBP / BMP are supported",
+    "imageClosedHint": "Ticket is closed, cannot upload more images"
   },
   "adminTickets": {
     "title": "Ticket Management",
@@ -666,7 +678,12 @@
     "deleteTypeTitle": "Delete ticket type",
     "deleteTypeDesc": "Delete type \"{name}\"? Existing tickets are unaffected.",
     "cannotDeleteLastType": "Cannot delete the last type",
-    "reopenTicket": "Reopen"
+    "reopenTicket": "Reopen",
+    "images": "Communication Images",
+    "addImage": "Add Image",
+    "imageUploaded": "Image uploaded",
+    "imageDeleted": "Image deleted",
+    "deleteImage": "Delete image"
   },
   "bangumi": {
     "title": "Bangumi Sync",
@@ -1543,6 +1560,14 @@
     "exampleEnvDesc": "Reads allowlisted non-sensitive TWILIGHT_* environment variables.",
     "exampleRouter": "Argument router example",
     "exampleRouterDesc": "Routes by the first argument, useful for multi-action tool commands.",
+    "exampleDbAnnouncements": "Announcement list example (simple)",
+    "exampleDbAnnouncementsDesc": "Use db.listAnnouncements to read the latest announcements and format them.",
+    "exampleDbMyRequests": "My media requests example (simple)",
+    "exampleDbMyRequestsDesc": "Use db.listMediaRequests to list the current user's media requests and statuses.",
+    "exampleDbRegcodeReport": "RegCode report example (complex, admin)",
+    "exampleDbRegcodeReportDesc": "Admins iterate registration codes and aggregate counts by status into a report.",
+    "exampleDbTicketTriage": "Ticket triage example (complex, admin)",
+    "exampleDbTicketTriageDesc": "Admins filter open tickets, sort them, and surface the oldest one.",
     "exampleApply": "Load into editor",
     "authBadge": "Admin auth",
     "sandboxBadge": "Controlled sandbox",
@@ -1554,6 +1579,7 @@
     "custom": "Custom",
     "saveTemplateTitle": "Save current template",
     "templateName": "Template name",
+    "templateNamePlaceholder": "Give the preset a recognizable name",
     "templateDescription": "Template description",
     "saveAsTemplate": "Save as new preset",
     "templateNameRequired": "Preset name is required",
@@ -1565,6 +1591,9 @@
     "editorDescription": "Edit one js: script. After preview passes, copy it into bot_custom_commands.",
     "copyCommandReply": "Copy config line",
     "commandReplyPreview": "Config line preview",
+    "copyCode": "Copy script",
+    "bindCommandNotice": "Bind scripts to / commands in the Telegram Custom Commands manager. This page is only for writing and testing scripts.",
+    "openCommandManager": "Open command manager",
     "snippetReply": "Reply",
     "snippetLog": "Log",
     "snippetAdminGuard": "Admin auth",
@@ -1583,6 +1612,7 @@
     "snippetArray": "Array helper",
     "snippetInline": "Inline action",
     "snippetWaitText": "Wait text",
+    "snippetDbList": "Database list",
     "docsTitle": "Variables, constants, and functions",
     "docsDescription": "Only the APIs listed here are injected into the sandbox.",
     "docsPageTitle": "JS API Documentation",
@@ -1832,6 +1862,7 @@
     }
   },
   "adminRegcodes": {
+    "perPage": "Per Page",
     "pageTitle": "Card Code Management",
     "pageSubtitle": "Manage registration, renewal, whitelist and invite codes",
     "tabRegcodes": "Reg Codes",
@@ -2080,6 +2111,12 @@
     "algoDesc_legacy-sha1": "Legacy truncated SHA1 format, for compatibility with historical code styles.",
     "deselectAll": "Deselect All",
     "selectAll": "Select All",
+    "selectAllMatching": "Select all matching ({count})",
+    "selectAllMatchingActive": "Selected all {count} codes matching the current filters",
+    "clearSelection": "Clear selection",
+    "crossPageCount": "{count} across pages",
+    "batchDeleteAllMatchTitle": "Delete all {count} codes matching the filters?",
+    "batchDeleteAllMatchDesc": "This will delete all {count} codes matching the current filters (type / status / source / keyword), including codes with usage records. This cannot be undone.",
     "jumpToPage": "Go to:"
   },
   "validators": {

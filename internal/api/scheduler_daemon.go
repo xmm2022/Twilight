@@ -425,6 +425,8 @@ func (a *App) schedulerDefaultTriggerSpec(jobID string) map[string]any {
 		return dailySpec(a.cfg().SchedulerCleanupUnusedUploadsTime, 2, 20)
 	case "cleanup_audit_logs":
 		return dailySpec(a.cfg().SchedulerCleanupAuditLogsTime, 4, 30)
+	case "cleanup_ticket_images":
+		return dailySpec(a.cfg().SchedulerCleanupTicketImagesTime, 4, 45)
 	default:
 		return dailySpec("03:00", 3, 0)
 	}

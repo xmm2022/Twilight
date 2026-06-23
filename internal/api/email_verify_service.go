@@ -183,13 +183,47 @@ func (a *App) issueEmailCode(ctx context.Context, ip, purpose, email string, uid
 	// 先发信、成功后落库：发信失败不在 store 里留下用户永远拿不到的"幽灵码"。
 	subject, body := a.renderEmailCodeMessage(code, ttlMin)
 	if err := smtpDeliver(ctx, *cfg, email, subject, body); err != nil {
+		// 错误已在 smtpDeliver 内经 redactSensitiveText 脱敏，这里只记不向用户透传
+		// SMTP 原始拒绝原因（可能含配额提示 / 服务器主机名等）。
 		zap.L().Warn("send email verification code failed", zap.String("purpose", purpose), zap.Error(err))
-		return "", http.StatusBadGateway, ErrEmailSendFailed, "验证码发送失败，请稍后再试或联系管理员"
+		// bind 类发码失败：清理"幽灵绑定"——删除可能残留的待验证记录，并把仍未验证
+		// 的同地址绑定邮箱清空，避免用户卡在"已填邮箱却永远收不到验证码"的状态。
+		// reset_password / change_password / del_account 等路径不清理：那些邮箱通常
+		// 已验证或不涉及绑定写入，清空会误删已验证邮箱或破坏找回流程。
+		if purpose == emailPurposeBind {
+			a.purgeFailedBindEmail(uid, email)
+		}
+		// 文案明确告知是"服务端全局发件能力达到上限"而非用户操作问题，并配合前端
+		// 对 EMAIL_SEND_FAILED 的本地冷却（120s），减少无效重试放大 SMTP 限流压力。
+		return "", http.StatusBadGateway, ErrEmailSendFailed, "当前邮件服务发件量已达上限，请稍后再试，这不是你的问题（如长期无法收到，请联系管理员）"
 	}
 	if err := a.store().PutEmailVerification(rec); err != nil {
 		return "", http.StatusInternalServerError, ErrInternal, "验证码保存失败"
 	}
 	return id, http.StatusOK, "", ""
+}
+
+// purgeFailedBindEmail 在 bind 类验证码发送失败后清理"幽灵绑定"：
+//   - 删除该地址在 bind 用途下尚未消费的活跃验证记录（重发失败时的残留）；
+//   - 仅当用户邮箱仍未验证且正是该地址时清空 Email/EmailVerified，避免误删已验证邮箱。
+//
+// 该操作幂等且容错：uid<=0 或 email 为空时直接返回；store 错误只吞掉不影响发码失败响应。
+func (a *App) purgeFailedBindEmail(uid int64, email string) {
+	email = strings.TrimSpace(email)
+	if uid <= 0 || email == "" {
+		return
+	}
+	if rec, ok := a.store().FindActiveEmailVerification(emailPurposeBind, email, time.Now().Unix()); ok {
+		_ = a.store().DeleteEmailVerification(rec.ID)
+	}
+	if u, ok := a.store().User(uid); ok && !u.EmailVerified && strings.EqualFold(strings.TrimSpace(u.Email), email) {
+		_, _ = a.store().UpdateUser(uid, func(user *store.User) error {
+			user.Email = ""
+			user.EmailVerified = false
+			user.EmailVerifiedAt = 0
+			return nil
+		})
+	}
 }
 
 // verifyEmailCodeByID 用 verification_id + code 校验（登录态绑定 / 改密路径）。

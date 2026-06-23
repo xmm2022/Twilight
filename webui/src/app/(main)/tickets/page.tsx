@@ -21,6 +21,10 @@ import { useAsyncResource } from "@/hooks/use-async-resource";
 import { api, type Ticket } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { useSystemStore } from "@/store/system";
+import { TicketImages } from "@/components/ticket-images";
+
+const DEFAULT_TICKET_IMAGE_MAX_SIZE = 5 * 1024 * 1024;
+const DEFAULT_TICKET_IMAGE_MAX_COUNT = 5;
 
 const STATUS_MAP: Record<string, { labelKey: string; className: string; icon: typeof AlertCircle }> = {
   open: { labelKey: "tickets.statusOpen", className: "bg-warning/10 text-warning border-warning/30", icon: AlertCircle },
@@ -45,6 +49,8 @@ export default function UserTicketsPage() {
   const { t } = useI18n();
   const { info: systemInfo } = useSystemStore();
   const ticketEnabled = Boolean(systemInfo?.features?.ticket_system);
+  const imageMaxSize = Number(systemInfo?.limits?.ticket_image_max_size) || DEFAULT_TICKET_IMAGE_MAX_SIZE;
+  const imageMaxCount = Number(systemInfo?.limits?.ticket_image_max_count) || DEFAULT_TICKET_IMAGE_MAX_COUNT;
 
   const [createOpen, setCreateOpen] = useState(false);
   const [title, setTitle] = useState("");
@@ -179,6 +185,15 @@ export default function UserTicketsPage() {
                   <div className="rounded-lg bg-muted/30 p-4 text-sm whitespace-pre-wrap break-words border border-border/50">
                     {ticket.content}
                   </div>
+
+                  <TicketImages
+                    ticketId={ticket.id}
+                    attachments={ticket.attachments || []}
+                    editable={!isClosed}
+                    maxSize={imageMaxSize}
+                    maxCount={imageMaxCount}
+                    onChange={() => void reload()}
+                  />
 
                   {ticket.admin_note && (
                     <div className="rounded-lg bg-info/5 border border-info/20 p-4 space-y-2">

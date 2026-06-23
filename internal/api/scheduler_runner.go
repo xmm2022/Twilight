@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/prejudice-studio/twilight/internal/store"
+	"go.uber.org/zap"
 )
 
 func (a *App) handleSendReminders(w http.ResponseWriter, r *http.Request, _ Params) {
@@ -593,6 +594,26 @@ func (a *App) runSchedulerJob(r *http.Request, jobID string) (map[string]any, []
 			logs = append(logs, fmt.Sprintf("removed %d entries older than %d days (preserve_admin=%v)", removed, retentionDays, preserveAdmin))
 		}
 		return map[string]any{"success": true, "current": a.store().AuditLogCount()}, logs, nil
+	case "cleanup_ticket_images":
+		retentionDays := jobParamInt(params, "retention_days", a.cfg().TicketImageRetentionDays)
+		if retentionDays <= 0 {
+			return map[string]any{"success": true, "skipped": true, "reason": "retention disabled"}, []string{"ticket image retention disabled"}, nil
+		}
+		cutoff := time.Now().Add(-time.Duration(retentionDays) * 24 * time.Hour).Unix()
+		tickets := a.store().ClosedTicketsWithAttachmentsBefore(cutoff)
+		cleanedTickets := 0
+		removedImages := 0
+		for _, t := range tickets {
+			a.removeTicketAttachmentDir(t.ID)
+			removedImages += len(t.Attachments)
+			if err := a.store().ClearTicketAttachments(t.ID); err != nil {
+				zap.L().Warn("清空工单图片元数据失败", zap.Int64("ticket_id", t.ID), zap.Error(err))
+				continue
+			}
+			cleanedTickets++
+		}
+		return map[string]any{"success": true, "tickets": cleanedTickets, "images": removedImages},
+			[]string{fmt.Sprintf("cleaned %d tickets, %d images older than %d days", cleanedTickets, removedImages, retentionDays)}, nil
 	default:
 		return map[string]any{"success": false}, nil, fmt.Errorf("unknown scheduler job: %s", jobID)
 	}

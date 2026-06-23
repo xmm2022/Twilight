@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Search,
   FlipHorizontal2,
+  CheckCheck,
   Pencil,
   Power,
   PowerOff,
@@ -49,8 +50,11 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useAsyncResource } from "@/hooks/use-async-resource";
 import { PageError } from "@/components/layout/page-state";
 import { api, type InviteCodeItem, type Regcode, type UserInfo } from "@/lib/api";
-import { formatDate } from "@/lib/utils";
+import { formatDate, readStoredPerPage, storePerPage } from "@/lib/utils";
 import { useI18n, type MessageKey } from "@/lib/i18n";
+
+const REGCODES_PER_PAGE_OPTIONS = [20, 50, 100];
+const REGCODES_PER_PAGE_STORAGE_KEY = "twilight.admin.regcodes.perPage";
 
 export default function AdminRegcodesPage() {
   const { toast } = useToast();
@@ -59,7 +63,13 @@ export default function AdminRegcodesPage() {
   const [regcodes, setRegcodes] = useState<Regcode[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(() =>
+    readStoredPerPage(REGCODES_PER_PAGE_STORAGE_KEY, 20, REGCODES_PER_PAGE_OPTIONS)
+  );
   const [selectedCodes, setSelectedCodes] = useState<Set<string>>(new Set());
+  // 跨页“选中全部匹配”作用域：manual=逐个勾选；all=按当前筛选选中全部，excludedCodes 为取消勾选的码。
+  const [selectionScope, setSelectionScope] = useState<"manual" | "all">("manual");
+  const [excludedCodes, setExcludedCodes] = useState<Set<string>>(new Set());
   const [isBatchDeleting, setIsBatchDeleting] = useState(false);
   const [deletingCode, setDeletingCode] = useState<string | null>(null);
   const [togglingCode, setTogglingCode] = useState<string | null>(null);
@@ -111,7 +121,7 @@ export default function AdminRegcodesPage() {
   const formatRegcodeDays = (days: number) => (days < 0 ? t("adminRegcodes.permanent") : t("adminRegcodes.daysValue", { days: days || 30 }));
 
   const loadRegcodesResource = useCallback(async () => {
-    const res = await api.getRegcodes(page, { type: filterType, status: filterStatus, source: filterSource, search, sort, order });
+    const res = await api.getRegcodes(page, { type: filterType, status: filterStatus, source: filterSource, search, sort, order, per_page: perPage });
     if (res.success && res.data) {
       const regcodesList = Array.isArray(res.data.regcodes)
         ? res.data.regcodes
@@ -120,7 +130,7 @@ export default function AdminRegcodesPage() {
           : [];
       const totalItems = res.data.total || regcodesList.length;
       if (totalItems > 0 && regcodesList.length === 0 && page > 1) {
-        setPage(Math.max(1, Math.ceil(totalItems / 20)));
+        setPage(Math.max(1, Math.ceil(totalItems / perPage)));
         return true;
       }
       setRegcodes(regcodesList);
@@ -131,13 +141,20 @@ export default function AdminRegcodesPage() {
       setTotal(0);
     }
     return true;
-  }, [page, filterType, filterStatus, filterSource, search, sort, order]);
+  }, [page, perPage, filterType, filterStatus, filterSource, search, sort, order]);
 
   const {
     isLoading,
     error,
     execute: loadRegcodes,
   } = useAsyncResource(loadRegcodesResource, { immediate: true });
+
+  // 筛选条件变化时重置“选中全部匹配”作用域，避免旧作用域跨越不同筛选集合
+  useEffect(() => {
+    setSelectionScope("manual");
+    setExcludedCodes(new Set());
+    setSelectedCodes(new Set());
+  }, [filterType, filterStatus, filterSource, search]);
 
   // 监听 Tab 切换，重置数据
   useEffect(() => {
@@ -239,8 +256,45 @@ export default function AdminRegcodesPage() {
   };
 
   const handleBatchDelete = async () => {
-    const selectedItems = regcodes.filter((item) => selectedCodes.has(item.code));
-    const codes = selectedItems.map((item) => item.code);
+    if (selectionScope === "all") {
+      if (selectAllMatchCount === 0) {
+        toast({ title: t("adminRegcodes.selectToDelete"), variant: "destructive" });
+        return;
+      }
+      const ok = await confirm({
+        title: t("adminRegcodes.batchDeleteTitle", { count: selectAllMatchCount }),
+        description: t("adminRegcodes.batchDeleteAllMatchDesc", { count: selectAllMatchCount }),
+        tone: "danger",
+        confirmLabel: t("adminRegcodes.batchDelete"),
+      });
+      if (!ok) return;
+
+      setIsBatchDeleting(true);
+      try {
+        const res = await api.batchDeleteRegcodesByFilter(
+          { type: filterType, status: filterStatus, source: filterSource, search },
+          Array.from(excludedCodes)
+        );
+        if (res.success && res.data) {
+          toast({
+            title: t("adminRegcodes.batchDeleteComplete"),
+            description: t("adminRegcodes.batchDeleteResult", { deleted: res.data.deleted, missing: res.data.missing }),
+            variant: "success",
+          });
+          clearSelection();
+          await loadRegcodes();
+        } else {
+          toast({ title: t("adminRegcodes.batchDeleteFailed"), description: res.message, variant: "destructive" });
+        }
+      } catch (error: any) {
+        toast({ title: t("adminRegcodes.batchDeleteFailed"), description: error.message, variant: "destructive" });
+      } finally {
+        setIsBatchDeleting(false);
+      }
+      return;
+    }
+    // 跨页选择：直接使用已选集合，不再按当前页过滤，避免丢失其他页选中的卡码
+    const codes = Array.from(selectedCodes);
     if (codes.length === 0) {
       toast({ title: t("adminRegcodes.selectToDelete"), variant: "destructive" });
       return;
@@ -470,7 +524,39 @@ export default function AdminRegcodesPage() {
 
   const selectedRegcodes = regcodes.filter((item) => selectedCodes.has(item.code));
 
+  // 选中全部匹配时，命中数 = 当前筛选总数 - 已取消勾选数。
+  const selectAllMatchCount = selectionScope === "all" ? Math.max(0, total - excludedCodes.size) : 0;
+  const selectedCount = selectionScope === "all" ? selectAllMatchCount : selectedCodes.size;
+
+  const isCodeSelected = (code: string) =>
+    selectionScope === "all" ? !excludedCodes.has(code) : selectedCodes.has(code);
+
+  // 进入“选中全部匹配”作用域：清空逐个勾选集合，转由筛选条件决定命中。
+  const enableSelectAllMatching = () => {
+    setSelectionScope("all");
+    setExcludedCodes(new Set());
+    setSelectedCodes(new Set());
+  };
+
+  const clearSelection = () => {
+    setSelectionScope("manual");
+    setExcludedCodes(new Set());
+    setSelectedCodes(new Set());
+  };
+
   const toggleSelectAll = (checked: boolean) => {
+    if (selectionScope === "all") {
+      // 在“全部匹配”作用域下，表头复选框控制当前页的取消勾选集合。
+      setExcludedCodes((prev) => {
+        const next = new Set(prev);
+        regcodes.forEach((item) => {
+          if (checked) next.delete(item.code);
+          else next.add(item.code);
+        });
+        return next;
+      });
+      return;
+    }
     if (checked) {
       setSelectedCodes((prev) => {
         const next = new Set(prev);
@@ -484,6 +570,17 @@ export default function AdminRegcodesPage() {
 
   // 反选：对当前页可见卡码逐个翻转选中态。
   const invertSelection = () => {
+    if (selectionScope === "all") {
+      setExcludedCodes((prev) => {
+        const next = new Set(prev);
+        regcodes.forEach((item) => {
+          if (next.has(item.code)) next.delete(item.code);
+          else next.add(item.code);
+        });
+        return next;
+      });
+      return;
+    }
     setSelectedCodes((prev) => {
       const next = new Set<string>();
       regcodes.forEach((item) => {
@@ -494,6 +591,15 @@ export default function AdminRegcodesPage() {
   };
 
   const toggleSelectCode = (code: string, checked: boolean) => {
+    if (selectionScope === "all") {
+      setExcludedCodes((prev) => {
+        const next = new Set(prev);
+        if (checked) next.delete(code);
+        else next.add(code);
+        return next;
+      });
+      return;
+    }
     setSelectedCodes((prev) => {
       const next = new Set(prev);
       if (checked) next.add(code);
@@ -569,7 +675,16 @@ export default function AdminRegcodesPage() {
     ? t(`adminRegcodes.algoDesc_${createData.randomAlgorithm}` as MessageKey)
     : t("adminRegcodes.algoDescDefault");
 
-  const pages = Math.ceil(total / 20);
+  const pages = Math.ceil(total / perPage);
+
+  // 切换每页数量：持久化偏好，清空选中并回到第一页，避免跨页选中残留与页码越界
+  const handlePerPageChange = (value: number) => {
+    if (value === perPage) return;
+    storePerPage(REGCODES_PER_PAGE_STORAGE_KEY, value);
+    setSelectedCodes(new Set());
+    setPage(1);
+    setPerPage(value);
+  };
 
   const usedCount = (code: Regcode) => {
     const byUid = code.used_by_uids?.length || 0;
@@ -1135,30 +1250,47 @@ export default function AdminRegcodesPage() {
       <>
           <div className="flex flex-col gap-2 rounded-xl border bg-muted/30 p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
             <span className="text-muted-foreground">
-              {t("adminRegcodes.selectionSummary", { selected: selectedRegcodes.length, total: regcodes.length })}
-              {selectedCodes.size > regcodes.length && (
-                <span className="ml-2 text-xs">（跨页共 {selectedCodes.size} 条）</span>
+              {selectionScope === "all" ? (
+                <span className="font-medium text-foreground">{t("adminRegcodes.selectAllMatchingActive", { count: selectAllMatchCount })}</span>
+              ) : (
+                <>
+                  {t("adminRegcodes.selectionSummary", { selected: selectedRegcodes.length, total: regcodes.length })}
+                  {selectedCodes.size > regcodes.length && (
+                    <span className="ml-2 text-xs">（{t("adminRegcodes.crossPageCount", { count: selectedCodes.size })}）</span>
+                  )}
+                </>
               )}
             </span>
             <div className="flex w-full flex-wrap gap-2 sm:w-auto">
-              <Button className="flex-1 sm:flex-none" variant="ghost" size="sm"
-                disabled={regcodes.length === 0}
-                onClick={() => {
-                  const regcodesOnPage = new Set(regcodes.map((item) => item.code));
-                  const allSelected = regcodesOnPage.size > 0 && regcodes.every((item) => selectedCodes.has(item.code));
-                  if (allSelected) {
-                    setSelectedCodes(new Set());
-                  } else {
-                    setSelectedCodes((prev) => {
-                      const next = new Set(prev);
-                      regcodes.forEach((item) => next.add(item.code));
-                      return next;
-                    });
-                  }
-                }}>
-                {regcodes.length > 0 && regcodes.every((item) => selectedCodes.has(item.code))
-                  ? t("adminRegcodes.deselectAll")
-                  : t("adminRegcodes.selectAll")}
+              {selectionScope === "all" ? (
+                <Button className="flex-1 sm:flex-none" variant="ghost" size="sm" onClick={clearSelection}>
+                  {t("adminRegcodes.clearSelection")}
+                </Button>
+              ) : (
+                <Button className="flex-1 sm:flex-none" variant="ghost" size="sm"
+                  disabled={regcodes.length === 0}
+                  onClick={() => {
+                    const regcodesOnPage = new Set(regcodes.map((item) => item.code));
+                    const allSelected = regcodesOnPage.size > 0 && regcodes.every((item) => selectedCodes.has(item.code));
+                    if (allSelected) {
+                      setSelectedCodes(new Set());
+                    } else {
+                      setSelectedCodes((prev) => {
+                        const next = new Set(prev);
+                        regcodes.forEach((item) => next.add(item.code));
+                        return next;
+                      });
+                    }
+                  }}>
+                  {regcodes.length > 0 && regcodes.every((item) => selectedCodes.has(item.code))
+                    ? t("adminRegcodes.deselectAll")
+                    : t("adminRegcodes.selectAll")}
+                </Button>
+              )}
+              <Button className="flex-1 sm:flex-none" variant="outline" size="sm"
+                onClick={enableSelectAllMatching}
+                disabled={total === 0 || selectionScope === "all"}>
+                <CheckCheck className="mr-2 h-4 w-4" /> {t("adminRegcodes.selectAllMatching", { count: total })}
               </Button>
               <Button className="flex-1 sm:flex-none" variant="outline" size="sm" onClick={invertSelection} disabled={regcodes.length === 0}>
                 <FlipHorizontal2 className="mr-2 h-4 w-4" /> {t("adminRegcodes.invertSelection")}
@@ -1177,7 +1309,7 @@ export default function AdminRegcodesPage() {
             variant="destructive"
             size="sm"
             onClick={() => void handleBatchDelete()}
-            disabled={selectedRegcodes.length === 0 || isBatchDeleting}
+            disabled={selectedCount === 0 || isBatchDeleting}
           >
             {isBatchDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
             {t("adminRegcodes.batchDelete")}
@@ -1265,7 +1397,7 @@ export default function AdminRegcodesPage() {
                     <label className="flex min-w-0 flex-1 items-start gap-3">
                       <input
                         type="checkbox"
-                        checked={selectedCodes.has(code.code)}
+                        checked={isCodeSelected(code.code)}
                         onChange={(e) => toggleSelectCode(code.code, e.target.checked)}
                         className="mt-1 shrink-0"
                       />
@@ -1402,7 +1534,7 @@ export default function AdminRegcodesPage() {
                     <th className="px-4 py-3 text-left text-sm font-medium">
                       <input
                         type="checkbox"
-                        checked={regcodes.length > 0 && regcodes.every((item) => selectedCodes.has(item.code))}
+                        checked={regcodes.length > 0 && regcodes.every((item) => isCodeSelected(item.code))}
                         onChange={(e) => toggleSelectAll(e.target.checked)}
                       />
                     </th>
@@ -1422,7 +1554,7 @@ export default function AdminRegcodesPage() {
                       <td className="px-4 py-3 align-top">
                         <input
                           type="checkbox"
-                          checked={selectedCodes.has(code.code)}
+                          checked={isCodeSelected(code.code)}
                           onChange={(e) => toggleSelectCode(code.code, e.target.checked)}
                         />
                       </td>
@@ -1542,32 +1674,45 @@ export default function AdminRegcodesPage() {
         </CardContent>
       </Card>
 
-      {pages > 1 && (
-        <div className="flex items-center justify-center gap-2">
-          <Button variant="outline" size="icon" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <span className="text-sm">{t("adminRegcodes.pageStatus", { page, pages })}</span>
-          <Button variant="outline" size="icon" onClick={() => setPage((p) => Math.min(pages, p + 1))} disabled={page === pages}>
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-          <div className="flex items-center gap-1 ml-2">
-            <span className="text-xs text-muted-foreground">{t("adminRegcodes.jumpToPage")}</span>
-            <Input
-              type="number"
-              min={1}
-              max={pages}
-              className="h-8 w-16 text-xs"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  const val = parseInt((e.target as HTMLInputElement).value, 10);
-                  if (val >= 1 && val <= pages) setPage(val);
-                }
-              }}
-            />
-          </div>
+      <div className="flex flex-wrap items-center justify-center gap-3">
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-muted-foreground">{t("adminRegcodes.perPage")}</span>
+          <Select value={String(perPage)} onValueChange={(value) => handlePerPageChange(Number(value))}>
+            <SelectTrigger className="h-8 w-24 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {REGCODES_PER_PAGE_OPTIONS.map((option) => (
+                <SelectItem key={option} value={String(option)}>{option} / {t("adminRegcodes.perPage")}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-      )}
+        {pages > 1 && (
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="icon" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="text-sm">{t("adminRegcodes.pageStatus", { page, pages })}</span>
+            <Button variant="outline" size="icon" onClick={() => setPage((p) => Math.min(pages, p + 1))} disabled={page === pages}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+            <div className="flex items-center gap-1 ml-2">
+              <span className="text-xs text-muted-foreground">{t("adminRegcodes.jumpToPage")}</span>
+              <Input
+                type="number"
+                min={1}
+                max={pages}
+                className="h-8 w-16 text-xs"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    const val = parseInt((e.target as HTMLInputElement).value, 10);
+                    if (val >= 1 && val <= pages) setPage(val);
+                  }
+                }}
+              />
+            </div>
+          </div>
+        )}
+      </div>
       </>
       )}
 

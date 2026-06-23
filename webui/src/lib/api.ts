@@ -80,6 +80,7 @@ import type {
   SystemInfo,
   SystemStats,
   Ticket,
+  TicketAttachment,
   TelegramRebindRequest,
   TelegramStatus,
   User,
@@ -2044,6 +2045,34 @@ class ApiClient {
     });
   }
 
+  // 跨页“选中全部匹配”删除：按当前筛选条件（type/status/source/search）
+  // 在服务端解析目标码，exclude_codes 扣除用户取消勾选的码。filter 口径与
+  // 列表接口保持一致，避免把筛选外的码卷入批量删除。
+  async batchDeleteRegcodesByFilter(
+    filter: { type?: string; status?: string; source?: string; search?: string },
+    excludeCodes: string[] = []
+  ) {
+    const normalized: Record<string, string> = {};
+    if (filter.type && filter.type !== "all") normalized.type = filter.type;
+    if (filter.status && filter.status !== "all") normalized.status = filter.status;
+    if (filter.source && filter.source !== "all") normalized.source = filter.source;
+    if (filter.search) normalized.search = filter.search;
+    return this.request<{
+      deleted: number;
+      deleted_codes: string[];
+      missing: number;
+      missing_codes: string[];
+    }>("/admin/regcodes/batch-delete", {
+      method: "POST",
+      body: JSON.stringify({
+        select_all: true,
+        filter: normalized,
+        exclude_codes: excludeCodes,
+        confirm: confirmPhrases.batchDeleteRegcodes,
+      }),
+    });
+  }
+
   // 部分更新注册码：仅传入需要改动的字段。active 控制停用/启用，
   // validity_time（小时，-1 永久）/ days / use_count_limit 用于编辑有效期与额度。
   async updateRegcode(
@@ -2437,6 +2466,29 @@ class ApiClient {
 
   async reopenOwnTicket(id: number) {
     return this.request<Ticket>(`/tickets/${id}/reopen`, { method: "POST" });
+  }
+
+  // 工单交流图片
+  async uploadTicketImage(ticketId: number, file: File) {
+    const formData = new FormData();
+    formData.append("file", file);
+    return this.requestForm<{ ticket_id: number; attachment: TicketAttachment; attachments: TicketAttachment[] }>(
+      `/tickets/${ticketId}/images`,
+      formData,
+      "POST",
+    );
+  }
+
+  async deleteTicketImage(ticketId: number, filename: string) {
+    return this.request<{ ticket_id: number; attachments: TicketAttachment[] }>(
+      `/tickets/${ticketId}/images/${encodeURIComponent(filename)}`,
+      { method: "DELETE" },
+    );
+  }
+
+  // 把后端返回的工单附件相对路径解析为可直接用于 <img> 的绝对地址。
+  ticketImageSrc(url?: string | null): string {
+    return this.toAbsoluteAssetUrl(url) || "";
   }
 
   async adminListTickets(params: { uid?: number; status?: string; type?: string; priority?: string } = {}) {

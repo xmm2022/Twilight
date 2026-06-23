@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/prejudice-studio/twilight/internal/config"
 	"github.com/prejudice-studio/twilight/internal/store"
@@ -41,6 +43,24 @@ func TestDeveloperJSDocsEndpointRequiresAdminAndDescribesGoja(t *testing.T) {
 		!strings.Contains(resp.Body.String(), `"format.user(user)"`) ||
 		!strings.Contains(resp.Body.String(), `"admin.searchUsers(query, limit)"`) {
 		t.Fatalf("docs response does not include expanded JS APIs: %s", resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), `"regcodes.generate(options)"`) ||
+		!strings.Contains(resp.Body.String(), `"regcodes.get(code)"`) ||
+		!strings.Contains(resp.Body.String(), `"invites.generate(options)"`) ||
+		!strings.Contains(resp.Body.String(), `"announcements.create(options)"`) ||
+		!strings.Contains(resp.Body.String(), `"admin.generateRegcode(options)"`) ||
+		!strings.Contains(resp.Body.String(), `"id":"admin-generate-regcode"`) {
+		t.Fatalf("docs response does not include generator JS APIs: %s", resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), `"users.enable(uid)"`) ||
+		!strings.Contains(resp.Body.String(), `"users.disable(uid)"`) ||
+		!strings.Contains(resp.Body.String(), `"users.extend(uid, days)"`) ||
+		!strings.Contains(resp.Body.String(), `"users.find(query, limit)"`) ||
+		!strings.Contains(resp.Body.String(), `"users.exists(uid)"`) ||
+		!strings.Contains(resp.Body.String(), `"regcodes.quick(days, count, type)"`) ||
+		!strings.Contains(resp.Body.String(), `"invites.quick(days)"`) ||
+		!strings.Contains(resp.Body.String(), `"announcements.post(title, content, level)"`) {
+		t.Fatalf("docs response does not include simplified convenience JS APIs: %s", resp.Body.String())
 	}
 }
 
@@ -225,6 +245,83 @@ reply(rows[0].email + "|" + rows[0].telegram_id + "|ok=" + result.ok + "|email_e
 	}
 	if !hasAuditAction(app, "telegram_js_admin_user_update") {
 		t.Fatalf("missing audit log for admin JS user update, audits=%+v", app.store().ListAuditLogs())
+	}
+}
+
+func TestDeveloperJSSimplifiedUserHelpers(t *testing.T) {
+	app := newTestApp(t)
+	app.cfg().AuditLogEnabled = true
+	admin, err := app.store().CreateUser(store.User{
+		Username:     "js-admin-2",
+		Role:         store.RoleAdmin,
+		TelegramID:   910001,
+		PasswordHash: "unused",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := app.store().CreateUser(store.User{
+		Username:     "helper-target",
+		Email:        "helper@example.com",
+		Role:         store.RoleNormal,
+		Active:       false,
+		ExpiredAt:    100, // 远早于现在，extend 应以 now 作为基准
+		TelegramID:   910002,
+		PasswordHash: "unused",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	code := fmt.Sprintf(`
+const found = users.find("helper@example.com", 3);
+const exists = users.exists(%d);
+const missing = users.exists(99999999);
+const enabled = users.enable(%d);
+const extended = users.extend(%d, 7);
+reply([
+  "found=" + found.length,
+  "exists=" + exists,
+  "missing=" + missing,
+  "enabled=" + enabled.ok,
+  "extended=" + extended.ok
+].join("|"));
+`, target.UID, target.UID, target.UID)
+	output, logs, err := app.telegramRunJSCustomCommand(code, telegramCommandCtx{FromID: admin.TelegramID}, true)
+	if err != nil {
+		t.Fatalf("simplified helpers js failed: %v logs=%v", err, logs)
+	}
+	for _, want := range []string{"found=1", "exists=true", "missing=false", "enabled=true", "extended=true"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("simplified helpers output missing %q: %s", want, output)
+		}
+	}
+	updated, _ := app.store().User(target.UID)
+	if !updated.Active {
+		t.Fatalf("users.enable did not activate target: %+v", updated)
+	}
+	now := time.Now().Unix()
+	if updated.ExpiredAt < now+6*86400 || updated.ExpiredAt > now+8*86400 {
+		t.Fatalf("users.extend did not add ~7 days from now: expired_at=%d now=%d", updated.ExpiredAt, now)
+	}
+
+	// 非管理员不得跨用户写或探测他人是否存在。
+	normal, err := app.store().CreateUser(store.User{
+		Username:     "normal-user",
+		Role:         store.RoleNormal,
+		TelegramID:   910003,
+		PasswordHash: "unused",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	denyCode := fmt.Sprintf(`reply("enable=" + users.enable(%d).ok + "|exists=" + users.exists(%d));`, target.UID, target.UID)
+	deny, logs, err := app.telegramRunJSCustomCommand(denyCode, telegramCommandCtx{FromID: normal.TelegramID}, true)
+	if err != nil {
+		t.Fatalf("non-admin js failed: %v logs=%v", err, logs)
+	}
+	if !strings.Contains(deny, "enable=false") || !strings.Contains(deny, "exists=false") {
+		t.Fatalf("non-admin should not enable or probe other users: %s", deny)
 	}
 }
 
@@ -538,6 +635,44 @@ func TestDeveloperJSRiskTokensWarnButDoNotReject(t *testing.T) {
 	}
 }
 
+// TestDeveloperJSInteractionSurvivesSlowNetwork guards against the regression
+// where the script execution timeout (formerly 200ms) was shorter than the
+// time a real network send needs, which interrupted every command that touched
+// the network with "execution timeout". The Telegram stub here responds after a
+// delay longer than the old cap but well under the current budget.
+func TestDeveloperJSInteractionSurvivesSlowNetwork(t *testing.T) {
+	app := newTestApp(t)
+	if err := app.store().SetDeveloperModeEnabled(true); err != nil {
+		t.Fatal(err)
+	}
+	app.cfg().AuditLogEnabled = true
+	app.cfg().TelegramMode = true
+	app.cfg().TelegramBotToken = "123:ABC"
+	requests := []map[string]any{}
+	tg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Respond slower than the old 200ms cap to simulate a real network hop.
+		time.Sleep(400 * time.Millisecond)
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		body["_path"] = r.URL.Path
+		requests = append(requests, body)
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":120}}`))
+	}))
+	defer tg.Close()
+	app.cfg().TelegramAPIURL = tg.URL
+
+	code := `interactions.inline("Choose", [{ text: "OK", answer: "Ack" }]);`
+	output, logs, err := app.telegramRunJSCustomCommandWithContext(context.Background(), code, telegramCommandCtx{ChatID: 950, FromID: 750}, true)
+	if err != nil {
+		t.Fatalf("slow-network inline js failed: %v logs=%v output=%s", err, logs, output)
+	}
+	if len(requests) != 1 || requests[0]["_path"] != "/bot123:ABC/sendMessage" {
+		t.Fatalf("expected one sendMessage request after slow network, got %#v", requests)
+	}
+}
+
 func TestDeveloperJSPresetReferenceUsesLatestPresetCode(t *testing.T) {
 	app := newTestApp(t)
 	if err := app.store().SetDeveloperModeEnabled(true); err != nil {
@@ -623,4 +758,289 @@ func hasAuditAction(app *App, action string) bool {
 		}
 	}
 	return false
+}
+
+// TestDeveloperJSPrivateIPBlocksSSRFTargets 锁定 fetch 沙箱的 IP 黑名单，
+// 防止开发者 JS 通过 DNS rebinding / IPv4-mapped IPv6 等手段访问内网、
+// 回环、链路本地（云元数据 169.254.169.254）等敏感目标。
+func TestDeveloperJSPrivateIPBlocksSSRFTargets(t *testing.T) {
+	blocked := []string{
+		"127.0.0.1",        // loopback
+		"::1",              // IPv6 loopback
+		"10.0.0.5",         // RFC1918
+		"172.16.3.4",       // RFC1918
+		"192.168.1.1",      // RFC1918
+		"169.254.169.254",  // 链路本地 / 云元数据
+		"fe80::1",          // IPv6 链路本地
+		"fc00::1",          // IPv6 ULA
+		"fd00::1",          // IPv6 ULA
+		"0.0.0.0",          // unspecified
+		"::",               // IPv6 unspecified
+		"255.255.255.255",  // 广播
+		"224.0.0.1",        // multicast
+		"::ffff:127.0.0.1", // IPv4-mapped 回环
+		"::ffff:10.0.0.1",  // IPv4-mapped 私网
+	}
+	for _, s := range blocked {
+		ip := net.ParseIP(s)
+		if ip == nil {
+			t.Fatalf("test setup: cannot parse %q", s)
+		}
+		if !developerJSPrivateIP(ip) {
+			t.Errorf("expected %q to be blocked as private/internal", s)
+		}
+	}
+	if developerJSPrivateIP(nil) != true {
+		t.Errorf("nil IP must be treated as blocked")
+	}
+
+	allowed := []string{
+		"8.8.8.8",
+		"1.1.1.1",
+		"93.184.216.34", // example.com
+		"2606:4700:4700::1111",
+	}
+	for _, s := range allowed {
+		ip := net.ParseIP(s)
+		if ip == nil {
+			t.Fatalf("test setup: cannot parse %q", s)
+		}
+		if developerJSPrivateIP(ip) {
+			t.Errorf("expected public IP %q to be allowed", s)
+		}
+	}
+}
+
+func TestDeveloperJSGenerateRegcodeRequiresAdmin(t *testing.T) {
+	app := newTestApp(t)
+	user, err := app.store().CreateUser(store.User{
+		Username:     "js-plain",
+		Role:         store.RoleNormal,
+		TelegramID:   920001,
+		PasswordHash: "unused",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, logs, err := app.telegramRunJSCustomCommand(
+		`const r = regcodes.generate({ count: 1, days: 30 }); reply(String(r.ok) + "|" + (r.error || ""));`,
+		telegramCommandCtx{FromID: user.TelegramID},
+		false,
+	)
+	if err != nil {
+		t.Fatalf("run js: %v logs=%v", err, logs)
+	}
+	if !strings.Contains(output, "false") || !strings.Contains(output, "admin_required") {
+		t.Fatalf("non-admin regcode generate should be denied: %s", output)
+	}
+}
+
+func TestDeveloperJSGenerateRegcodePreviewDoesNotWrite(t *testing.T) {
+	app := newTestApp(t)
+	admin, err := app.store().CreateUser(store.User{
+		Username:     "js-gen-admin",
+		Role:         store.RoleAdmin,
+		TelegramID:   920002,
+		PasswordHash: "unused",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := len(app.store().ListRegCodes())
+	output, logs, err := app.telegramRunJSCustomCommandWithOptions(
+		`const r = regcodes.generate({ count: 2, days: 30 }); reply(String(r.ok) + "|" + String(r.dry_run) + "|" + r.count);`,
+		telegramCommandCtx{FromID: admin.TelegramID},
+		true,
+		developerJSRunOptions{Preview: true},
+	)
+	if err != nil {
+		t.Fatalf("run js: %v logs=%v", err, logs)
+	}
+	if !strings.Contains(output, "true|true|2") {
+		t.Fatalf("preview should be dry-run with count: %s", output)
+	}
+	if after := len(app.store().ListRegCodes()); after != before {
+		t.Fatalf("preview must not write regcodes: before=%d after=%d", before, after)
+	}
+}
+
+func TestDeveloperJSGenerateRegcodeCreatesRetrievableCode(t *testing.T) {
+	app := newTestApp(t)
+	app.cfg().AuditLogEnabled = true
+	admin, err := app.store().CreateUser(store.User{
+		Username:     "js-gen-admin2",
+		Role:         store.RoleAdmin,
+		TelegramID:   920003,
+		PasswordHash: "unused",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, logs, err := app.telegramRunJSCustomCommand(
+		`const r = regcodes.generate({ count: 1, type: 1, days: 30, use_count_limit: 1 }); reply(r.ok ? r.codes[0] : ("err:" + r.error));`,
+		telegramCommandCtx{FromID: admin.TelegramID},
+		false,
+	)
+	if err != nil {
+		t.Fatalf("run js: %v logs=%v", err, logs)
+	}
+	code := strings.TrimSpace(output)
+	if code == "" || strings.HasPrefix(code, "err:") {
+		t.Fatalf("expected a generated code, got %q", output)
+	}
+	if _, ok := app.store().RegCode(code); !ok {
+		t.Fatalf("generated code %q not found in store", code)
+	}
+	if !hasAuditAction(app, "telegram_js_regcode_generate") {
+		t.Fatalf("missing audit log for regcode generate")
+	}
+}
+
+func TestDeveloperJSGenerateInviteCodeRespectsFeatureGate(t *testing.T) {
+	app := newTestApp(t)
+	admin, err := app.store().CreateUser(store.User{
+		Username:     "js-invite-admin",
+		Role:         store.RoleAdmin,
+		TelegramID:   920004,
+		PasswordHash: "unused",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	app.cfg().InviteEnabled = false
+	disabled, logs, err := app.telegramRunJSCustomCommand(
+		`const r = invites.generate({ days: 30 }); reply(String(r.ok) + "|" + (r.error || ""));`,
+		telegramCommandCtx{FromID: admin.TelegramID},
+		false,
+	)
+	if err != nil {
+		t.Fatalf("run js: %v logs=%v", err, logs)
+	}
+	if !strings.Contains(disabled, "false") || !strings.Contains(disabled, "invite_disabled") {
+		t.Fatalf("invite generate should be gated when feature disabled: %s", disabled)
+	}
+
+	app.cfg().InviteEnabled = true
+	output, logs, err := app.telegramRunJSCustomCommand(
+		`const r = invites.generate({ days: 30 }); reply(r.ok ? r.code : ("err:" + r.error));`,
+		telegramCommandCtx{FromID: admin.TelegramID},
+		false,
+	)
+	if err != nil {
+		t.Fatalf("run js: %v logs=%v", err, logs)
+	}
+	code := strings.TrimSpace(output)
+	if code == "" || strings.HasPrefix(code, "err:") {
+		t.Fatalf("expected an invite code, got %q", output)
+	}
+	if _, ok := app.store().InviteCode(code); !ok {
+		t.Fatalf("generated invite %q not found in store", code)
+	}
+}
+
+func TestDeveloperJSCreateAnnouncement(t *testing.T) {
+	app := newTestApp(t)
+	admin, err := app.store().CreateUser(store.User{
+		Username:     "js-ann-admin",
+		Role:         store.RoleAdmin,
+		TelegramID:   920005,
+		PasswordHash: "unused",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := len(app.store().ListAnnouncements(true))
+
+	preview, logs, err := app.telegramRunJSCustomCommandWithOptions(
+		`const r = announcements.create({ title: "JS Notice", content: "hello", level: "info" }); reply(String(r.ok) + "|" + String(r.dry_run));`,
+		telegramCommandCtx{FromID: admin.TelegramID},
+		true,
+		developerJSRunOptions{Preview: true},
+	)
+	if err != nil {
+		t.Fatalf("run preview js: %v logs=%v", err, logs)
+	}
+	if !strings.Contains(preview, "true|true") {
+		t.Fatalf("announcement preview should be dry-run: %s", preview)
+	}
+	if after := len(app.store().ListAnnouncements(true)); after != before {
+		t.Fatalf("preview must not write announcements: before=%d after=%d", before, after)
+	}
+
+	output, logs, err := app.telegramRunJSCustomCommand(
+		`const r = announcements.create({ title: "JS Notice", content: "hello", level: "info", render_mode: "markdown" }); reply(r.ok ? "ok" : ("err:" + r.error));`,
+		telegramCommandCtx{FromID: admin.TelegramID},
+		false,
+	)
+	if err != nil {
+		t.Fatalf("run js: %v logs=%v", err, logs)
+	}
+	if strings.TrimSpace(output) != "ok" {
+		t.Fatalf("expected announcement creation ok, got %q", output)
+	}
+	if after := len(app.store().ListAnnouncements(true)); after != before+1 {
+		t.Fatalf("announcement not created: before=%d after=%d", before, after)
+	}
+}
+
+func TestDeveloperJSQuickGeneratorsMatchOptionForm(t *testing.T) {
+	app := newTestApp(t)
+	app.cfg().AuditLogEnabled = true
+	app.cfg().InviteEnabled = true
+	admin, err := app.store().CreateUser(store.User{
+		Username:     "js-quick-admin",
+		Role:         store.RoleAdmin,
+		TelegramID:   930001,
+		PasswordHash: "unused",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	annBefore := len(app.store().ListAnnouncements(true))
+	code := `
+const reg = regcodes.quick(30, 2);
+const inv = invites.quick(15);
+const ann = announcements.post("Quick", "body", "info");
+reply([
+  "reg=" + reg.ok + ":" + reg.count,
+  "inv=" + inv.ok,
+  "ann=" + ann.ok
+].join("|"));
+`
+	output, logs, err := app.telegramRunJSCustomCommand(code, telegramCommandCtx{FromID: admin.TelegramID}, false)
+	if err != nil {
+		t.Fatalf("quick generators js failed: %v logs=%v", err, logs)
+	}
+	for _, want := range []string{"reg=true:2", "inv=true", "ann=true"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("quick generators output missing %q: %s", want, output)
+		}
+	}
+	if after := len(app.store().ListAnnouncements(true)); after != annBefore+1 {
+		t.Fatalf("announcements.post did not create announcement: before=%d after=%d", annBefore, after)
+	}
+
+	// 非管理员不得使用快捷生成器。
+	normal, err := app.store().CreateUser(store.User{
+		Username:     "js-quick-normal",
+		Role:         store.RoleNormal,
+		TelegramID:   930002,
+		PasswordHash: "unused",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deny, logs, err := app.telegramRunJSCustomCommand(
+		`reply("reg=" + regcodes.quick(30).ok + "|inv=" + invites.quick(15).ok + "|ann=" + announcements.post("x", "y").ok);`,
+		telegramCommandCtx{FromID: normal.TelegramID},
+		false,
+	)
+	if err != nil {
+		t.Fatalf("non-admin quick js failed: %v logs=%v", err, logs)
+	}
+	if !strings.Contains(deny, "reg=false") || !strings.Contains(deny, "inv=false") || !strings.Contains(deny, "ann=false") {
+		t.Fatalf("non-admin should not use quick generators: %s", deny)
+	}
 }

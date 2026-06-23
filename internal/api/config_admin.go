@@ -1044,6 +1044,7 @@ func configSectionDefs() []configSectionDef {
 			{Key: "cleanup_pending_emby_time", Label: "未使用资格清理时间", Type: "string", Description: "每日 HH:MM，收回长期未使用的 Emby 开通资格"},
 			{Key: "cleanup_unused_uploads_time", Label: "未使用上传清理时间", Type: "string", Description: "每日 HH:MM，清理未被引用的历史上传文件"},
 			{Key: "cleanup_audit_logs_time", Label: "审计日志清理时间", Type: "string", Description: "每日 HH:MM，按保留策略清理过期审计日志"},
+			{Key: "cleanup_ticket_images_time", Label: "工单图片清理时间", Type: "string", Description: "每日 HH:MM，按保留天数清理已关闭工单的图片附件"},
 		}},
 		{Key: "SystemUpdate", Title: "自动更新", Description: "Git 拉取和服务重启", Category: "ops", Collapsed: true, Fields: []configFieldDef{
 			{Key: "auto_update_enabled", Label: "启用自动更新", Type: "bool", Description: "允许调度任务自动拉取更新"},
@@ -1068,6 +1069,11 @@ func configSectionDefs() []configSectionDef {
 		{Key: "Ticket", Title: "工单系统", Description: "用户提交工单与管理员处理；工单类型请在「工单处理」页面管理", Category: "policy", Collapsed: true, Fields: []configFieldDef{
 			{Key: "enabled", Label: "启用工单系统", Type: "bool", Description: "开启后用户可提交工单，管理员可在后台管理"},
 			{Key: "types", Label: "工单类型", Type: "list", Description: "自定义工单类型列表，默认仅含 all；管理员可在工单管理页随时增删改"},
+			{Key: "user_open_limit", Label: "单用户在途上限", Type: "int", Description: "每位用户同时处于待处理/处理中的工单上限；0=不限制"},
+			{Key: "global_open_limit", Label: "全局在途上限", Type: "int", Description: "系统同时处于待处理/处理中的工单总上限；0=不限制"},
+			{Key: "image_max_size", Label: "单图最大字节", Type: "int", Description: "工单交流图片单张大小上限（字节），默认 5MB"},
+			{Key: "image_max_count", Label: "单工单最多图片", Type: "int", Description: "每个工单可上传的图片数量上限，默认 5"},
+			{Key: "image_retention_days", Label: "图片保留天数", Type: "int", Description: "工单关闭后保留图片的天数，到期由调度任务清理；0=不自动清理"},
 		}},
 		{Key: "AuditLog", Title: "操作审计", Description: "审计日志记录与自动清理策略\n推荐在「安全中心」页面统一维护", Category: "security", Collapsed: true, Fields: []configFieldDef{
 			{Key: "enabled", Label: "启用审计日志", Type: "bool", Description: "关闭后不再记录新的审计日志；已有日志不受影响"},
@@ -1167,11 +1173,11 @@ func configValues(cfg config.Config) map[string]map[string]any {
 			"email_validation_mode": cfg.EmailValidationMode, "email_whitelist": cfg.EmailWhitelist, "email_blacklist": cfg.EmailBlacklist,
 		},
 		"Security":     {"forgot_password_enabled": cfg.ForgotPasswordEnabled, "forgot_password_emby_enabled": cfg.ForgotPasswordEmbyEnabled, "forgot_password_email_enabled": cfg.ForgotPasswordEmailEnabled, "bot_internal_secret": cfg.BotInternalSecret},
-		"Scheduler":    {"enabled": cfg.SchedulerEnabled, "tick_interval_seconds": cfg.SchedulerTickIntervalSeconds, "expired_check_time": cfg.SchedulerExpiredCheckTime, "expiring_check_time": cfg.SchedulerExpiringCheckTime, "daily_stats_time": cfg.SchedulerDailyStatsTime, "session_cleanup_interval": cfg.SchedulerSessionCleanupInterval, "cleanup_no_emby_time": cfg.SchedulerCleanupNoEmbyTime, "cleanup_pending_emby_time": cfg.SchedulerCleanupPendingEmbyTime, "cleanup_unused_uploads_time": cfg.SchedulerCleanupUnusedUploadsTime, "cleanup_audit_logs_time": cfg.SchedulerCleanupAuditLogsTime},
+		"Scheduler":    {"enabled": cfg.SchedulerEnabled, "tick_interval_seconds": cfg.SchedulerTickIntervalSeconds, "expired_check_time": cfg.SchedulerExpiredCheckTime, "expiring_check_time": cfg.SchedulerExpiringCheckTime, "daily_stats_time": cfg.SchedulerDailyStatsTime, "session_cleanup_interval": cfg.SchedulerSessionCleanupInterval, "cleanup_no_emby_time": cfg.SchedulerCleanupNoEmbyTime, "cleanup_pending_emby_time": cfg.SchedulerCleanupPendingEmbyTime, "cleanup_unused_uploads_time": cfg.SchedulerCleanupUnusedUploadsTime, "cleanup_audit_logs_time": cfg.SchedulerCleanupAuditLogsTime, "cleanup_ticket_images_time": cfg.SchedulerCleanupTicketImagesTime},
 		"SystemUpdate": {"auto_update_enabled": cfg.SystemUpdateEnabled, "repo_url": cfg.SystemUpdateRepoURL, "branch": cfg.SystemUpdateBranch, "restart_services": cfg.SystemUpdateRestartServices, "auto_update_trigger_type": cfg.SystemUpdateTriggerType, "auto_update_interval_hours": cfg.SystemUpdateIntervalHours, "auto_update_time": cfg.SystemUpdateTime},
 		"Notification": {"enabled": cfg.NotificationEnabled, "expiry_remind_days": cfg.NotificationExpiryRemindDays, "login_notify_telegram_template": cfg.LoginNotifyTelegramTemplate, "login_notify_email_subject_template": cfg.LoginNotifyEmailSubjectTemplate, "login_notify_email_body_template": cfg.LoginNotifyEmailBodyTemplate},
 		"BangumiSync":  {"enabled": cfg.BangumiEnabled, "webhook_secret": cfg.BangumiWebhookSecret},
-		"Ticket":       {"enabled": cfg.TicketSystemEnabled, "types": cfg.TicketTypes},
+		"Ticket":       {"enabled": cfg.TicketSystemEnabled, "types": cfg.TicketTypes, "user_open_limit": cfg.TicketUserOpenLimit, "global_open_limit": cfg.TicketGlobalOpenLimit, "image_max_size": cfg.TicketImageMaxSize, "image_max_count": cfg.TicketImageMaxCount, "image_retention_days": cfg.TicketImageRetentionDays},
 		"AuditLog": {
 			"enabled": cfg.AuditLogEnabled, "auto_cleanup_enabled": cfg.AuditLogAutoCleanupEnabled,
 			"retention_days": cfg.AuditLogRetentionDays, "max_entries": cfg.AuditLogMaxEntries,

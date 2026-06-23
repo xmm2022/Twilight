@@ -415,19 +415,30 @@ type BangumiSyncLog struct {
 }
 
 type Ticket struct {
-	ID         int64  `json:"id"`
-	UID        int64  `json:"uid"`
-	Username   string `json:"username"`
-	Title      string `json:"title"`
-	Content    string `json:"content"`
-	Type       string `json:"type"`
-	Status     string `json:"status"`
-	Priority   string `json:"priority"`
-	AdminNote  string `json:"admin_note,omitempty"`
-	CreatedAt  int64  `json:"created_at"`
-	UpdatedAt  int64  `json:"updated_at"`
-	ResolvedAt int64  `json:"resolved_at,omitempty"`
-	ClosedAt   int64  `json:"closed_at,omitempty"`
+	ID          int64              `json:"id"`
+	UID         int64              `json:"uid"`
+	Username    string             `json:"username"`
+	Title       string             `json:"title"`
+	Content     string             `json:"content"`
+	Type        string             `json:"type"`
+	Status      string             `json:"status"`
+	Priority    string             `json:"priority"`
+	AdminNote   string             `json:"admin_note,omitempty"`
+	Attachments []TicketAttachment `json:"attachments,omitempty"`
+	CreatedAt   int64              `json:"created_at"`
+	UpdatedAt   int64              `json:"updated_at"`
+	ResolvedAt  int64              `json:"resolved_at,omitempty"`
+	ClosedAt    int64              `json:"closed_at,omitempty"`
+}
+
+// TicketAttachment 描述挂在工单上的一张交流图片。文件按工单 ID 存放在
+// uploads/tickets/<ticket_id>/<filename>，这里只持久化元数据。
+type TicketAttachment struct {
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+	Size        int64  `json:"size"`
+	UploadedUID int64  `json:"uploaded_uid"`
+	CreatedAt   int64  `json:"created_at"`
 }
 
 type RebindRequest struct {
@@ -2927,6 +2938,11 @@ func (s *Store) UpsertTicket(t Ticket) (Ticket, error) {
 			if t.Username == "" {
 				t.Username = existing.Username
 			}
+			// 附件由专用方法维护，普通 upsert 不携带附件时保留原有列表，
+			// 避免管理员更新状态 / 用户改内容时把交流图片清空。
+			if t.Attachments == nil {
+				t.Attachments = existing.Attachments
+			}
 			// Status transition timestamps
 			if t.Status == "resolved" && existing.Status != "resolved" && t.ResolvedAt == 0 {
 				t.ResolvedAt = now
@@ -2999,6 +3015,132 @@ func (s *Store) DeleteTicket(id int64) error {
 			return ErrNotFound
 		}
 		delete(s.state.Tickets, id)
+		return nil
+	})
+}
+
+// ticketOpen 判断工单是否处于"占用配额"的活跃状态（待处理 / 处理中）。
+// resolved / closed 不计入用户和全局并发上限。
+func ticketOpen(status string) bool {
+	switch status {
+	case "open", "in_progress":
+		return true
+	}
+	return false
+}
+
+// CountUserOpenTickets 统计某用户当前处于待处理 / 处理中的工单数量。
+func (s *Store) CountUserOpenTickets(uid int64) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	count := 0
+	for _, t := range s.state.Tickets {
+		if t.UID == uid && ticketOpen(t.Status) {
+			count++
+		}
+	}
+	return count
+}
+
+// CountOpenTickets 统计全局处于待处理 / 处理中的工单数量。
+func (s *Store) CountOpenTickets() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	count := 0
+	for _, t := range s.state.Tickets {
+		if ticketOpen(t.Status) {
+			count++
+		}
+	}
+	return count
+}
+
+// AddTicketAttachment 给工单追加一张图片元数据。返回更新后的工单。
+func (s *Store) AddTicketAttachment(ticketID int64, att TicketAttachment) (Ticket, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out Ticket
+	err := s.mutateAndSaveLocked(func() error {
+		t, ok := s.state.Tickets[ticketID]
+		if !ok {
+			return ErrNotFound
+		}
+		if att.CreatedAt == 0 {
+			att.CreatedAt = time.Now().Unix()
+		}
+		t.Attachments = append(t.Attachments, att)
+		t.UpdatedAt = time.Now().Unix()
+		s.state.Tickets[ticketID] = t
+		out = t
+		return nil
+	})
+	if err != nil {
+		return Ticket{}, err
+	}
+	return out, nil
+}
+
+// RemoveTicketAttachment 从工单移除指定文件名的图片元数据。返回更新后的工单。
+func (s *Store) RemoveTicketAttachment(ticketID int64, filename string) (Ticket, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out Ticket
+	err := s.mutateAndSaveLocked(func() error {
+		t, ok := s.state.Tickets[ticketID]
+		if !ok {
+			return ErrNotFound
+		}
+		idx := -1
+		for i, att := range t.Attachments {
+			if att.Filename == filename {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			return ErrNotFound
+		}
+		t.Attachments = append(t.Attachments[:idx], t.Attachments[idx+1:]...)
+		t.UpdatedAt = time.Now().Unix()
+		s.state.Tickets[ticketID] = t
+		out = t
+		return nil
+	})
+	if err != nil {
+		return Ticket{}, err
+	}
+	return out, nil
+}
+
+// ClosedTicketsWithAttachmentsBefore 返回所有已关闭且 ClosedAt 早于 cutoff 的工单，
+// 用于定时清理过期的工单交流图片。
+func (s *Store) ClosedTicketsWithAttachmentsBefore(cutoff int64) []Ticket {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]Ticket, 0)
+	for _, t := range s.state.Tickets {
+		if t.Status == "closed" && t.ClosedAt > 0 && t.ClosedAt < cutoff && len(t.Attachments) > 0 {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// ClearTicketAttachments 清空某工单的图片元数据（用于保留期清理后同步状态）。
+func (s *Store) ClearTicketAttachments(ticketID int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mutateAndSaveLocked(func() error {
+		t, ok := s.state.Tickets[ticketID]
+		if !ok {
+			return ErrNotFound
+		}
+		if len(t.Attachments) == 0 {
+			return nil
+		}
+		t.Attachments = nil
+		t.UpdatedAt = time.Now().Unix()
+		s.state.Tickets[ticketID] = t
 		return nil
 	})
 }

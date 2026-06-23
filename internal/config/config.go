@@ -252,6 +252,7 @@ type Config struct {
 	SchedulerCleanupPendingEmbyTime   string
 	SchedulerCleanupUnusedUploadsTime string
 	SchedulerCleanupAuditLogsTime     string
+	SchedulerCleanupTicketImagesTime  string
 	SchedulerTickIntervalSeconds      int
 	SystemUpdateEnabled               bool
 	SystemUpdateRepoURL               string
@@ -291,8 +292,13 @@ type Config struct {
 	ForgotPasswordEmbyEnabled  bool
 	ForgotPasswordEmailEnabled bool
 
-	TicketSystemEnabled bool
-	TicketTypes         []string
+	TicketSystemEnabled      bool
+	TicketTypes              []string
+	TicketUserOpenLimit      int   // 单个用户同时处于待处理/处理中的工单上限，0=不限
+	TicketGlobalOpenLimit    int   // 全局处于待处理/处理中的工单上限，0=不限
+	TicketImageMaxSize       int64 // 单张图片最大字节数
+	TicketImageMaxCount      int   // 单个工单最多图片数
+	TicketImageRetentionDays int   // 工单关闭后保留图片的天数，0=不自动清理
 
 	AuditLogEnabled            bool
 	AuditLogAutoCleanupEnabled bool
@@ -504,6 +510,7 @@ func Load(path string) (Config, error) {
 	cfg.SchedulerCleanupPendingEmbyTime = reader.stringValue(cfg.SchedulerCleanupPendingEmbyTime, "Scheduler.cleanup_pending_emby_time", "cleanup_pending_emby_time")
 	cfg.SchedulerCleanupUnusedUploadsTime = reader.stringValue(cfg.SchedulerCleanupUnusedUploadsTime, "Scheduler.cleanup_unused_uploads_time", "cleanup_unused_uploads_time")
 	cfg.SchedulerCleanupAuditLogsTime = reader.stringValue(cfg.SchedulerCleanupAuditLogsTime, "Scheduler.cleanup_audit_logs_time", "cleanup_audit_logs_time")
+	cfg.SchedulerCleanupTicketImagesTime = reader.stringValue(cfg.SchedulerCleanupTicketImagesTime, "Scheduler.cleanup_ticket_images_time", "cleanup_ticket_images_time")
 	cfg.SchedulerTickIntervalSeconds = reader.intValue(cfg.SchedulerTickIntervalSeconds, "Scheduler.tick_interval_seconds", "scheduler_tick_interval_seconds")
 	cfg.SystemUpdateEnabled = reader.boolValue(cfg.SystemUpdateEnabled, "SystemUpdate.auto_update_enabled", "auto_update_enabled")
 	cfg.SystemUpdateRepoURL = reader.stringValue(cfg.SystemUpdateRepoURL, "SystemUpdate.repo_url", "repo_url")
@@ -520,6 +527,11 @@ func Load(path string) (Config, error) {
 	cfg.ForgotPasswordEmailEnabled = reader.boolValue(cfg.ForgotPasswordEmailEnabled, "Security.forgot_password_email_enabled", "forgot_password_email_enabled")
 	cfg.TicketSystemEnabled = reader.boolValue(cfg.TicketSystemEnabled, "Ticket.enabled", "SAR.ticket_enabled", "ticket_system_enabled")
 	cfg.TicketTypes = reader.stringListValue(cfg.TicketTypes, "Ticket.types", "SAR.ticket_types", "ticket_types")
+	cfg.TicketUserOpenLimit = reader.intValue(cfg.TicketUserOpenLimit, "Ticket.user_open_limit", "ticket_user_open_limit")
+	cfg.TicketGlobalOpenLimit = reader.intValue(cfg.TicketGlobalOpenLimit, "Ticket.global_open_limit", "ticket_global_open_limit")
+	cfg.TicketImageMaxSize = reader.int64Value(cfg.TicketImageMaxSize, "Ticket.image_max_size", "ticket_image_max_size")
+	cfg.TicketImageMaxCount = reader.intValue(cfg.TicketImageMaxCount, "Ticket.image_max_count", "ticket_image_max_count")
+	cfg.TicketImageRetentionDays = reader.intValue(cfg.TicketImageRetentionDays, "Ticket.image_retention_days", "ticket_image_retention_days")
 	cfg.AuditLogEnabled = reader.boolValue(cfg.AuditLogEnabled, "AuditLog.enabled", "audit_log_enabled")
 	cfg.AuditLogAutoCleanupEnabled = reader.boolValue(cfg.AuditLogAutoCleanupEnabled, "AuditLog.auto_cleanup_enabled", "audit_log_auto_cleanup_enabled")
 	cfg.AuditLogRetentionDays = reader.intValue(cfg.AuditLogRetentionDays, "AuditLog.retention_days", "audit_log_retention_days")
@@ -623,6 +635,7 @@ func defaults() Config {
 		SchedulerCleanupPendingEmbyTime:      "03:45",
 		SchedulerCleanupUnusedUploadsTime:    "02:20",
 		SchedulerCleanupAuditLogsTime:        "04:30",
+		SchedulerCleanupTicketImagesTime:     "04:45",
 		SchedulerTickIntervalSeconds:         30,
 		SystemUpdateRepoURL:                  "https://github.com/Prejudice-Studio/Twilight.git",
 		SystemUpdateBranch:                   "main",
@@ -662,6 +675,11 @@ func defaults() Config {
 		ForgotPasswordEmailEnabled:           true,
 		TicketSystemEnabled:                  false,
 		TicketTypes:                          []string{"all"},
+		TicketUserOpenLimit:                  5,
+		TicketGlobalOpenLimit:                0,
+		TicketImageMaxSize:                   5 * 1024 * 1024,
+		TicketImageMaxCount:                  5,
+		TicketImageRetentionDays:             30,
 		AuditLogEnabled:                      true,
 		AuditLogAutoCleanupEnabled:           false,
 		AuditLogRetentionDays:                90,

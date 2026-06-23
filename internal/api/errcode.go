@@ -41,6 +41,11 @@ const (
 	ErrTicketRateLimited   ErrCode = "TICKET_RATE_LIMITED"
 	ErrTicketAlreadyClosed ErrCode = "TICKET_ALREADY_CLOSED"
 	ErrTicketNotClosed     ErrCode = "TICKET_NOT_CLOSED"
+	ErrTicketUserLimit     ErrCode = "TICKET_USER_LIMIT_REACHED"
+	ErrTicketGlobalLimit   ErrCode = "TICKET_GLOBAL_LIMIT_REACHED"
+	ErrTicketImageTooLarge ErrCode = "TICKET_IMAGE_TOO_LARGE"
+	ErrTicketImageTooMany  ErrCode = "TICKET_IMAGE_TOO_MANY"
+	ErrTicketImageInvalid  ErrCode = "TICKET_IMAGE_INVALID"
 
 	// === 用户 / 注册 ===
 	ErrRegisterRateLimited ErrCode = "USER_REGISTER_RATE_LIMITED"

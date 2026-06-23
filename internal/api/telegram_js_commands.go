@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/dop251/goja"
@@ -22,6 +23,13 @@ import (
 const (
 	telegramJSPrefix       = "js:"
 	telegramJSPresetPrefix = "preset:"
+	// developerJSExecutionTimeout caps wall-clock execution of a single custom
+	// command so a runaway loop cannot spin a goroutine forever. It must stay
+	// comfortably larger than the synchronous network budgets the sandbox APIs
+	// allow (fetch: 1500ms HTTP + 500ms DNS validation; interactions send real
+	// Telegram messages). A 200ms cap previously interrupted every command that
+	// touched the network, which broke developer-mode JS commands entirely.
+	developerJSExecutionTimeout = 8 * time.Second
 )
 
 type developerJSRunOptions struct {
@@ -175,6 +183,9 @@ func (a *App) telegramRunJSCustomCommandWithOptions(code string, c telegramComma
 	_ = vm.Set("db", a.developerJSDBAPI(vm, &user, opts, &logs))
 	_ = vm.Set("users", a.developerJSUsersAPI(vm, &user, opts, &logs))
 	_ = vm.Set("admin", a.developerJSAdminAPI(vm, &user, opts, &logs))
+	_ = vm.Set("regcodes", a.developerJSRegcodesAPI(vm, &user, opts, &logs))
+	_ = vm.Set("invites", a.developerJSInvitesAPI(vm, &user, opts, &logs))
+	_ = vm.Set("announcements", a.developerJSAnnouncementsAPI(vm, &user, opts, &logs))
 	_ = vm.Set("system", a.developerJSSystemAPI(vm, &user))
 	_ = vm.Set("input", developerJSInputAPI(vm, c.Args, commandName, privateChat, opts.Preview))
 	_ = vm.Set("getUser", func(call goja.FunctionCall) goja.Value {
@@ -265,10 +276,22 @@ func (a *App) telegramRunJSCustomCommandWithOptions(code string, c telegramComma
 		return vm.ToValue(value)
 	})
 
-	timer := time.AfterFunc(200*time.Millisecond, func() {
+	timer := time.AfterFunc(developerJSExecutionTimeout, func() {
 		vm.Interrupt("execution timeout")
 	})
 	defer timer.Stop()
+	// Also interrupt promptly if the caller's context is cancelled (e.g. the
+	// Telegram update was abandoned) so we never keep the VM spinning after the
+	// request is gone.
+	watchDone := make(chan struct{})
+	defer close(watchDone)
+	go func() {
+		select {
+		case <-opts.Context.Done():
+			vm.Interrupt("context cancelled")
+		case <-watchDone:
+		}
+	}()
 	if _, err := vm.RunProgram(program); err != nil {
 		if developerJSWasExit(err) {
 			return strings.Join(replies, "\n"), logs, nil
@@ -528,11 +551,31 @@ func (a *App) developerJSUsersAPI(vm *goja.Runtime, user *store.User, opts devel
 		"setActive": func(call goja.FunctionCall) goja.Value {
 			return a.developerJSSetUserActive(vm, user, opts, logs, call.Argument(0), call.Argument(1).Export())
 		},
+		// enable(uid) / disable(uid) 是 setActive 的布尔简化别名，少传一个参数。
+		"enable": func(call goja.FunctionCall) goja.Value {
+			return a.developerJSSetUserActive(vm, user, opts, logs, call.Argument(0), true)
+		},
+		"disable": func(call goja.FunctionCall) goja.Value {
+			return a.developerJSSetUserActive(vm, user, opts, logs, call.Argument(0), false)
+		},
 		"setRole": func(call goja.FunctionCall) goja.Value {
 			return a.developerJSSetUserRole(vm, user, opts, logs, call.Argument(0), call.Argument(1))
 		},
 		"setExpiry": func(call goja.FunctionCall) goja.Value {
 			return a.developerJSSetUserExpiry(vm, user, opts, logs, call.Argument(0), call.Argument(1))
+		},
+		// extend(uid, days) 在用户当前到期时间（或当前时间，取较晚者）基础上顺延 days 天，
+		// 是续期场景的便捷封装；负数或 0 天会被拒绝。复用 admin 校验、预览 dry-run 与审计。
+		"extend": func(call goja.FunctionCall) goja.Value {
+			return a.developerJSExtendUserExpiry(vm, user, opts, logs, call.Argument(0), call.Argument(1))
+		},
+		// find(query, limit?) 是 search 的简化别名（语义一致，名字更直观）。
+		"find": func(call goja.FunctionCall) goja.Value {
+			return vm.ToValue(a.developerJSSearchUsers(user, call.Argument(0).String(), int(call.Argument(1).ToInteger()), logs))
+		},
+		// exists(uid) 返回该 UID 是否存在；仅管理员或查询自身可用，遵循 getUser 的同口径鉴权。
+		"exists": func(call goja.FunctionCall) goja.Value {
+			return vm.ToValue(a.developerJSUserExists(user, call.Argument(0), logs))
 		},
 		"update": func(call goja.FunctionCall) goja.Value {
 			return a.developerJSUpdateUser(vm, user, opts, logs, call.Argument(0), call.Argument(1).Export())
@@ -565,6 +608,15 @@ func (a *App) developerJSAdminAPI(vm *goja.Runtime, user *store.User, opts devel
 		},
 		"setExpiry": func(call goja.FunctionCall) goja.Value {
 			return a.developerJSSetUserExpiry(vm, user, opts, logs, call.Argument(0), call.Argument(1))
+		},
+		"generateRegcode": func(call goja.FunctionCall) goja.Value {
+			return a.developerJSGenerateRegcode(vm, user, opts, logs, call.Argument(0).Export())
+		},
+		"generateInviteCode": func(call goja.FunctionCall) goja.Value {
+			return a.developerJSGenerateInviteCode(vm, user, opts, logs, call.Argument(0).Export())
+		},
+		"createAnnouncement": func(call goja.FunctionCall) goja.Value {
+			return a.developerJSCreateAnnouncement(vm, user, opts, logs, call.Argument(0).Export())
 		},
 		"stats": func(goja.FunctionCall) goja.Value {
 			return vm.ToValue(a.developerJSSystemStats(user))
@@ -603,6 +655,24 @@ func (a *App) developerJSDBAPI(vm *goja.Runtime, user *store.User, opts develope
 		"listUsers": func(call goja.FunctionCall) goja.Value {
 			return vm.ToValue(a.developerJSListUsers(user, call.Argument(0).Export(), logs))
 		},
+		"listRegcodes": func(call goja.FunctionCall) goja.Value {
+			return vm.ToValue(a.developerJSListRegcodes(user, call.Argument(0).Export(), logs))
+		},
+		"listInviteCodes": func(call goja.FunctionCall) goja.Value {
+			return vm.ToValue(a.developerJSListInviteCodes(user, call.Argument(0).Export(), logs))
+		},
+		"listMediaRequests": func(call goja.FunctionCall) goja.Value {
+			return vm.ToValue(a.developerJSListMediaRequests(user, call.Argument(0).Export(), logs))
+		},
+		"listAnnouncements": func(call goja.FunctionCall) goja.Value {
+			return vm.ToValue(a.developerJSListAnnouncements(call.Argument(0).Export()))
+		},
+		"listTickets": func(call goja.FunctionCall) goja.Value {
+			return vm.ToValue(a.developerJSListTickets(user, call.Argument(0).Export(), logs))
+		},
+		"listPresets": func(call goja.FunctionCall) goja.Value {
+			return vm.ToValue(a.developerJSListPresets(user, call.Argument(0).Export(), logs))
+		},
 		"updateCurrentUser": func(call goja.FunctionCall) goja.Value {
 			return a.developerJSUpdateCurrentUser(vm, user, opts, logs, call.Argument(0).Export())
 		},
@@ -628,12 +698,36 @@ func developerJSDBSchema() map[string]any {
 			"write":  "current user notification preferences; admin controlled active/role/expiry/notification updates",
 			"fields": userFields,
 		},
-		"regcodes":             map[string]any{"read": "admin count only", "write": "not available"},
-		"invite_codes":         map[string]any{"read": "admin count only", "write": "not available"},
-		"media_requests":       map[string]any{"read": "current user count; admin count", "write": "not available"},
-		"announcements":        map[string]any{"read": "visible count", "write": "not available"},
-		"tickets":              map[string]any{"read": "current user count; admin count", "write": "not available"},
-		"developer_js_presets": map[string]any{"read": "admin count only", "write": "manage through developer preset APIs"},
+		"regcodes": map[string]any{
+			"read":   "admin count and admin list (db.listRegcodes / regcodes.list / regcodes.get)",
+			"write":  "admin only: regcodes.generate / admin.generateRegcode create new registration/renewal codes (preview = dry-run, audited)",
+			"fields": []string{"code", "type", "type_name", "days", "validity_time", "use_count", "use_count_limit", "active", "is_decoy", "source", "target_username", "created_at", "expired_at", "paused_seconds"},
+		},
+		"invite_codes": map[string]any{
+			"read":   "admin list (db.listInviteCodes / invites.list); current user owned codes for non-admin",
+			"write":  "admin only: invites.generate / admin.generateInviteCode create new invite codes when invite feature is enabled (preview = dry-run, audited)",
+			"fields": []string{"code", "uid", "inviter_uid", "days", "use_count", "use_count_limit", "active", "used", "note", "target_username", "created_at", "expired_at"},
+		},
+		"media_requests": map[string]any{
+			"read":   "current user owned count/list; admin count/list (db.listMediaRequests)",
+			"write":  "not available",
+			"fields": []string{"id", "uid", "username", "title", "original_title", "source", "media_id", "media_type", "season", "year", "status", "created_at", "updated_at"},
+		},
+		"announcements": map[string]any{
+			"read":   "visible count and visible list (db.listAnnouncements / announcements.list)",
+			"write":  "admin only: announcements.create / admin.createAnnouncement publish a new announcement (preview = dry-run, audited)",
+			"fields": []string{"id", "title", "level", "render_mode", "pinned", "visible", "created_by_uid", "created_at", "updated_at", "expired_at"},
+		},
+		"tickets": map[string]any{
+			"read":   "current user owned count/list; admin count/list (db.listTickets)",
+			"write":  "not available",
+			"fields": []string{"id", "uid", "username", "title", "type", "status", "priority", "created_at", "updated_at", "resolved_at", "closed_at"},
+		},
+		"developer_js_presets": map[string]any{
+			"read":   "admin count and admin list (db.listPresets)",
+			"write":  "manage through developer preset APIs",
+			"fields": []string{"id", "name", "description", "creator_uid", "code_length", "created_at", "updated_at"},
+		},
 	}
 }
 
@@ -681,6 +775,231 @@ func (a *App) developerJSDBCount(name string, user *store.User) (int, bool) {
 	default:
 		return 0, false
 	}
+}
+
+// developerJSListOptions parses { limit, offset } from an exported JS options object.
+// limit is clamped to [1, max] with the given fallback; offset is clamped to >= 0.
+func developerJSListOptions(options any, fallback int, max int) (limit int, offset int) {
+	limit = developerJSLimit(0, fallback, max)
+	values, _ := options.(map[string]any)
+	if values == nil {
+		return limit, 0
+	}
+	if raw, ok := values["limit"]; ok {
+		limit = developerJSLimit(int(numeric(raw)), fallback, max)
+	}
+	if raw, ok := values["offset"]; ok {
+		offset = int(numeric(raw))
+		if offset < 0 {
+			offset = 0
+		}
+	}
+	return limit, offset
+}
+
+func developerJSRegcodeSnapshot(c store.RegCode) map[string]any {
+	return map[string]any{
+		"code":            c.Code,
+		"type":            c.Type,
+		"type_name":       regcodeTypeName(c.Type),
+		"days":            c.Days,
+		"validity_time":   c.ValidityTime,
+		"use_count":       c.UseCount,
+		"use_count_limit": c.UseCountLimit,
+		"active":          c.Active,
+		"is_decoy":        c.IsDecoy,
+		"source":          c.Source,
+		"target_username": c.TargetUsername,
+		"created_at":      c.CreatedAt,
+		"expired_at":      c.ExpiredAt,
+		"paused_seconds":  c.PausedSeconds,
+	}
+}
+
+func developerJSInviteSnapshot(c store.InviteCode) map[string]any {
+	return map[string]any{
+		"code":            c.Code,
+		"uid":             c.UID,
+		"inviter_uid":     c.InviterUID,
+		"days":            c.Days,
+		"use_count":       c.UseCount,
+		"use_count_limit": c.UseCountLimit,
+		"active":          c.Active,
+		"used":            c.Used,
+		"note":            c.Note,
+		"target_username": c.TargetUsername,
+		"created_at":      c.CreatedAt,
+		"expired_at":      c.ExpiredAt,
+	}
+}
+
+func developerJSMediaRequestSnapshot(m store.MediaRequest) map[string]any {
+	return map[string]any{
+		"id":             m.ID,
+		"uid":            m.UID,
+		"username":       m.Username,
+		"title":          m.Title,
+		"original_title": m.OriginalTitle,
+		"source":         m.Source,
+		"media_id":       m.MediaID,
+		"media_type":     m.MediaType,
+		"season":         m.Season,
+		"year":           m.Year,
+		"status":         m.Status,
+		"created_at":     m.CreatedAt,
+		"updated_at":     m.UpdatedAt,
+	}
+}
+
+func developerJSAnnouncementSnapshot(an store.Announcement) map[string]any {
+	return map[string]any{
+		"id":             an.ID,
+		"title":          an.Title,
+		"level":          an.Level,
+		"render_mode":    an.RenderMode,
+		"pinned":         an.Pinned,
+		"visible":        an.Visible,
+		"created_by_uid": an.CreatedByUID,
+		"created_at":     an.CreatedAt,
+		"updated_at":     an.UpdatedAt,
+		"expired_at":     an.ExpiredAt,
+	}
+}
+
+func developerJSTicketSnapshot(t store.Ticket) map[string]any {
+	return map[string]any{
+		"id":          t.ID,
+		"uid":         t.UID,
+		"username":    t.Username,
+		"title":       t.Title,
+		"type":        t.Type,
+		"status":      t.Status,
+		"priority":    t.Priority,
+		"created_at":  t.CreatedAt,
+		"updated_at":  t.UpdatedAt,
+		"resolved_at": t.ResolvedAt,
+		"closed_at":   t.ClosedAt,
+	}
+}
+
+func developerJSPresetSnapshot(p store.DeveloperJSPreset) map[string]any {
+	return map[string]any{
+		"id":          p.ID,
+		"name":        p.Name,
+		"description": p.Description,
+		"creator_uid": p.CreatorUID,
+		"code_length": len(p.Code),
+		"created_at":  p.CreatedAt,
+		"updated_at":  p.UpdatedAt,
+	}
+}
+
+// developerJSListRegcodes returns masked registration code snapshots. Admin-only.
+func (a *App) developerJSListRegcodes(user *store.User, options any, logs *[]string) []map[string]any {
+	if !developerJSAdminUser(user, logs, "db.listRegcodes") {
+		return nil
+	}
+	limit, offset := developerJSListOptions(options, 20, 50)
+	codes := a.store().ListRegCodes()
+	out := make([]map[string]any, 0, limit)
+	for i := offset; i < len(codes) && len(out) < limit; i++ {
+		out = append(out, developerJSRegcodeSnapshot(codes[i]))
+	}
+	return out
+}
+
+// developerJSListInviteCodes returns masked invite code snapshots. Admins see all
+// codes; non-admin users only receive codes they own.
+func (a *App) developerJSListInviteCodes(user *store.User, options any, logs *[]string) []map[string]any {
+	if user == nil || user.UID == 0 {
+		if logs != nil && len(*logs) < 8 {
+			*logs = append(*logs, "db.listInviteCodes denied: no bound user")
+		}
+		return nil
+	}
+	limit, offset := developerJSListOptions(options, 20, 50)
+	var codes []store.InviteCode
+	if user.Role == store.RoleAdmin {
+		codes = a.store().ListAllInviteCodes()
+	} else {
+		codes = a.store().ListInviteCodes(user.UID)
+	}
+	out := make([]map[string]any, 0, limit)
+	for i := offset; i < len(codes) && len(out) < limit; i++ {
+		out = append(out, developerJSInviteSnapshot(codes[i]))
+	}
+	return out
+}
+
+// developerJSListMediaRequests returns media request snapshots. Admins see all
+// requests; non-admin users only receive their own.
+func (a *App) developerJSListMediaRequests(user *store.User, options any, logs *[]string) []map[string]any {
+	if user == nil || user.UID == 0 {
+		if logs != nil && len(*logs) < 8 {
+			*logs = append(*logs, "db.listMediaRequests denied: no bound user")
+		}
+		return nil
+	}
+	limit, offset := developerJSListOptions(options, 20, 50)
+	admin := user.Role == store.RoleAdmin
+	var requests []store.MediaRequest
+	if admin {
+		requests = a.store().ListMediaRequests(0, true)
+	} else {
+		requests = a.store().ListMediaRequests(user.UID, false)
+	}
+	out := make([]map[string]any, 0, limit)
+	for i := offset; i < len(requests) && len(out) < limit; i++ {
+		out = append(out, developerJSMediaRequestSnapshot(requests[i]))
+	}
+	return out
+}
+
+// developerJSListAnnouncements returns visible announcement snapshots for any user.
+func (a *App) developerJSListAnnouncements(options any) []map[string]any {
+	limit, offset := developerJSListOptions(options, 20, 50)
+	items := a.store().ListAnnouncements(false)
+	out := make([]map[string]any, 0, limit)
+	for i := offset; i < len(items) && len(out) < limit; i++ {
+		out = append(out, developerJSAnnouncementSnapshot(items[i]))
+	}
+	return out
+}
+
+// developerJSListTickets returns ticket snapshots. Admins see all tickets;
+// non-admin users only receive their own.
+func (a *App) developerJSListTickets(user *store.User, options any, logs *[]string) []map[string]any {
+	if user == nil || user.UID == 0 {
+		if logs != nil && len(*logs) < 8 {
+			*logs = append(*logs, "db.listTickets denied: no bound user")
+		}
+		return nil
+	}
+	limit, offset := developerJSListOptions(options, 20, 50)
+	var filter store.TicketFilter
+	if user.Role != store.RoleAdmin {
+		filter.UID = user.UID
+	}
+	tickets := a.store().ListTickets(filter)
+	out := make([]map[string]any, 0, limit)
+	for i := offset; i < len(tickets) && len(out) < limit; i++ {
+		out = append(out, developerJSTicketSnapshot(tickets[i]))
+	}
+	return out
+}
+
+// developerJSListPresets returns developer JS preset metadata (no code bodies). Admin-only.
+func (a *App) developerJSListPresets(user *store.User, options any, logs *[]string) []map[string]any {
+	if !developerJSAdminUser(user, logs, "db.listPresets") {
+		return nil
+	}
+	limit, offset := developerJSListOptions(options, 20, 50)
+	presets := a.store().ListDeveloperJSPresets()
+	out := make([]map[string]any, 0, limit)
+	for i := offset; i < len(presets) && len(out) < limit; i++ {
+		out = append(out, developerJSPresetSnapshot(presets[i]))
+	}
+	return out
 }
 
 func developerJSAdminUser(user *store.User, logs *[]string, action string) bool {
@@ -929,6 +1248,66 @@ func (a *App) developerJSSetUserExpiry(vm *goja.Runtime, actor *store.User, opts
 	return vm.ToValue(result)
 }
 
+// developerJSExtendUserExpiry adds the given number of days on top of the user's
+// current expiry (or now, whichever is later), then delegates the actual write to
+// developerJSSetUserExpiry so all admin-gating, preview and audit logic is shared.
+func (a *App) developerJSExtendUserExpiry(vm *goja.Runtime, actor *store.User, opts developerJSRunOptions, logs *[]string, uidValue goja.Value, daysValue goja.Value) goja.Value {
+	result := map[string]any{"ok": false}
+	if !developerJSAdminUser(actor, logs, "users.extend") {
+		result["error"] = "admin_required"
+		return vm.ToValue(result)
+	}
+	uid := uidValue.ToInteger()
+	days := daysValue.ToInteger()
+	if uid <= 0 || days <= 0 {
+		result["error"] = "invalid_payload"
+		return vm.ToValue(result)
+	}
+	target, ok := a.store().User(uid)
+	if !ok {
+		result["error"] = "user_not_found"
+		return vm.ToValue(result)
+	}
+	now := time.Now().Unix()
+	base := target.ExpiredAt
+	if expiryIsPermanent(base) {
+		// 永久用户无需顺延，直接返回当前状态。
+		result["ok"] = true
+		result["uid"] = uid
+		result["expired_at"] = publicExpiryUnix(base)
+		result["note"] = "already_permanent"
+		return vm.ToValue(result)
+	}
+	if base < now {
+		base = now
+	}
+	newExpiry := base + days*86400
+	return a.developerJSSetUserExpiry(vm, actor, opts, logs, uidValue, vm.ToValue(newExpiry))
+}
+
+// developerJSUserExists reports whether a user with the given UID exists. It reuses
+// the getUser visibility rule: admins may probe any UID, normal users only their own.
+func (a *App) developerJSUserExists(actor *store.User, uidValue goja.Value, logs *[]string) bool {
+	uid := uidValue.ToInteger()
+	if uid <= 0 {
+		return false
+	}
+	if actor == nil || actor.UID == 0 {
+		if logs != nil && len(*logs) < 8 {
+			*logs = append(*logs, "users.exists denied: no bound user")
+		}
+		return false
+	}
+	if actor.Role != store.RoleAdmin && actor.UID != uid {
+		if logs != nil && len(*logs) < 8 {
+			*logs = append(*logs, "users.exists denied: cross-user lookup requires admin")
+		}
+		return false
+	}
+	_, ok := a.store().User(uid)
+	return ok
+}
+
 func (a *App) developerJSUpdateUser(vm *goja.Runtime, actor *store.User, opts developerJSRunOptions, logs *[]string, uidValue goja.Value, patch any) goja.Value {
 	result := map[string]any{"ok": false}
 	if !developerJSAdminUser(actor, logs, "users.update") {
@@ -1145,7 +1524,7 @@ func (a *App) developerJSSystemAPI(vm *goja.Runtime, user *store.User) map[strin
 					"invite_limit":      cfg.InviteLimit,
 					"reply_segments":    4,
 					"log_lines":         8,
-					"script_timeout_ms": 200,
+					"script_timeout_ms": int(developerJSExecutionTimeout / time.Millisecond),
 				},
 			})
 		},
@@ -1643,6 +2022,30 @@ func (a *App) developerJSFetchAPI(vm *goja.Runtime, opts developerJSRunOptions, 
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
+			// 关键 SSRF 防护：在拨号阶段对实际连接到的 IP 再校验一次，
+			// 阻断 DNS rebinding（校验时返回公网 IP、连接时返回内网/链路本地 IP）。
+			// 这里不复用 sharedHTTPTransport，避免开发者沙箱 fetch 与系统调用串用连接池。
+			Transport: &http.Transport{
+				Proxy: nil,
+				DialContext: (&net.Dialer{
+					Timeout:   1500 * time.Millisecond,
+					KeepAlive: -1,
+					Control: func(network, address string, _ syscall.RawConn) error {
+						host, _, splitErr := net.SplitHostPort(address)
+						if splitErr != nil {
+							host = address
+						}
+						ip := net.ParseIP(host)
+						if ip == nil || developerJSPrivateIP(ip) {
+							return fmt.Errorf("host_not_allowed")
+						}
+						return nil
+					},
+				}).DialContext,
+				DisableKeepAlives:     true,
+				TLSHandshakeTimeout:   1500 * time.Millisecond,
+				ExpectContinueTimeout: 500 * time.Millisecond,
+			},
 		}
 		resp, err := client.Do(req)
 		if err != nil {
@@ -1689,7 +2092,23 @@ func developerJSValidateFetchHost(ctx context.Context, host string) error {
 }
 
 func developerJSPrivateIP(ip net.IP) bool {
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalMulticast() || ip.IsLinkLocalUnicast() || ip.IsUnspecified()
+	if ip == nil {
+		return true
+	}
+	// 归一化 IPv4-mapped IPv6（如 ::ffff:127.0.0.1），避免绕过私网判断。
+	if v4 := ip.To4(); v4 != nil {
+		ip = v4
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalMulticast() ||
+		ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() ||
+		ip.IsInterfaceLocalMulticast() {
+		return true
+	}
+	// IPv4 广播地址。
+	if ip.Equal(net.IPv4bcast) {
+		return true
+	}
+	return false
 }
 
 func developerJSAnySlice(input any) []any {
