@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -204,4 +205,55 @@ func (a *App) handleAdminBangumiClearLogs(w http.ResponseWriter, r *http.Request
 		return
 	}
 	ok(w, "已清除", nil)
+}
+
+func (a *App) handleBangumiMe(w http.ResponseWriter, r *http.Request, _ Params) {
+	p := current(r)
+	u := p.User
+	if u.BGMToken == "" {
+		ok(w, "Token not set", map[string]any{
+			"bgm_token_set": false,
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	me, expired, err := a.getBangumiMe(ctx, u.BGMToken)
+	if err != nil {
+		failWithCode(w, http.StatusBadGateway, ErrInternal, "获取 Bangumi 用户信息失败: "+err.Error())
+		return
+	}
+	if expired {
+		ok(w, "Token expired", map[string]any{
+			"bgm_token_set": true,
+			"expired":       true,
+		})
+		return
+	}
+
+	username := asString(me["username"])
+	if username == "" {
+		username = fmt.Sprint(me["id"])
+	}
+
+	// Fetch watching collections (type 3 - 在看)
+	watching, watchingTotal, _ := a.getBangumiUserCollections(ctx, username, u.BGMToken, 3)
+	// Fetch wishlist collections (type 1 - 想看)
+	wishlist, wishlistTotal, _ := a.getBangumiUserCollections(ctx, username, u.BGMToken, 1)
+	// Fetch collected collections (type 2 - 看过)
+	collected, collectedTotal, _ := a.getBangumiUserCollections(ctx, username, u.BGMToken, 2)
+
+	ok(w, "OK", map[string]any{
+		"bgm_token_set":   true,
+		"expired":         false,
+		"me":              me,
+		"watching":        watching,
+		"watching_total":  watchingTotal,
+		"wishlist":        wishlist,
+		"wishlist_total":  wishlistTotal,
+		"collected":       collected,
+		"collected_total": collectedTotal,
+	})
 }

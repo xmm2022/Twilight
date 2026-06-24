@@ -227,7 +227,7 @@ type Config struct {
 	EmailBodyTemplate                    string
 	EmailAutoCleanupExpiredVerifications bool
 	EmailAutoCleanupUnverified           bool
-	EmailAutoCleanupUnverifiedDays       int
+	EmailAutoCleanupUnverifiedHours      int
 
 	RateLimitEnabled                  bool
 	RateLimitGlobalPerMinute          int
@@ -482,7 +482,13 @@ func Load(path string) (Config, error) {
 	cfg.EmailBodyTemplate = reader.stringValue(cfg.EmailBodyTemplate, "Email.body_template", "email_body_template")
 	cfg.EmailAutoCleanupExpiredVerifications = reader.boolValue(cfg.EmailAutoCleanupExpiredVerifications, "Email.auto_cleanup_expired_verifications", "email_auto_cleanup_expired_verifications")
 	cfg.EmailAutoCleanupUnverified = reader.boolValue(cfg.EmailAutoCleanupUnverified, "Email.auto_cleanup_unverified", "email_auto_cleanup_unverified")
-	cfg.EmailAutoCleanupUnverifiedDays = reader.intValue(cfg.EmailAutoCleanupUnverifiedDays, "Email.auto_cleanup_unverified_days", "email_auto_cleanup_unverified_days")
+	if _, okHours := reader.rawValue("Email.auto_cleanup_unverified_hours", "email_auto_cleanup_unverified_hours"); okHours {
+		cfg.EmailAutoCleanupUnverifiedHours = reader.intValue(cfg.EmailAutoCleanupUnverifiedHours, "Email.auto_cleanup_unverified_hours", "email_auto_cleanup_unverified_hours")
+	} else if _, okDays := reader.rawValue("Email.auto_cleanup_unverified_days", "email_auto_cleanup_unverified_days"); okDays {
+		cfg.EmailAutoCleanupUnverifiedHours = reader.intValue(1, "Email.auto_cleanup_unverified_days", "email_auto_cleanup_unverified_days") * 24
+	} else {
+		cfg.EmailAutoCleanupUnverifiedHours = reader.intValue(cfg.EmailAutoCleanupUnverifiedHours, "Email.auto_cleanup_unverified_hours", "email_auto_cleanup_unverified_hours")
+	}
 	cfg.NotificationEnabled = reader.boolValue(cfg.NotificationEnabled, "Notification.enabled", "notification_enabled")
 	cfg.NotificationExpiryRemindDays = reader.intValue(cfg.NotificationExpiryRemindDays, "Notification.expiry_remind_days", "expiry_remind_days")
 	cfg.LoginNotifyTelegramTemplate = reader.stringValue(cfg.LoginNotifyTelegramTemplate, "Notification.login_notify_telegram_template", "login_notify_telegram_template")
@@ -698,7 +704,7 @@ func defaults() Config {
 		EmailBodyTemplate:                    DefaultEmailBodyTemplate,
 		EmailAutoCleanupExpiredVerifications: true,
 		EmailAutoCleanupUnverified:           true,
-		EmailAutoCleanupUnverifiedDays:       1,
+		EmailAutoCleanupUnverifiedHours:      24,
 	}
 }
 
@@ -1045,8 +1051,10 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("TWILIGHT_EMAIL_AUTO_CLEANUP_UNVERIFIED"); v != "" {
 		cfg.EmailAutoCleanupUnverified = boolValue(v, cfg.EmailAutoCleanupUnverified)
 	}
-	if v := os.Getenv("TWILIGHT_EMAIL_AUTO_CLEANUP_UNVERIFIED_DAYS"); v != "" {
-		cfg.EmailAutoCleanupUnverifiedDays = intValue(v, cfg.EmailAutoCleanupUnverifiedDays)
+	if v := os.Getenv("TWILIGHT_EMAIL_AUTO_CLEANUP_UNVERIFIED_HOURS"); v != "" {
+		cfg.EmailAutoCleanupUnverifiedHours = intValue(v, cfg.EmailAutoCleanupUnverifiedHours)
+	} else if v := os.Getenv("TWILIGHT_EMAIL_AUTO_CLEANUP_UNVERIFIED_DAYS"); v != "" {
+		cfg.EmailAutoCleanupUnverifiedHours = intValue(v, 1) * 24
 	}
 	if v := os.Getenv("TWILIGHT_RATE_LIMIT_UPLOAD_PER_MINUTE"); v != "" {
 		cfg.RateLimitUploadPerMinute = intValue(v, cfg.RateLimitUploadPerMinute)

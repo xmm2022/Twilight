@@ -304,6 +304,27 @@ class ApiClient {
     return this.request<BangumiSyncStatus>("/bangumi/sync/status");
   }
 
+  async getBangumiMe() {
+    return this.request<{
+      bgm_token_set: boolean;
+      expired: boolean;
+      me?: {
+        id: number;
+        username: string;
+        nickname: string;
+        avatar?: {
+          large?: string;
+          medium?: string;
+          small?: string;
+        };
+        sign?: string;
+        user_group?: number;
+      };
+      watching?: any[];
+      wishlist?: any[];
+    }>("/bangumi/me");
+  }
+
   async triggerBangumiSync() {
     return this.request<BangumiSyncResult>("/bangumi/sync/trigger", { method: "POST" });
   }

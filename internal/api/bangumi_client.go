@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -142,4 +143,57 @@ func bangumiTypeName(t int) string {
 	default:
 		return "未知"
 	}
+}
+
+func (a *App) getBangumiMe(ctx context.Context, token string) (map[string]any, bool, error) {
+	endpoint, err := bangumiEndpoint(a.cfg().BangumiAPIURL, "/me", nil)
+	if err != nil {
+		return nil, false, err
+	}
+	headers := map[string]string{
+		"User-Agent":    "Twilight/1.0",
+		"Accept":        "application/json",
+		"Authorization": "Bearer " + token,
+	}
+	var payload map[string]any
+	err = getJSON(ctx, endpoint, headers, &payload)
+	if err != nil {
+		if strings.Contains(err.Error(), "remote status 401") {
+			return nil, true, nil
+		}
+		return nil, false, err
+	}
+	return payload, false, nil
+}
+
+func (a *App) getBangumiUserCollections(ctx context.Context, username string, token string, collectType int) ([]map[string]any, int, error) {
+	values := url.Values{
+		"subject_type": {"2"}, // 2 for anime
+		"type":         {strconv.Itoa(collectType)}, // 1:想看, 3:在看
+		"limit":        {"8"},
+		"offset":       {"0"},
+	}
+	endpoint, err := bangumiEndpoint(a.cfg().BangumiAPIURL, "/users/"+username+"/collections", values)
+	if err != nil {
+		return nil, 0, err
+	}
+	headers := map[string]string{
+		"User-Agent":    "Twilight/1.0",
+		"Accept":        "application/json",
+		"Authorization": "Bearer " + token,
+	}
+	var payload map[string]any
+	if err := getJSON(ctx, endpoint, headers, &payload); err != nil {
+		return nil, 0, err
+	}
+	rows, _ := payload["data"].([]any)
+	results := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		item, _ := row.(map[string]any)
+		if item != nil {
+			results = append(results, item)
+		}
+	}
+	total := int(numeric(payload["total"]))
+	return results, total, nil
 }

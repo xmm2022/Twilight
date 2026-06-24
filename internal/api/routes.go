@@ -62,6 +62,7 @@ func (a *App) registerRoutes() {
 	a.add(http.MethodPost, "/api/v1/users/me/telegram/rebind-complete", AuthUser, a.handleRebindComplete)
 	a.add(http.MethodGet, "/api/v1/users/me/settings", AuthUser, a.handleUserSettings)
 	a.add(http.MethodGet, "/api/v1/bangumi/sync/status", AuthUser, a.handleBangumiSyncStatus)
+	a.add(http.MethodGet, "/api/v1/bangumi/me", AuthUser, a.handleBangumiMe)
 	a.add(http.MethodPost, "/api/v1/bangumi/sync/trigger", AuthUser, a.handleBangumiSyncTrigger)
 	a.add(http.MethodGet, "/api/v1/bangumi/sync/history", AuthUser, a.handleBangumiSyncHistory)
 	a.add(http.MethodDelete, "/api/v1/bangumi/sync/history", AuthUser, a.handleBangumiClearHistory)

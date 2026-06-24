@@ -48,12 +48,12 @@ func TestLoadEmailCleanupConfigAndEnvOverride(t *testing.T) {
 	content := `[Email]
 auto_cleanup_expired_verifications = false
 auto_cleanup_unverified = true
-auto_cleanup_unverified_days = 3
+auto_cleanup_unverified_hours = 72
 `
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("TWILIGHT_EMAIL_AUTO_CLEANUP_UNVERIFIED_DAYS", "5")
+	t.Setenv("TWILIGHT_EMAIL_AUTO_CLEANUP_UNVERIFIED_HOURS", "120")
 
 	cfg, err := Load(path)
 	if err != nil {
@@ -65,8 +65,8 @@ auto_cleanup_unverified_days = 3
 	if !cfg.EmailAutoCleanupUnverified {
 		t.Fatal("expected unverified email cleanup to be enabled from TOML")
 	}
-	if cfg.EmailAutoCleanupUnverifiedDays != 5 {
-		t.Fatalf("expected env override for unverified cleanup days, got %d", cfg.EmailAutoCleanupUnverifiedDays)
+	if cfg.EmailAutoCleanupUnverifiedHours != 120 {
+		t.Fatalf("expected env override for unverified cleanup hours, got %d", cfg.EmailAutoCleanupUnverifiedHours)
 	}
 }
 

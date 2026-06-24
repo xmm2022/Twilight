@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { motion } from "framer-motion";
-import { BookOpen, RefreshCw, Trash2, Loader2, CheckCircle2, XCircle, Clock, AlertCircle } from "lucide-react";
+import { BookOpen, RefreshCw, Trash2, Loader2, CheckCircle2, XCircle, Clock, AlertCircle, Heart, Tv, ExternalLink, User as UserIcon } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +15,7 @@ import { useAsyncResource } from "@/hooks/use-async-resource";
 import { api, type BangumiSyncStatus, type BangumiSyncLog } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { useAuthStore } from "@/store/auth";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 
 function formatTime(unix: number): string {
   return new Date(unix * 1000).toLocaleString();
@@ -32,6 +33,7 @@ export default function BangumiPage() {
   const [bgmMode, setBgmMode] = useState(false);
   const [bgmToken, setBgmToken] = useState("");
   const [logs, setLogs] = useState<BangumiSyncLog[]>([]);
+  const [bgmMe, setBgmMe] = useState<any>(null);
 
   const loadResource = useCallback(async () => {
     const res = await api.getBangumiSyncStatus();
@@ -39,6 +41,21 @@ export default function BangumiPage() {
       setStatus(res.data);
       setBgmMode(res.data.bgm_mode);
       setLogs(res.data.recent_logs || []);
+
+      if (res.data.bgm_token_set) {
+        try {
+          const meRes = await api.getBangumiMe();
+          if (meRes.success && meRes.data) {
+            setBgmMe(meRes.data);
+          } else {
+            setBgmMe(null);
+          }
+        } catch (e) {
+          console.error("加载 Bangumi 用户数据失败", e);
+        }
+      } else {
+        setBgmMe(null);
+      }
       return true;
     }
     throw new Error(res.message || "加载失败");
@@ -167,6 +184,242 @@ export default function BangumiPage() {
           {t("bangumi.description")}
         </p>
       </div>
+
+      {bgmMe?.expired && (
+        <Alert variant="destructive" className="border-red-500 bg-red-500/10">
+          <AlertCircle className="h-5 w-5 text-red-600 animate-pulse" />
+          <AlertTitle className="font-extrabold text-red-600 dark:text-red-400">
+            您的 Bangumi 访问令牌已过期 / Access Token Expired
+          </AlertTitle>
+          <AlertDescription className="text-xs text-muted-foreground leading-relaxed mt-1">
+            检测到当前绑定的 Bangumi (BGM) Token 凭证已失效、到期或已被其官方注销。由于 Token 失效，目前的点格子自动同步动作将被服务端暂时阻断。请在下方【设置】面板中填入重新申请的有效 Token。
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {bgmMe && !bgmMe.expired && bgmMe.me && (
+        <motion.div variants={{ hidden: {}, show: {} }} className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <Card className="glass-card md:col-span-1">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-lg font-bold flex items-center gap-2">
+                <UserIcon className="h-4 w-4 text-primary" />
+                Bangumi 账号关联
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center gap-4">
+                {bgmMe.me.avatar?.large ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- User-provided avatar URLs
+                  <img
+                    src={bgmMe.me.avatar.large}
+                    className="h-16 w-16 rounded-full border-2 border-primary object-cover"
+                    alt={bgmMe.me.nickname || bgmMe.me.username}
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="h-16 w-16 rounded-full border-2 border-primary bg-muted flex items-center justify-center">
+                    <UserIcon className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-bold text-foreground truncate text-base">
+                    {bgmMe.me.nickname || "神秘用户"}
+                  </h3>
+                  <p className="text-xs text-muted-foreground truncate">
+                    @{bgmMe.me.username || "unknown"}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    UID: {bgmMe.me.id}
+                  </p>
+                </div>
+              </div>
+
+              {bgmMe.me.sign ? (
+                <div className="rounded-lg bg-accent/20 p-3 text-xs italic text-muted-foreground line-clamp-3">
+                  “ {bgmMe.me.sign} ”
+                </div>
+              ) : null}
+
+              <div className="grid grid-cols-3 gap-2 py-3 border-t border-b border-border/40 text-center">
+                <div className="space-y-0.5">
+                  <p className="text-[11px] text-muted-foreground">在看</p>
+                  <p className="text-base font-extrabold text-foreground">{bgmMe.watching_total ?? 0}</p>
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-[11px] text-muted-foreground">想看</p>
+                  <p className="text-base font-extrabold text-foreground">{bgmMe.wishlist_total ?? 0}</p>
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-[11px] text-muted-foreground">看过</p>
+                  <p className="text-base font-extrabold text-foreground">{bgmMe.collected_total ?? 0}</p>
+                </div>
+              </div>
+
+              <div className="pt-2 flex items-center justify-between text-xs text-muted-foreground">
+                <span>用户组</span>
+                <Badge variant="outline" className="text-[10px]">
+                  {bgmMe.me.user_group === 1 ? "普通成员" : bgmMe.me.user_group === 2 ? "管理员" : "BGM 用户"}
+                </Badge>
+              </div>
+
+              <div className="flex justify-end pt-1">
+                <a
+                  href={`https://bgm.tv/user/${bgmMe.me.username}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-primary flex items-center gap-1 hover:underline"
+                >
+                  前往 Bangumi 主页
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="glass-card md:col-span-2">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg font-bold">Bangumi 个人娱乐视图</CardTitle>
+              <CardDescription>您的 Bangumi 实时精选番剧同步与收藏视图</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-3">
+                <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                  <Tv className="h-3.5 w-3.5 text-primary" />
+                  在看动画 ({bgmMe.watching_total ?? bgmMe.watching?.length ?? 0})
+                </h3>
+                {bgmMe.watching && bgmMe.watching.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {bgmMe.watching.map((item: any) => {
+                      const name = item.subject?.name_cn || item.subject?.name || "未知番剧";
+                      const poster = item.subject?.images?.medium || item.subject?.images?.common || item.subject?.images?.small;
+                      return (
+                        <div key={item.subject_id} className="flex gap-3 bg-accent/25 rounded-md p-2 hover:bg-accent/40 transition">
+                          {poster ? (
+                            // eslint-disable-next-line @next/next/no-img-element -- User-provided poster URLs
+                            <img src={poster} className="h-16 w-12 rounded object-cover flex-shrink-0" alt={name} referrerPolicy="no-referrer" />
+                          ) : (
+                            <div className="h-16 w-12 rounded bg-muted flex items-center justify-center text-[10px] text-muted-foreground flex-shrink-0">无封面</div>
+                          )}
+                          <div className="min-w-0 flex-1 flex flex-col justify-between py-0.5">
+                            <div>
+                              <h4 className="text-xs font-bold truncate text-foreground" title={name}>{name}</h4>
+                              <p className="text-[10px] text-muted-foreground truncate">{item.subject?.name}</p>
+                            </div>
+                            <div className="flex items-center justify-between gap-2 mt-1">
+                              {item.ep_status ? (
+                                <Badge variant="secondary" className="text-[9px] px-1 py-0 scale-95 origin-left">看到 {item.ep_status} 话</Badge>
+                              ) : <span className="text-[9px] text-muted-foreground">尚无进度</span>}
+                              <a
+                                href={`https://bgm.tv/subject/${item.subject_id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10px] text-primary flex items-center gap-0.5 hover:underline"
+                              >
+                                详情
+                                <ExternalLink className="h-2.5 w-2.5" />
+                              </a>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground italic py-2">目前没有正在观看的在看动画...</p>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                  最近看过 ({bgmMe.collected_total ?? bgmMe.collected?.length ?? 0})
+                </h3>
+                {bgmMe.collected && bgmMe.collected.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {bgmMe.collected.map((item: any) => {
+                      const name = item.subject?.name_cn || item.subject?.name || "看过动画";
+                      const poster = item.subject?.images?.medium || item.subject?.images?.common || item.subject?.images?.small;
+                      return (
+                        <div key={item.subject_id} className="flex gap-3 bg-accent/25 rounded-md p-2 hover:bg-accent/40 transition">
+                          {poster ? (
+                            // eslint-disable-next-line @next/next/no-img-element -- User-provided poster URLs
+                            <img src={poster} className="h-16 w-12 rounded object-cover flex-shrink-0" alt={name} referrerPolicy="no-referrer" />
+                          ) : (
+                            <div className="h-16 w-12 rounded bg-muted flex items-center justify-center text-[10px] text-muted-foreground flex-shrink-0">无封面</div>
+                          )}
+                          <div className="min-w-0 flex-1 flex flex-col justify-between py-0.5">
+                            <div>
+                              <h4 className="text-xs font-bold truncate text-foreground" title={name}>{name}</h4>
+                              <p className="text-[10px] text-muted-foreground truncate">{item.subject?.name}</p>
+                            </div>
+                            <div className="flex items-center justify-end gap-2 mt-1">
+                              <a
+                                href={`https://bgm.tv/subject/${item.subject_id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10px] text-primary flex items-center gap-0.5 hover:underline"
+                              >
+                                详情
+                                <ExternalLink className="h-2.5 w-2.5" />
+                              </a>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground italic py-2">目前还没有看过的动画记录呢...</p>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                  <Heart className="h-3.5 w-3.5 text-red-500" />
+                  想看动画 ({bgmMe.wishlist_total ?? bgmMe.wishlist?.length ?? 0})
+                </h3>
+                {bgmMe.wishlist && bgmMe.wishlist.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {bgmMe.wishlist.map((item: any) => {
+                      const name = item.subject?.name_cn || item.subject?.name || "想看动画";
+                      const poster = item.subject?.images?.medium || item.subject?.images?.common || item.subject?.images?.small;
+                      return (
+                        <div key={item.subject_id} className="flex gap-3 bg-accent/25 rounded-md p-2 hover:bg-accent/40 transition">
+                          {poster ? (
+                            // eslint-disable-next-line @next/next/no-img-element -- User-provided poster URLs
+                            <img src={poster} className="h-16 w-12 rounded object-cover flex-shrink-0" alt={name} referrerPolicy="no-referrer" />
+                          ) : (
+                            <div className="h-16 w-12 rounded bg-muted flex items-center justify-center text-[10px] text-muted-foreground flex-shrink-0">无封面</div>
+                          )}
+                          <div className="min-w-0 flex-1 flex flex-col justify-between py-0.5">
+                            <div>
+                              <h4 className="text-xs font-bold truncate text-foreground" title={name}>{name}</h4>
+                              <p className="text-[10px] text-muted-foreground truncate">{item.subject?.name}</p>
+                            </div>
+                            <div className="flex items-center justify-end gap-2 mt-1">
+                              <a
+                                href={`https://bgm.tv/subject/${item.subject_id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10px] text-primary flex items-center gap-0.5 hover:underline"
+                              >
+                                详情
+                                <ExternalLink className="h-2.5 w-2.5" />
+                              </a>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground italic py-2">目前想看列表里还没有动画呢...</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
 
       <motion.div variants={{ hidden: {}, show: {} }}>
         <Card className="glass-card">
