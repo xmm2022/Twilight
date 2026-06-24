@@ -72,6 +72,7 @@ export type ErrCode =
   | "EMBY_INPUT_TOO_LONG"
   // === Bangumi ===
   | "BANGUMI_SYNC_DISABLED"
+  | "BANGUMI_MANAGE_DISABLED"
   | "BANGUMI_TOKEN_TOO_LONG"
   | "BANGUMI_TOKEN_MISSING"
   // === 调度器 ===
@@ -359,6 +360,7 @@ export const ErrCodes = {
   EmbyInputTooLong: "EMBY_INPUT_TOO_LONG",
   // Bangumi
   BangumiSyncDisabled: "BANGUMI_SYNC_DISABLED",
+  BangumiManageDisabled: "BANGUMI_MANAGE_DISABLED",
   BangumiTokenTooLong: "BANGUMI_TOKEN_TOO_LONG",
   BangumiTokenMissing: "BANGUMI_TOKEN_MISSING",
   // 调度器

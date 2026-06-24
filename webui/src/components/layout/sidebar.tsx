@@ -109,7 +109,7 @@ export function filterNavItems(
     if (features?.signin === false && item.href === "/score") {
       return false;
     }
-    if (features?.bangumi_sync === false && item.href === "/bangumi") {
+    if (item.href === "/bangumi" && features?.bangumi_sync === false && features?.bangumi_manage === false) {
       return false;
     }
     if (features?.ticket_system === false && (item.href === "/tickets" || item.href === "/admin/tickets")) {

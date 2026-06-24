@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { BookOpen, RefreshCw, Trash2, Loader2, CheckCircle2, XCircle, Clock, AlertCircle, Eye, Search } from "lucide-react";
+import Link from "next/link";
+import { BookOpen, RefreshCw, Trash2, Loader2, CheckCircle2, XCircle, Clock, AlertCircle, Eye, Search, Settings2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +14,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useAsyncResource } from "@/hooks/use-async-resource";
 import { api, type BangumiUserInfo, type BangumiSyncLog, type PlaybackRecordWithSync } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import { useSystemStore } from "@/store/system";
 
 function formatTime(unix: number): string {
   return new Date(unix * 1000).toLocaleString();
@@ -24,6 +26,57 @@ function formatDuration(seconds: number): string {
   const m = Math.floor((seconds % 3600) / 60);
   if (h > 0) return `${h}h${m}m`;
   return `${m}m`;
+}
+
+function BGMConfigCard() {
+  const features = useSystemStore((s) => s.info?.features);
+  const fetchInfo = useSystemStore((s) => s.fetchInfo);
+
+  useEffect(() => {
+    if (!features) {
+      void fetchInfo();
+    }
+  }, [features, fetchInfo]);
+
+  if (!features) return null;
+
+  const syncOn = features.bangumi_sync === true;
+  const manageOn = features.bangumi_manage === true;
+
+  return (
+    <Card className="glass-card">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Settings2 className="h-4 w-4" />
+          Bangumi 功能配置
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Badge variant={syncOn ? "default" : "secondary"} className={syncOn ? "bg-green-600" : ""}>
+              同步: {syncOn ? "已启用" : "已关闭"}
+            </Badge>
+            <Badge variant={manageOn ? "default" : "secondary"} className={manageOn ? "bg-blue-600" : ""}>
+              管理: {manageOn ? "已启用" : "已关闭"}
+            </Badge>
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {!syncOn && !manageOn
+              ? "两个功能均已关闭。用户端 Bangumi 页面将隐藏，但管理员仍可查看配置状态。"
+              : !syncOn
+                ? "同步关闭：仅收藏管理可用，自动同步和 Webhook 不可用。"
+                : !manageOn
+                  ? "管理关闭：仅自动同步可用，用户无法管理收藏。"
+                  : "两个功能均已开启。"}
+          </span>
+          <Link href="/admin/config" className="ml-auto text-xs text-primary hover:underline shrink-0">
+            前往配置管理 →
+          </Link>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function AdminBangumiPage() {
@@ -146,6 +199,9 @@ export default function AdminBangumiPage() {
           {t("bangumi.adminDescription")}
         </p>
       </div>
+
+      {/* BGM 配置状态卡片 */}
+      <BGMConfigCard />
 
       <div className="flex items-center gap-2">
         <form onSubmit={handleSearchSubmit} className="flex flex-1 max-w-sm items-center gap-2">

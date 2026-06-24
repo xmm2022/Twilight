@@ -1134,6 +1134,7 @@ func (a *App) handleSystemInfo(w http.ResponseWriter, r *http.Request, _ Params)
 			"force_bind_group":              cfg.TelegramForceBindGroup,
 			"force_bind_channel":            cfg.TelegramForceBindChannel,
 			"bangumi_sync":                  cfg.BangumiEnabled,
+			"bangumi_manage":                cfg.BangumiManageEnabled,
 			"media_request":                 cfg.MediaRequestEnabled,
 			"signin":                        cfg.SigninEnabled,
 			"invite":                        cfg.InviteEnabled,
