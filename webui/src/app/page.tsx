@@ -68,13 +68,17 @@ function LandingPage() {
 
 export default function Home() {
   const router = useRouter();
-  const { isAuthenticated, isHydrated, isLoading } = useAuthStore();
+  const { isAuthenticated, isHydrated, isLoading, initialize } = useAuthStore();
 
   useEffect(() => {
     if (landingEnabled) return;
-    if (!isHydrated || isLoading) return;
+    if (!isHydrated) return;
+    if (isLoading) {
+      void initialize();
+      return;
+    }
     router.replace(isAuthenticated ? "/dashboard" : "/login");
-  }, [isAuthenticated, isHydrated, isLoading, router]);
+  }, [isAuthenticated, isHydrated, isLoading, initialize, router]);
 
   if (landingEnabled) {
     return <LandingPage />;
