@@ -222,6 +222,8 @@ func TestCredentialedCORSRequiresExplicitOrigin(t *testing.T) {
 
 func TestBindCodeCreationGETRequiresWebUIIntent(t *testing.T) {
 	app := newTestApp(t)
+	app.cfg().TelegramMode = true
+	app.cfg().TelegramBotToken = "123:ABC"
 
 	missing := doJSON(app, http.MethodGet, "/api/v1/users/telegram/register/bind-code", ``, nil)
 	if missing.Code != http.StatusBadRequest || !strings.Contains(missing.Body.String(), "显式前端操作意图") {
@@ -248,6 +250,8 @@ func TestBindCodeCreationGETRequiresWebUIIntent(t *testing.T) {
 
 func TestRegcodesPersistAcrossAppRestartButBindCodesDoNot(t *testing.T) {
 	app := newTestApp(t)
+	app.cfg().TelegramMode = true
+	app.cfg().TelegramBotToken = "123:ABC"
 	adminCookies := registerAndLogin(t, app, "admin", "Admin123456")
 	headers := map[string]string{"X-Twilight-Client": "webui"}
 
@@ -2134,6 +2138,8 @@ func TestTelegramMembershipEnforcementUsesConfiguredConcurrency(t *testing.T) {
 
 func TestRegisterConsumesConfirmedTelegramBindCode(t *testing.T) {
 	app := newTestApp(t)
+	app.cfg().TelegramMode = true
+	app.cfg().TelegramBotToken = "123:ABC"
 	app.cfg().ForceBindTelegram = true
 
 	codeResp := doJSONWithHeaders(app, http.MethodGet, "/api/v1/users/telegram/register/bind-code", ``, nil, bindCodeCreateTestHeaders())
@@ -2173,6 +2179,8 @@ func TestRegisterConsumesConfirmedTelegramBindCode(t *testing.T) {
 
 func TestRegisterWithTelegramBindCodeAllowsBootstrapAdminUIDOnlyConfig(t *testing.T) {
 	app := newTestApp(t)
+	app.cfg().TelegramMode = true
+	app.cfg().TelegramBotToken = "123:ABC"
 	app.cfg().ForceBindTelegram = true
 	app.cfg().AdminUIDs = []int64{1}
 	app.cfg().AdminUsernames = nil

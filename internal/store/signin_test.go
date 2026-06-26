@@ -108,3 +108,50 @@ func TestAddSigninDoesNotCreateDuplicateForSameDay(t *testing.T) {
 		t.Fatalf("duplicate signin changed state: first=%#v second=%#v", first, second)
 	}
 }
+
+func TestAddSigninTrimsExcessRecords(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	uid := int64(10)
+	// 填充超出 maxSigninRecords 的记录，模拟旧数据
+	oldRecords := make([]SigninRecord, 0, maxSigninRecords+10)
+	for i := 0; i < maxSigninRecords+10; i++ {
+		oldRecords = append(oldRecords, SigninRecord{
+			Date:      "2000-01-01",
+			Points:    1,
+			Total:     1,
+			Streak:    1,
+			CreatedAt: 1000000000,
+		})
+	}
+	st.mu.Lock()
+	st.state.Signin[uid] = Signin{
+		UID:        uid,
+		Points:     100,
+		Streak:     1,
+		LastSignin: time.Now().AddDate(0, 0, -1).Format("2006-01-02"),
+		Records:    oldRecords,
+	}
+	st.mu.Unlock()
+	if err := st.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	si, created, err := st.AddSignin(uid, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created {
+		t.Fatal("expected signin to be created")
+	}
+	if len(si.Records) > maxSigninRecords {
+		t.Fatalf("records not trimmed: got %d, want <= %d", len(si.Records), maxSigninRecords)
+	}
+	if len(si.Records) != maxSigninRecords {
+		t.Fatalf("expected exactly %d records after trim, got %d", maxSigninRecords, len(si.Records))
+	}
+}

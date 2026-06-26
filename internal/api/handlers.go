@@ -509,6 +509,10 @@ func (a *App) handleRegisterBindCode(w http.ResponseWriter, r *http.Request, _ P
 	if !requireWebUIIntent(w, r, twilightIntentCreateBindCode) {
 		return
 	}
+	if !a.telegramAvailable() {
+		failWithCode(w, http.StatusServiceUnavailable, ErrTGNotConfigured, "Telegram Bot 未配置")
+		return
+	}
 	if !a.allowRate(r.Context(), rateKey("register-bind-code:", a.clientIP(r)), a.cfg().RateLimitRegisterPer10m, 10*time.Minute) {
 		failWithCode(w, http.StatusTooManyRequests, ErrBindCodeRateLimited, "绑定码请求过于频繁")
 		return
@@ -518,6 +522,10 @@ func (a *App) handleRegisterBindCode(w http.ResponseWriter, r *http.Request, _ P
 
 func (a *App) handleUserBindCode(w http.ResponseWriter, r *http.Request, _ Params) {
 	if !requireWebUIIntent(w, r, twilightIntentCreateBindCode) {
+		return
+	}
+	if !a.telegramAvailable() {
+		failWithCode(w, http.StatusServiceUnavailable, ErrTGNotConfigured, "Telegram Bot 未配置")
 		return
 	}
 	if !a.allowRate(r.Context(), rateKey("user-bind-code:", current(r).User.UID), a.cfg().RateLimitLoginPerMinute, time.Minute) {

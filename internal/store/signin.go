@@ -3,6 +3,7 @@ package store
 import "time"
 
 const signinDateLayout = "2006-01-02"
+const maxSigninRecords = 730 // 最多保留 730 条签到记录（约 2 年），超出的旧记录自动裁剪
 
 func (s *Store) Signin(uid int64) Signin {
 	s.mu.RLock()
@@ -51,6 +52,9 @@ func (s *Store) AddSigninWithOptions(uid int64, dailyPoints int, bonusForStreak 
 	si.LastSignin = today
 	si.Points += totalPoints
 	si.Records = append(si.Records, SigninRecord{Date: today, Points: dailyPoints, BonusPoints: bonusPoints, Total: totalPoints, Streak: si.Streak, CreatedAt: now.Unix()})
+	if len(si.Records) > maxSigninRecords {
+		si.Records = si.Records[len(si.Records)-maxSigninRecords:]
+	}
 	s.state.Signin[uid] = si
 	return si, true, s.saveLocked()
 }
