@@ -343,6 +343,7 @@ pnpm build
 - Cookie 鉴权的变更类请求不再做 CSRF 令牌校验。鉴权依赖 HttpOnly session cookie、Bearer token 或 API Key；`X-Twilight-Client: webui` 只是允许的 CORS 头，不是鉴权手段。
 - Telegram 直接登录当前不可用。Telegram 只用于绑定、通知、管理员工具和 Bot 交互，不要重新引入 Telegram 一键登录或信任 Telegram ID 的免密登录。
 - Telegram Bot 账号类操作优先私聊；群聊只保留必要管理员工具。Bot/面板输出不得展示密码、Token、Emby ID、服务器线路、API Key 等敏感信息，按钮/面板操作必须重新校验管理员身份、目标权限和面板过期时间。
+- Bot 内置指令（`telegramCommandRegistry`）通过 `config.toml` 的 `[Telegram] disabled_commands` 控制开关，禁用的指令由 `telegramDispatchRegistry` 在调度时跳过暴露为未命中、交给自定义指令流程处理。管理员可在 `/admin/telegram/commands` 页面以开关形式管理每条内置指令的启停。自定义指令通过 `disabled_commands` 和 `telegramCustomCommandReply` 中内置指令优先级检查双重机制防止覆盖内置指令。
 - Emby/Jellyfin 外部副作用必须先完成本地权限、容量、过期状态和绑定冲突校验；非系统管理员不得绑定或操作 Emby 管理员账号。Emby 线路下发统一走 `/api/v1/system/emby-urls` 并按用户状态/权限过滤。
 - 运行时可热重载的 `cfg/store/sessions/limiter/redis` 通过 `runtimeState` 原子快照管理。读配置或 store 时优先使用 `a.cfg()`、`a.store()` 等访问器，不要缓存会跨 reload 失效的句柄。
 - 配置入口固定为工作目录下的 `config.toml`；`--config` 只接受同一个工作目录的 `config.toml`。私密覆盖使用同目录 `config.local.toml` 或 `TWILIGHT_CONFIG_LOCAL_FILE`，环境变量以 `TWILIGHT_*` 覆盖字段。新增配置项一律落到 `config.toml`（在 `config.production.toml` 模板与后台 schema 中体现），**不要**把功能配置写进 `.env.example`——后端 `.env` 仅保留后端监听地址、站点名称等极少数部署级项目，前端展示项（API 基址 / 站点名 / 介绍 / 图标）走 `webui/.env`。

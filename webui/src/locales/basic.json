@@ -2419,7 +2419,10 @@
   },
   "adminTelegramCommands": {
     "title": "Bot 指令管理",
-    "description": "集中维护 Telegram Bot 自定义指令，保存后写回 config.toml 的 bot_custom_commands。",
+    "description": "集中维护 Telegram Bot 内置指令开关与自定义指令，保存后写回 config.toml。",
+    "builtinTitle": "内置指令",
+    "builtinDescription": "开启或关闭内置指令。关闭后该指令在 Bot 中不可用，不会与自定义指令冲突。",
+    "adminBadge": "管理",
     "openDeveloper": "开发者文档",
     "noticeTitle": "配置与执行边界",
     "notice": "纯文本指令只做占位符替换；选择 JS 预设时会保存为 js: 脚本并在 Bot 运行时进入受控沙箱。不要在回复或脚本中写入 Token、密码、API Key、Secret 或服务器线路。",

@@ -171,6 +171,9 @@ func (a *App) telegramSendMessageWithMarkup(ctx context.Context, chatID any, tex
 		"text":                     text,
 		"disable_web_page_preview": true,
 	}
+	if pm := a.telegramParseMode(); pm != "" {
+		body["parse_mode"] = pm
+	}
 	if replyMarkup != nil {
 		body["reply_markup"] = replyMarkup
 	}
@@ -187,10 +190,23 @@ func (a *App) telegramEditMessageText(ctx context.Context, chatID, messageID int
 		return fmt.Errorf("message text is empty")
 	}
 	body := map[string]any{"chat_id": chatID, "message_id": messageID, "text": text, "disable_web_page_preview": true}
+	if pm := a.telegramParseMode(); pm != "" {
+		body["parse_mode"] = pm
+	}
 	if replyMarkup != nil {
 		body["reply_markup"] = replyMarkup
 	}
 	return a.telegramPost(ctx, "editMessageText", body, nil)
+}
+
+// telegramParseMode 返回当前配置的消息解析模式。
+func (a *App) telegramParseMode() string {
+	pm := a.cfg().TelegramParseMode
+	switch pm {
+	case "Markdown", "MarkdownV2", "HTML":
+		return pm
+	}
+	return ""
 }
 
 func (a *App) telegramDeleteMessage(ctx context.Context, chatID, messageID int64) error {

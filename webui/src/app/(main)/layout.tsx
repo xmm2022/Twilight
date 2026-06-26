@@ -77,8 +77,13 @@ export default function MainLayout({
   const router = useRouter();
   const pathname = usePathname();
   const { t } = useI18n();
-  const { user, isAuthenticated, isLoading, isHydrated, initialize, fetchUser } = useAuthStore();
-  const { fetchInfo: fetchSystemInfo } = useSystemStore();
+  const user = useAuthStore((s) => s.user);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const isLoading = useAuthStore((s) => s.isLoading);
+  const isHydrated = useAuthStore((s) => s.isHydrated);
+  const initialize = useAuthStore((s) => s.initialize);
+  const fetchUser = useAuthStore((s) => s.fetchUser);
+  const fetchSystemInfo = useSystemStore((s) => s.fetchInfo);
   const { resolvedTheme, theme } = useTheme();
   const activeTheme = resolvedTheme || theme;
   const isAdmin = user?.role === 0;

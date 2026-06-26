@@ -61,8 +61,39 @@ const (
 
 func (a *App) systemUserLimitReached() (bool, int, int) {
 	limit := a.cfg().UserLimit
+	if limit <= 0 {
+		return false, 0, limit
+	}
 	current := a.store().UserCount()
-	return limit > 0 && current >= limit, current, limit
+	// 除现有用户外，还将已存在的有效注册码/邀请码的剩余名额计入上限，
+	// 避免管理员批量生成卡码后实际用户数超过预期。
+	now := time.Now().Unix()
+	for _, code := range a.store().ListRegCodes() {
+		current += remainingRegCodeUserSlots(code, now)
+	}
+	for _, code := range a.store().ListAllInviteCodes() {
+		current += remainingInviteUserSlots(code, now)
+	}
+	return current >= limit, current, limit
+}
+
+// remainingRegCodeUserSlots 注册码/白名单码剩余可注册用户数（计入系统用户上限）。
+func remainingRegCodeUserSlots(code store.RegCode, now int64) int {
+	if !code.Active || code.IsDecoy || (code.ValidityTime > 0 && code.CreatedAt+code.ValidityTime*3600 <= now) {
+		return 0
+	}
+	if code.Type != 1 && code.Type != 3 {
+		return 0
+	}
+	return remainingUseSlots(code.UseCount, code.UseCountLimit)
+}
+
+// remainingInviteUserSlots 邀请码剩余可注册用户数（计入系统用户上限）。
+func remainingInviteUserSlots(code store.InviteCode, now int64) int {
+	if !code.Active || (code.ExpiredAt > 0 && code.ExpiredAt <= now) {
+		return 0
+	}
+	return remainingUseSlots(code.UseCount, code.UseCountLimit)
 }
 
 func (a *App) embyCapacityReached(excludeUID int64) (bool, int, int) {

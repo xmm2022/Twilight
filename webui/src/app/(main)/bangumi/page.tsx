@@ -345,6 +345,7 @@ export default function BangumiPage() {
                     src={bgmMe.me.avatar.large}
                     className="h-16 w-16 rounded-full border-2 border-primary object-cover"
                     alt={bgmMe.me.nickname || bgmMe.me.username}
+                    loading="lazy"
                     referrerPolicy="no-referrer"
                   />
                 ) : (
@@ -432,7 +433,7 @@ export default function BangumiPage() {
                         <div key={item.subject_id} className="flex gap-3 bg-accent/20 border border-border/20 rounded-lg p-3 hover:bg-accent/30 transition shadow-sm">
                           {poster ? (
                             // eslint-disable-next-line @next/next/no-img-element -- User-provided poster URLs
-                            <img src={poster} className="h-28 w-20 rounded-md object-cover flex-shrink-0 shadow-sm border border-border/40" alt={name} referrerPolicy="no-referrer" />
+                            <img src={poster} className="h-28 w-20 rounded-md object-cover flex-shrink-0 shadow-sm border border-border/40" alt={name} loading="lazy" referrerPolicy="no-referrer" />
                           ) : (
                             <div className="h-28 w-20 rounded-md bg-muted flex items-center justify-center text-[10px] text-muted-foreground flex-shrink-0 border border-border/40">无封面</div>
                           )}
@@ -491,7 +492,7 @@ export default function BangumiPage() {
                         <div key={item.subject_id} className="flex gap-3 bg-accent/20 border border-border/20 rounded-lg p-3 hover:bg-accent/30 transition shadow-sm">
                           {poster ? (
                             // eslint-disable-next-line @next/next/no-img-element -- User-provided poster URLs
-                            <img src={poster} className="h-28 w-20 rounded-md object-cover flex-shrink-0 shadow-sm border border-border/40" alt={name} referrerPolicy="no-referrer" />
+                            <img src={poster} className="h-28 w-20 rounded-md object-cover flex-shrink-0 shadow-sm border border-border/40" alt={name} loading="lazy" referrerPolicy="no-referrer" />
                           ) : (
                             <div className="h-28 w-20 rounded-md bg-muted flex items-center justify-center text-[10px] text-muted-foreground flex-shrink-0 border border-border/40">无封面</div>
                           )}
@@ -548,7 +549,7 @@ export default function BangumiPage() {
                         <div key={item.subject_id} className="flex gap-3 bg-accent/20 border border-border/20 rounded-lg p-3 hover:bg-accent/30 transition shadow-sm">
                           {poster ? (
                             // eslint-disable-next-line @next/next/no-img-element -- User-provided poster URLs
-                            <img src={poster} className="h-28 w-20 rounded-md object-cover flex-shrink-0 shadow-sm border border-border/40" alt={name} referrerPolicy="no-referrer" />
+                            <img src={poster} className="h-28 w-20 rounded-md object-cover flex-shrink-0 shadow-sm border border-border/40" alt={name} loading="lazy" referrerPolicy="no-referrer" />
                           ) : (
                             <div className="h-28 w-20 rounded-md bg-muted flex items-center justify-center text-[10px] text-muted-foreground flex-shrink-0 border border-border/40">无封面</div>
                           )}
@@ -750,6 +751,7 @@ export default function BangumiPage() {
                     src={editingItem.subject?.images?.medium || editingItem.subject?.images?.common}
                     className="h-24 w-16 rounded object-cover shadow-sm border border-border/40"
                     alt={editingItem.subject?.name_cn || editingItem.subject?.name}
+                    loading="lazy"
                     referrerPolicy="no-referrer"
                   />
                 ) : (
@@ -856,8 +858,8 @@ export default function BangumiPage() {
                   return (
                     <div key={item.subject_id} className="flex gap-3 bg-accent/20 border border-border/20 rounded-lg p-3 hover:bg-accent/30 transition shadow-sm">
                       {poster ? (
-                        <img src={poster} className="h-28 w-20 rounded-md object-cover flex-shrink-0 shadow-sm border border-border/40" alt={name} referrerPolicy="no-referrer" />
-                      ) : (
+                            <img src={poster} className="h-28 w-20 rounded-md object-cover flex-shrink-0 shadow-sm border border-border/40" alt={name} loading="lazy" referrerPolicy="no-referrer" />
+                          ) : (
                         <div className="h-28 w-20 rounded-md bg-muted flex items-center justify-center text-[10px] text-muted-foreground flex-shrink-0 border border-border/40">无封面</div>
                       )}
                       <div className="min-w-0 flex-1 flex flex-col justify-between py-0.5">

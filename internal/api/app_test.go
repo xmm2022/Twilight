@@ -3763,8 +3763,10 @@ func TestEmbyCapacityCountsPendingEntitlementsSeparatelyFromSystemLimit(t *testi
 		t.Fatal(err)
 	}
 
-	if reached, current, limit := app.systemUserLimitReached(); reached || current != 1 || limit != 100 {
-		t.Fatalf("system limit should only count local users, got reached=%v current=%d limit=%d", reached, current, limit)
+	// 系统用户上限现在也会计入有效注册码/邀请码的剩余名额。REG-A（type=1）和 INV-A
+	// 各占 1 个名额，REG-RENEW（type=2）不算，加上已有 1 个用户 = 3。
+	if reached, current, limit := app.systemUserLimitReached(); reached || current != 3 || limit != 100 {
+		t.Fatalf("system limit should count local users + pending codes, got reached=%v current=%d limit=%d", reached, current, limit)
 	}
 	if reached, current, limit := app.embyCapacityReached(0); !reached || current != 3 || limit != 3 {
 		t.Fatalf("emby capacity should count existing users and pending code slots, got reached=%v current=%d limit=%d", reached, current, limit)

@@ -176,6 +176,8 @@ type Config struct {
 	TelegramBotAbout               string
 	TelegramGroupUserPanelTemplate string
 	TelegramCustomCommands         []TelegramCommandReply
+	TelegramDisabledCommands       []string // 被禁用的内置指令列表
+	TelegramParseMode              string   // 消息解析模式：""（纯文本）、Markdown、MarkdownV2、HTML
 	BotInternalSecret              string
 	BangumiEnabled                 bool
 	BangumiManageEnabled           bool
@@ -424,6 +426,8 @@ func Load(path string) (Config, error) {
 	cfg.TelegramBotAbout = reader.stringValue(cfg.TelegramBotAbout, "Telegram.bot_about", "bot_about")
 	cfg.TelegramGroupUserPanelTemplate = reader.stringValue(cfg.TelegramGroupUserPanelTemplate, "Telegram.group_user_panel_template", "group_user_panel_template")
 	cfg.TelegramCustomCommands = parseTelegramCommandRepliesList(reader.stringListValue(nil, "Telegram.bot_custom_commands", "bot_custom_commands"))
+	cfg.TelegramDisabledCommands = reader.stringListValue(cfg.TelegramDisabledCommands, "Telegram.disabled_commands", "telegram_disabled_commands")
+	cfg.TelegramParseMode = reader.stringValue(cfg.TelegramParseMode, "Telegram.parse_mode", "telegram_parse_mode")
 	cfg.BangumiEnabled = reader.boolValue(cfg.BangumiEnabled, "BangumiSync.enabled", "bangumi_sync_enabled")
 	cfg.BangumiManageEnabled = reader.boolValue(cfg.BangumiManageEnabled, "BangumiSync.manage_enabled", "bangumi_sync_manage_enabled")
 	cfg.BangumiWebhookSecret = reader.stringValue(cfg.BangumiWebhookSecret, "BangumiSync.webhook_secret", "webhook_secret")

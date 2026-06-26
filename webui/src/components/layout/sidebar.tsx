@@ -142,13 +142,16 @@ function isActivePath(pathname: string, href: string) {
 export function Sidebar() {
   const pathname = usePathname();
   const { t } = useI18n();
-  const { user, logout } = useAuthStore();
-  const { setTheme, theme: rawTheme, resolvedTheme } = useTheme();
+  const user = useAuthStore((s) => s.user);
+  const logout = useAuthStore((s) => s.logout);
+  const setTheme = useTheme().setTheme;
+  const rawTheme = useTheme().theme;
+  const resolvedTheme = useTheme().resolvedTheme;
   // resolvedTheme 反映真实生效主题（含 SSR -> CSR 后的 hydration），用于图标显示
   const currentTheme = resolvedTheme || rawTheme || "light";
   const isAdmin = user?.role === 0;
   const [profileAvatar, setProfileAvatar] = useState<string | null>(user?.avatar || null);
-  const { info: systemInfo } = useSystemStore();
+  const systemInfo = useSystemStore((s) => s.info);
 
   const loadProfileAvatar = useCallback(async () => {
     if (!user?.uid) {

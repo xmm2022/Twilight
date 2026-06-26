@@ -189,6 +189,32 @@ func (a *App) telegramRunJSCustomCommandWithOptions(code string, c telegramComma
 	_ = vm.Set("time", developerJSTimeAPI(vm))
 	_ = vm.Set("format", developerJSFormatAPI(vm))
 	_ = vm.Set("interactions", a.developerJSInteractionsAPI(vm, c, opts, &logs))
+	_ = vm.Set("sendMessage", func(call goja.FunctionCall) goja.Value {
+		chatID := call.Argument(0).Export()
+		msgText := developerJSLimitText(call.Argument(1).String(), 3900)
+		if strings.TrimSpace(msgText) == "" {
+			return vm.ToValue(false)
+		}
+		pm := ""
+		if len(call.Arguments) > 2 && !goja.IsUndefined(call.Argument(2)) && !goja.IsNull(call.Argument(2)) {
+			p := strings.TrimSpace(call.Argument(2).String())
+			if p == "Markdown" || p == "MarkdownV2" || p == "HTML" {
+				pm = p
+			}
+		}
+		body := map[string]any{"chat_id": chatID, "text": msgText, "disable_web_page_preview": true}
+		if pm != "" {
+			body["parse_mode"] = pm
+		}
+		var result map[string]any
+		if err := a.telegramPost(opts.Context, "sendMessage", body, &result); err != nil {
+			if len(logs) < 8 {
+				logs = append(logs, "sendMessage error: "+truncateString(err.Error(), 200))
+			}
+			return vm.ToValue(false)
+		}
+		return vm.ToValue(numeric(result["message_id"]))
+	})
 	_ = vm.Set("reply", func(call goja.FunctionCall) goja.Value {
 		if len(replies) < 4 {
 			replies = append(replies, developerJSLimitText(call.Argument(0).String(), 1200))

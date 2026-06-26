@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"strings"
 )
 
@@ -153,16 +154,94 @@ var telegramCommandRegistry = map[string]telegramCommandSpec{
 			a.telegramHandleDelAccount(ctx, c.ChatID, c.FromID, c.Args)
 		},
 	},
+	"/version": {
+		private: true,
+		handler: func(a *App, ctx context.Context, c telegramCommandCtx) {
+			ver := a.cfg().Version
+			name := a.cfg().AppName
+			_ = a.telegramSendMessage(ctx, c.ChatID, name+" v"+ver)
+		},
+	},
+	"/ping": {
+		private: true,
+		handler: func(a *App, ctx context.Context, c telegramCommandCtx) {
+			_ = a.telegramSendMessage(ctx, c.ChatID, "pong")
+		},
+	},
+	"/notice": {
+		private: true,
+		handler: func(a *App, ctx context.Context, c telegramCommandCtx) {
+			a.telegramHandleNotice(ctx, c.ChatID)
+		},
+	},
+	"/broadcast": {
+		private: true,
+		admin:   true,
+		handler: func(a *App, ctx context.Context, c telegramCommandCtx) {
+			a.telegramHandleBroadcast(ctx, c.ChatID, c.FromID, c.argString())
+		},
+	},
 }
 
 // telegramDispatchRegistry 在 dispatcher 中统一执行注册表里命令的 gating，
 // 命中并调用成功返回 true；未命中（特殊命令或自定义命令）返回 false 让上层继续 switch。
 // gating 顺序：private → admin。任何一关失败都直接发统一文案并返回 true（命令"已处理"），
 // 不要让上层再当作 unknown command 继续追加错误提示。
+// telegramHandleNotice 返回最新一条公告。
+func (a *App) telegramHandleNotice(ctx context.Context, chatID int64) {
+	announcements := a.store().ListAnnouncements(false)
+	if len(announcements) == 0 {
+		_ = a.telegramSendMessage(ctx, chatID, "暂无公告。")
+		return
+	}
+	latest := announcements[len(announcements)-1]
+	title := latest.Title
+	content := latest.Content
+	if len(content) > 500 {
+		content = content[:500] + "…"
+	}
+	if title != "" {
+		_ = a.telegramSendMessage(ctx, chatID, "📢 "+title+"\n\n"+content)
+	} else {
+		_ = a.telegramSendMessage(ctx, chatID, content)
+	}
+}
+
+// telegramHandleBroadcast 向所有启用了 Telegram 通知的用户广播消息。
+func (a *App) telegramHandleBroadcast(ctx context.Context, chatID, fromID int64, message string) {
+	if strings.TrimSpace(message) == "" {
+		_ = a.telegramSendMessage(ctx, chatID, "用法：/broadcast <消息内容>")
+		return
+	}
+	if len(message) > 2000 {
+		message = message[:2000]
+	}
+	sent := 0
+	failed := 0
+	for _, u := range a.store().ListUsers() {
+		if u.TelegramID == 0 || !u.NotifyOnLoginTelegram {
+			continue
+		}
+		if err := a.telegramSendMessage(ctx, u.TelegramID, "📢 系统通知\n\n"+message); err != nil {
+			failed++
+		} else {
+			sent++
+		}
+	}
+	_ = a.telegramSendMessage(ctx, chatID, "广播完成。已发送 "+fmt.Sprintf("%d", sent)+" 人，失败 "+fmt.Sprintf("%d", failed)+" 人。")
+}
+
 func (a *App) telegramDispatchRegistry(ctx context.Context, command string, c telegramCommandCtx, privateChat bool) (handled bool) {
 	spec, ok := telegramCommandRegistry[command]
 	if !ok {
 		return false
+	}
+	// 检查内置指令是否被管理员禁用
+	cmdName := strings.TrimPrefix(command, "/")
+	for _, disabled := range a.cfg().TelegramDisabledCommands {
+		if strings.EqualFold(strings.TrimSpace(disabled), cmdName) {
+			return false
+		}
 	}
 	if spec.private && !a.telegramRequirePrivate(ctx, c.ChatID, privateChat) {
 		return true

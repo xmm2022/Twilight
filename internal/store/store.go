@@ -40,6 +40,10 @@ type Store struct {
 	// Postgres 后端为 nil；同进程内并发由 mu 已经串行化，
 	// 这里防的是多个 Twilight 进程共用同一份 state.json 时的丢更新。
 	lock *fileLock
+
+	// telegramIDMap 是 telegram_id → UID 的二级索引，避免每次都全表扫描 Users。
+	// 在 Open/OpenPostgres 时重建，后续通过 maintainTelegramIDIndex 增量维护。
+	telegramIDMap map[int64]int64
 }
 
 const (
@@ -520,6 +524,7 @@ func Open(path string) (*Store, error) {
 		}
 	}
 	st.state.ensure()
+	st.rebuildTelegramIDIndex()
 	return st, nil
 }
 
@@ -559,6 +564,7 @@ func OpenPostgres(ctx context.Context, dsn string) (*Store, error) {
 		}
 	}
 	st.state.ensure()
+	st.rebuildTelegramIDIndex()
 	return st, nil
 }
 
@@ -1118,7 +1124,7 @@ func (s *Store) saveLocked() error {
 	if s.db != nil {
 		data, err = json.Marshal(s.state)
 	} else {
-		data, err = json.MarshalIndent(s.state, "", "  ")
+		data, err = json.Marshal(s.state)
 	}
 	if err != nil {
 		return err
@@ -1655,6 +1661,7 @@ func (s *Store) CreateUser(u User) (User, error) {
 		}
 		u.Active = true
 		s.state.Users[u.UID] = u
+		s.maintainTelegramIDIndex(0, u.TelegramID, u.UID)
 		created = u
 		return nil
 	})
@@ -1677,6 +1684,13 @@ func (s *Store) telegramIDTakenLocked(telegramID, allowedUID int64) bool {
 	if telegramID == 0 {
 		return false
 	}
+	if s.telegramIDMap != nil {
+		if uid, ok := s.telegramIDMap[telegramID]; ok && uid != allowedUID {
+			return true
+		}
+		return false
+	}
+	// 索引未初始化，回退扫描
 	for _, existing := range s.state.Users {
 		if existing.TelegramID == telegramID && existing.UID != allowedUID {
 			return true
@@ -1876,10 +1890,12 @@ func (s *Store) UpdateUser(uid int64, fn func(*User) error) (User, error) {
 		if !ok {
 			return ErrNotFound
 		}
+		oldTGID := u.TelegramID
 		if err := fn(&u); err != nil {
 			return err
 		}
 		s.state.Users[uid] = u
+		s.maintainTelegramIDIndex(oldTGID, u.TelegramID, uid)
 		updated = u
 		return nil
 	})
@@ -2283,9 +2299,11 @@ func (s *Store) DeleteUser(uid int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.mutateAndSaveLocked(func() error {
-		if _, ok := s.state.Users[uid]; !ok {
+		u, ok := s.state.Users[uid]
+		if !ok {
 			return ErrNotFound
 		}
+		s.maintainTelegramIDIndex(u.TelegramID, 0, uid)
 		delete(s.state.Users, uid)
 
 		// API keys 与会话凭证：必须清理，否则用户被删后旧 key 仍可调用接口。
@@ -2419,11 +2437,47 @@ func (s *Store) ListUsers() []User {
 	return users
 }
 
+// rebuildTelegramIDIndex 从当前 Users map 重建 telegramID → UID 索引。
+// 在 Open / OpenPostgres 加载 state 后调用，无需持锁（调用方已持有写锁或尚未暴露引用）。
+func (s *Store) rebuildTelegramIDIndex() {
+	m := make(map[int64]int64, len(s.state.Users))
+	for _, u := range s.state.Users {
+		if u.TelegramID != 0 {
+			m[u.TelegramID] = u.UID
+		}
+	}
+	s.telegramIDMap = m
+}
+
+// maintainTelegramIDIndex 在用户变更后增量维护 telegramID → UID 索引。
+// 调用方须持有 s.mu 写锁。索引为空时自动从 state 重建。
+func (s *Store) maintainTelegramIDIndex(oldTGID, newTGID int64, uid int64) {
+	if s.telegramIDMap == nil {
+		s.rebuildTelegramIDIndex()
+	}
+	if oldTGID != 0 {
+		delete(s.telegramIDMap, oldTGID)
+	}
+	if newTGID != 0 {
+		s.telegramIDMap[newTGID] = uid
+	}
+}
+
 func (s *Store) FindUserByTelegramID(telegramID int64) (User, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	for _, u := range s.state.Users {
-		if telegramID != 0 && u.TelegramID == telegramID {
+	if s.telegramIDMap == nil {
+		// 索引未初始化（测试等路径），回退到全表扫描
+		for _, u := range s.state.Users {
+			if telegramID != 0 && u.TelegramID == telegramID {
+				return u, true
+			}
+		}
+		return User{}, false
+	}
+	if uid, ok := s.telegramIDMap[telegramID]; ok {
+		u, found := s.state.Users[uid]
+		if found && u.TelegramID == telegramID {
 			return u, true
 		}
 	}
@@ -3441,12 +3495,14 @@ func (s *Store) ConsumeInviteCodeAndUpdateUser(code string, childUID int64, maxD
 		}
 		s.state.InviteCodes[code] = c
 		s.state.InviteRelations[childUID] = InviteRelation{ParentUID: c.InviterUID, ChildUID: childUID, Code: code, CreatedAt: now}
+		oldTGID := u.TelegramID
 		if fn != nil {
 			if err := fn(&u, c); err != nil {
 				return err
 			}
 		}
 		s.state.Users[childUID] = u
+		s.maintainTelegramIDIndex(oldTGID, u.TelegramID, childUID)
 		updated = u
 		consumed = c
 		return nil
@@ -3655,12 +3711,14 @@ func (s *Store) ConsumeRegCodeAndUpdateUser(code string, uid, telegramID int64, 
 			telegramID = u.TelegramID
 		}
 		consumed = s.consumeRegCodeLocked(r, uid, telegramID)
+		oldTGID := u.TelegramID
 		if fn != nil {
 			if err := fn(&u, consumed); err != nil {
 				return err
 			}
 		}
 		s.state.Users[uid] = u
+		s.maintainTelegramIDIndex(oldTGID, u.TelegramID, uid)
 		updated = u
 		return nil
 	})

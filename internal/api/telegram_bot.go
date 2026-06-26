@@ -1004,6 +1004,10 @@ func (a *App) telegramCustomCommandReply(command string) (string, bool) {
 	if command == "" || !strings.HasPrefix(command, "/") {
 		return "", false
 	}
+	// 检查是否与内置指令冲突，冲突时拒绝自定义覆盖
+	if _, isBuiltIn := telegramCommandRegistry[command]; isBuiltIn {
+		return "", false
+	}
 	for _, item := range a.cfg().TelegramCustomCommands {
 		if telegramCommand(item.Command) == command && strings.TrimSpace(item.Reply) != "" {
 			return item.Reply, true

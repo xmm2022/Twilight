@@ -2,9 +2,6 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import basicMessages from "@/locales/basic.json";
-import zhHansMessages from "@/locales/zh-Hans.json";
-import zhHantMessages from "@/locales/zh-Hant.json";
-import enUSMessages from "@/locales/en-US.json";
 
 const localeStorageKey = "twilight:locale";
 
@@ -30,11 +27,24 @@ type MessageOverlay<T> = {
   [K in keyof T]?: T[K] extends string ? string : MessageOverlay<T[K]>;
 };
 
-const messages: Record<Locale, MessageOverlay<MessageCatalog>> = {
-  "zh-Hans": zhHansMessages,
-  "zh-Hant": zhHantMessages,
-  "en-US": enUSMessages,
-};
+const localeOverlays: Record<string, Record<string, unknown> | undefined> = {};
+
+async function preloadLocale(locale: Locale): Promise<void> {
+  if (localeOverlays[locale]) return;
+  try {
+    let mod: { default: Record<string, unknown> };
+    if (locale === "zh-Hans") {
+      mod = await import("@/locales/zh-Hans.json");
+    } else if (locale === "zh-Hant") {
+      mod = await import("@/locales/zh-Hant.json");
+    } else {
+      mod = await import("@/locales/en-US.json");
+    }
+    localeOverlays[locale] = mod.default;
+  } catch {
+    // 加载失败静默降级到 basic.json 兜底
+  }
+}
 
 type DotKeys<T> = {
   [K in keyof T & string]: T[K] extends string ? K : `${K}.${DotKeys<T[K]>}`;
@@ -73,26 +83,29 @@ function preferredBrowserLocale(): Locale {
 }
 
 function lookupMessage(locale: Locale, key: MessageKey): string {
-  const parts = key.split(".");
-  let current: unknown = messages[locale];
-  for (const part of parts) {
-    if (!current || typeof current !== "object" || !(part in current)) {
-      current = null;
-      break;
-    }
-    current = (current as Record<string, unknown>)[part];
-  }
-  if (typeof current === "string") return current;
-  current = basicMessages;
-  for (const part of parts) {
-    if (!current || typeof current !== "object" || !(part in current)) {
-      current = null;
-      break;
-    }
-    current = (current as Record<string, unknown>)[part];
-  }
-  if (typeof current === "string") return current;
-  return key;
+	const parts = key.split(".");
+	const overlay = localeOverlays[locale];
+	if (overlay) {
+		let current: unknown = overlay;
+		for (const part of parts) {
+			if (!current || typeof current !== "object" || !(part in current)) {
+				current = null;
+				break;
+			}
+			current = (current as Record<string, unknown>)[part];
+		}
+		if (typeof current === "string") return current;
+	}
+	let current: unknown = basicMessages;
+	for (const part of parts) {
+		if (!current || typeof current !== "object" || !(part in current)) {
+			current = null;
+			break;
+		}
+		current = (current as Record<string, unknown>)[part];
+	}
+	if (typeof current === "string") return current;
+	return key;
 }
 
 function formatMessage(template: string, params?: MessageParams): string {
@@ -125,18 +138,20 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>(defaultLocale);
   const [initialized, setInitialized] = useState(false);
 
-  useEffect(() => {
-    const stored = normalizeLocale(window.localStorage.getItem(localeStorageKey));
-    const next = stored || preferredBrowserLocale();
-    activeLocale = next;
-    setLocaleState(next);
-    setInitialized(true);
-  }, []);
+	useEffect(() => {
+		const stored = normalizeLocale(window.localStorage.getItem(localeStorageKey));
+		const next = stored || preferredBrowserLocale();
+		activeLocale = next;
+		setLocaleState(next);
+		setInitialized(true);
+		void preloadLocale(next);
+	}, []);
 
-  const setLocale = (nextLocale: Locale) => {
-    activeLocale = nextLocale;
-    setLocaleState(nextLocale);
-  };
+	const setLocale = (nextLocale: Locale) => {
+		activeLocale = nextLocale;
+		setLocaleState(nextLocale);
+		void preloadLocale(nextLocale);
+	};
 
   useEffect(() => {
     if (!initialized) return;

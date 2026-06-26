@@ -985,6 +985,8 @@ func configSectionDefs() []configSectionDef {
 			{Key: "bot_help_header", Label: "帮助页前缀", Type: "textarea", Description: "追加到内置用户帮助顶部，支持换行"},
 			{Key: "bot_help_footer", Label: "帮助页后缀", Type: "textarea", Description: "追加到内置用户帮助底部，支持换行"},
 			{Key: "bot_about", Label: "Bot 关于文案", Type: "textarea", Description: "/about 的服务说明，支持换行"},
+			{Key: "parse_mode", Label: "消息解析模式", Type: "select", Description: "Bot 消息的解析格式；留空为纯文本，HTML 支持富文本，Markdown 支持轻量标记", Options: []map[string]any{{"label": "纯文本", "value": ""}, {"label": "HTML", "value": "HTML"}, {"label": "Markdown", "value": "Markdown"}, {"label": "MarkdownV2", "value": "MarkdownV2"}}},
+			{Key: "disabled_commands", Label: "禁用内置指令", Type: "list", Description: "被禁用的内置 Telegram 指令列表（如 /ping、/version），禁用的指令不会出现在 Bot 响应中"},
 			{Key: "bot_custom_commands", Label: "Bot 自定义指令回复", Type: "command_map", Description: "自定义 /command 与回复内容的映射；以 js: 开头时进入受控 JS 沙箱，建议先在开发者模式预检"},
 		}},
 		{Key: "SAR", Title: "注册/邀请", Description: "注册、卡码、邀请关系和求片\n推荐在「注册码管理」和「邀请系统管理」页面操作", Category: "policy", Collapsed: true, Fields: []configFieldDef{
@@ -1172,7 +1174,7 @@ func configValues(cfg config.Config) map[string]map[string]any {
 			"bot_start_text":            cfg.TelegramBotStartText, "bot_group_start_text": cfg.TelegramBotGroupStartText, "bot_start_title": cfg.TelegramBotStartTitle,
 			"bot_start_intro": cfg.TelegramBotStartIntro, "bot_bind_prompt_text": cfg.TelegramBotBindPromptText, "bot_help_text": cfg.TelegramBotHelpText,
 			"bot_admin_help_text": cfg.TelegramBotAdminHelpText, "bot_help_header": cfg.TelegramBotHelpHeader, "bot_help_footer": cfg.TelegramBotHelpFooter,
-			"bot_about": cfg.TelegramBotAbout, "bot_custom_commands": commandRepliesToAny(cfg.TelegramCustomCommands),
+			"bot_about": cfg.TelegramBotAbout, "parse_mode": cfg.TelegramParseMode, "disabled_commands": cfg.TelegramDisabledCommands, "bot_custom_commands": commandRepliesToAny(cfg.TelegramCustomCommands),
 		},
 		"SAR": {
 			"register_mode": cfg.RegisterEnabled, "register_code_limit": cfg.RegisterCodeLimit, "allow_pending_register": cfg.AllowPendingRegister,

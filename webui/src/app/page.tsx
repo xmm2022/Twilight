@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth";
 import { useSystemStore } from "@/store/system";
@@ -44,16 +45,16 @@ function LandingPage() {
         </div>
 
         <div className="flex flex-wrap items-center justify-center gap-4">
-          <a href="/login">
+          <Link href="/login" prefetch={false}>
             <button className="inline-flex h-11 items-center justify-center rounded-lg bg-primary px-8 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90">
               登录
             </button>
-          </a>
-          <a href="/dashboard">
+          </Link>
+          <Link href="/dashboard" prefetch={false}>
             <button className="inline-flex h-11 items-center justify-center rounded-lg border border-input bg-background px-8 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground">
               进入仪表盘
             </button>
-          </a>
+          </Link>
         </div>
 
         {systemInfo?.version && (

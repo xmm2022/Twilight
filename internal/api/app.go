@@ -896,10 +896,10 @@ func (a *App) corsOriginMatchesHost(origin string, r *http.Request) bool {
 		return false
 	}
 	// 构造与 normalizeCORSOrigin 同口径的 host origin
+	// CookieSecure=true 时强制视为 HTTPS（即使反向代理已终结 TLS），
+	// 避免反向代理场景下 r.TLS==nil 却错误回退到 http。
 	scheme := "https"
-	if a.cfg().CookieSecure {
-		scheme = "https"
-	} else if r.TLS == nil {
+	if !a.cfg().CookieSecure && r.TLS == nil {
 		scheme = "http"
 	}
 	hostOrigin := scheme + "://" + host
