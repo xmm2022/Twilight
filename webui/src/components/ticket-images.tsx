@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { ImagePlus, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogOverlay } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { api, type TicketAttachment } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
@@ -39,6 +40,7 @@ export function TicketImages({
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [previewSrc, setPreviewSrc] = useState<string | null>(null);
 
   const sizeMB = Math.round((maxSize / (1024 * 1024)) * 10) / 10;
   const list = Array.isArray(attachments) ? attachments : [];
@@ -112,11 +114,9 @@ export function TicketImages({
           const src = api.ticketImageSrc(att.url);
           if (!src) return null;
           return (
-            <div key={att.filename} className="relative group h-20 w-20 rounded-lg overflow-hidden border border-border/60 bg-muted/30">
-              <a href={src} target="_blank" rel="noopener noreferrer">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={src} alt={att.filename} className="h-full w-full object-cover" loading="lazy" />
-              </a>
+            <div key={att.filename} className="relative group h-20 w-20 rounded-lg overflow-hidden border border-border/60 bg-muted/30 cursor-pointer" onClick={() => setPreviewSrc(src)}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={src} alt={att.filename} className="h-full w-full object-cover" loading="lazy" />
               {allowDelete && (
                 <button
                   type="button"
@@ -159,6 +159,22 @@ export function TicketImages({
         className="hidden"
         onChange={(e) => void handleFile(e.target.files?.[0])}
       />
+
+      {/* 大图预览 */}
+      <Dialog open={!!previewSrc} onOpenChange={(open) => { if (!open) setPreviewSrc(null); }}>
+        <DialogOverlay className="bg-black/70" />
+        <DialogContent className="max-w-[90vw] max-h-[90vh] p-0 bg-transparent border-0 shadow-none">
+          <button
+            type="button"
+            onClick={() => setPreviewSrc(null)}
+            className="absolute -top-10 right-0 z-50 flex h-8 w-8 items-center justify-center rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {previewSrc && <img src={previewSrc} alt="" className="max-h-[85vh] w-auto mx-auto rounded-lg object-contain" />}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
