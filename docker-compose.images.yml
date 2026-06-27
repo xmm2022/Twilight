@@ -1,0 +1,149 @@
+# Twilight deployment using prebuilt GHCR images.
+#
+# This file intentionally contains no build sections, so weak machines only pull
+# images built by GitHub Actions.
+#
+# Start with:
+#   cp deploy/docker/config.docker.toml config.toml
+#   cp deploy/docker/.env.example .env
+#   docker compose -f docker-compose.images.yml pull
+#   docker compose -f docker-compose.images.yml up -d
+
+name: twilight
+
+x-service-defaults: &service-defaults
+  init: true
+  stop_grace_period: 30s
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  postgres:
+    <<: *service-defaults
+    image: postgres:17-alpine
+    container_name: twilight-postgres
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      POSTGRES_USER: twilight
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-twilight}
+      POSTGRES_DB: twilight
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/docker/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U twilight"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - twilight-net
+
+  redis:
+    <<: *service-defaults
+    image: redis:7-alpine
+    container_name: twilight-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - twilight-net
+
+  twilight:
+    <<: *service-defaults
+    image: ghcr.io/xmm2022/twilight-backend:latest
+    container_name: twilight-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      TWILIGHT_GLOBAL_SERVER_NAME: ${SITE_NAME:-Twilight}
+      TWILIGHT_LOG_LEVEL: ${LOG_LEVEL:-info}
+      TWILIGHT_RUNTIME_LOG_LIMIT: ${RUNTIME_LOG_LIMIT:-5000}
+      TWILIGHT_DATABASE_DRIVER: postgres
+      TWILIGHT_POSTGRES_HOST: postgres
+      TWILIGHT_POSTGRES_PORT: 5432
+      TWILIGHT_POSTGRES_USER: twilight
+      TWILIGHT_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-twilight}
+      TWILIGHT_POSTGRES_DATABASE: twilight
+      TWILIGHT_POSTGRES_SSLMODE: disable
+      TWILIGHT_REDIS_URL: redis://redis:6379/0
+      TWILIGHT_API_HOST: 0.0.0.0
+      TWILIGHT_API_PORT: 5000
+      TWILIGHT_ADMIN_USERNAMES: ${ADMIN_USERNAMES:-admin}
+      TWILIGHT_BOT_INTERNAL_SECRET: ${BOT_INTERNAL_SECRET:-}
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./config.toml:/app/config.toml:ro
+      - twilight_uploads:/app/uploads
+      - twilight_backups:/app/db/backups
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:5000/api/v1/system/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - twilight-net
+
+  webui:
+    <<: *service-defaults
+    image: ghcr.io/xmm2022/twilight-webui:latest
+    container_name: twilight-webui
+    restart: unless-stopped
+    depends_on:
+      twilight:
+        condition: service_healthy
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      NODE_ENV: production
+      PORT: 3000
+      BACKEND_URL: ${BACKEND_URL:-http://twilight:5000}
+    env_file:
+      - path: webui/.env
+        required: false
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - twilight-net
+    ports:
+      - "${WEBUI_PORT:-3000}:3000"
+
+networks:
+  twilight-net:
+    driver: bridge
+    name: twilight-net
+
+volumes:
+  postgres_data:
+    name: twilight-postgres-data
+  redis_data:
+    name: twilight-redis-data
+  twilight_uploads:
+    name: twilight-uploads
+  twilight_backups:
+    name: twilight-backups
