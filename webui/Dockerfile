@@ -18,6 +18,11 @@ FROM node:22-bookworm-slim AS build
 
 WORKDIR /app
 
+ARG NEXT_PUBLIC_API_URL=
+ARG BACKEND_URL=http://twilight:5000
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV BACKEND_URL=${BACKEND_URL}
+
 # Enable pnpm
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 

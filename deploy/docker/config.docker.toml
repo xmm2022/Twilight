@@ -29,7 +29,6 @@ bangumi_api_url = "https://api.bgm.tv/v0"
 # 认证页背景图 HTTPS URL，留空使用默认渐变
 auth_background_url = ""
 # 站点图标 HTTPS URL 或本地路径；留空使用内置图标
-server_icon = ""
 
 # ───────── 管理员 ─────────
 # Protected — cannot be changed via Web UI. Set admin usernames/uids here.

@@ -22,25 +22,26 @@ CREATE TABLE IF NOT EXISTS twilight_state (
 -- Sessions table (shared across processes)
 CREATE TABLE IF NOT EXISTS twilight_sessions (
     token       TEXT PRIMARY KEY,
-    data        JSONB NOT NULL DEFAULT '{}'::jsonb,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    expires_at  TIMESTAMPTZ NOT NULL
+    uid         BIGINT NOT NULL,
+    expires_at  BIGINT NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_sessions_expires ON twilight_sessions (expires_at);
-CREATE INDEX IF NOT EXISTS idx_sessions_uid ON twilight_sessions ((data->>'uid'));
+CREATE INDEX IF NOT EXISTS twilight_sessions_uid_idx ON twilight_sessions (uid);
+CREATE INDEX IF NOT EXISTS twilight_sessions_expires_at_idx ON twilight_sessions (expires_at);
 
 -- Runtime logs table (in-memory buffer persisted to DB)
 CREATE TABLE IF NOT EXISTS twilight_runtime_logs (
     id          BIGSERIAL PRIMARY KEY,
+    time        BIGINT NOT NULL,
     level       TEXT NOT NULL,
     message     TEXT NOT NULL,
-    fields      JSONB DEFAULT '{}'::jsonb,
+    attrs       JSONB DEFAULT '{}'::jsonb,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_runtime_logs_created ON twilight_runtime_logs (created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_runtime_logs_level ON twilight_runtime_logs (level);
+CREATE INDEX IF NOT EXISTS twilight_runtime_logs_time_idx ON twilight_runtime_logs (time DESC);
+CREATE INDEX IF NOT EXISTS twilight_runtime_logs_id_desc_idx ON twilight_runtime_logs (id DESC);
 
 -- Insert initial empty state if not exists
 INSERT INTO twilight_state (id, state) VALUES (1, '{}'::jsonb)
