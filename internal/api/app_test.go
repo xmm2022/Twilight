@@ -82,36 +82,60 @@ func newTestApp(t *testing.T) *App {
 	return app
 }
 
-// registerAndLogin 注册并登录指定账户，返回 session cookie 切片。
+const testPasswordHash = "testsalt$10000$0123456789abcdef"
+
+// registerAndLogin 创建测试账户并签发 session，返回 session cookie 切片。
+//
+// 大多数 API 用例只需要一个已登录用户；走真实注册+登录会为每个夹具执行多次
+// 生产级 PBKDF2，在 -race 下容易把 internal/api 包拖到默认 10 分钟超时。
+// 注册/登录 handler 的行为由专门用例覆盖，这里保持夹具轻量。
 func registerAndLogin(t *testing.T, app *App, username, password string) []*http.Cookie {
 	t.Helper()
-	register := doJSON(app, http.MethodPost, "/api/v1/users/register", fmt.Sprintf(`{"username":%q,"password":%q}`, username, password), nil)
-	if register.Code != http.StatusCreated {
-		t.Fatalf("register %s status = %d body=%s", username, register.Code, register.Body.String())
+	_ = password
+	role := store.RoleNormal
+	if app.configuredAdminMatch(0, username) {
+		role = store.RoleAdmin
 	}
-	login := doJSON(app, http.MethodPost, "/api/v1/auth/login", fmt.Sprintf(`{"username":%q,"password":%q}`, username, password), nil)
-	if login.Code != http.StatusOK {
-		t.Fatalf("login %s status = %d body=%s", username, login.Code, login.Body.String())
+	user, err := app.store().CreateUser(store.User{Username: username, PasswordHash: testPasswordHash, Role: role, Active: true})
+	if err != nil {
+		t.Fatalf("create test user %s: %v", username, err)
 	}
-	session := findCookie(login.Result().Cookies(), "twilight_session")
-	if session == nil {
-		t.Fatalf("missing session cookie for %s", username)
+	if app.configuredAdminMatch(user.UID, user.Username) && user.Role != store.RoleAdmin {
+		user, err = app.store().UpdateUser(user.UID, func(u *store.User) error {
+			u.Role = store.RoleAdmin
+			u.Active = true
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("promote test user %s: %v", username, err)
+		}
 	}
-	return []*http.Cookie{session}
+	return sessionCookiesForUser(t, app, user.UID)
 }
 
 // loginCookies 从已存在的账户登录，返回 session cookie 切片。
 // 仅用于 inline 登录流程（不走注册 helper）。
 func loginCookies(t *testing.T, app *App, username, password string) []*http.Cookie {
 	t.Helper()
-	login := doJSON(app, http.MethodPost, "/api/v1/auth/login", fmt.Sprintf(`{"username":%q,"password":%q}`, username, password), nil)
-	if login.Code != http.StatusOK {
-		t.Fatalf("login %s status=%d body=%s", username, login.Code, login.Body.String())
+	_ = password
+	user, ok := app.store().FindUserByUsername(username)
+	if !ok {
+		t.Fatalf("login %s missing test user", username)
 	}
-	all := login.Result().Cookies()
-	session := findCookie(all, "twilight_session")
+	return sessionCookiesForUser(t, app, user.UID)
+}
+
+func sessionCookiesForUser(t *testing.T, app *App, uid int64) []*http.Cookie {
+	t.Helper()
+	token, expires, err := app.sessions().Create(context.Background(), uid)
+	if err != nil {
+		t.Fatalf("create session for uid %d: %v", uid, err)
+	}
+	w := httptest.NewRecorder()
+	app.issueSessionCookies(w, token, expires)
+	session := findCookie(w.Result().Cookies(), app.cfg().SessionCookie)
 	if session == nil {
-		t.Fatalf("login %s missing session cookie", username)
+		t.Fatalf("missing session cookie for uid %d", uid)
 	}
 	return []*http.Cookie{session}
 }
