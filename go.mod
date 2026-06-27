@@ -2,7 +2,7 @@ module github.com/prejudice-studio/twilight
 
 go 1.25.0
 
-toolchain go1.25.10
+toolchain go1.25.11
 
 require (
 	github.com/dop251/goja v0.0.0-20260618133527-c9b2ea77db59
