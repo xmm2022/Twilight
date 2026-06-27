@@ -97,6 +97,9 @@
 | POST | `/api/v1/users/me/telegram/rebind-request` | User | 提交 Telegram 换绑申请 |
 | POST | `/api/v1/users/me/telegram/unbind` | User | 解绑 Telegram |
 | GET | `/api/v1/users/me/telegram/bind-code` | User | 生成登录用户的 Telegram 绑定码（需 `X-Twilight-Intent: create-bind-code`） |
+| GET | `/api/v1/users/me/telegram/bind-code/status` | User | 查询登录用户 Telegram 绑定码状态 |
+| GET | `/api/v1/users/me/telegram/bind-code/ws` | User | WebSocket 订阅登录用户 Telegram 绑定码状态 |
+| POST | `/api/v1/users/me/telegram/rebind-complete` | User | 完成已批准的 Telegram 换绑 |
 | GET | `/api/v1/users/me/settings` | User | 当前用户设置聚合 |
 | GET | `/api/v1/users/{uid}/background` | User | 获取指定用户背景（本人或管理员） |
 | PUT | `/api/v1/users/me/background` | User | 更新背景配置 |
@@ -124,6 +127,7 @@
 | ---- | ---- | ---- | ---- |
 | GET | `/api/v1/system/info` | Public | 系统公开信息 |
 | GET | `/api/v1/system/server-icon` | Public | 服务器图标 |
+| GET | `/api/v1/system/auth-background` | Public | 登录/认证页背景图 |
 | GET | `/api/v1/system/health` | Public | 健康检查 |
 | GET | `/api/v1/system/stats` | Admin | 系统运行时统计 |
 | GET | `/api/v1/system/emby-urls` | User | 按权限下发 Emby 线路 |
@@ -136,6 +140,7 @@
 | GET | `/api/v1/system/admin/runtime/logs/stream` | Admin | SSE 实时后端日志流 |
 | POST | `/api/v1/system/admin/update` | Admin | Git 自动更新与可选 systemd 重启调度 |
 | POST | `/api/v1/system/admin/server-icon/upload` | Admin | 上传服务器图标 |
+| POST | `/api/v1/system/admin/config/upload-auth-background` | Admin | 上传登录/认证页背景图 |
 | GET | `/api/v1/system/admin/database/status` | Admin | 当前数据库状态 |
 | GET | `/api/v1/system/admin/database/backups` | Admin | 数据库备份列表 |
 | GET | `/api/v1/system/admin/database/backups/{name}` | Admin | 查看指定数据库备份详情 |
@@ -174,6 +179,7 @@
 | 方法 | 路径 | 鉴权 | 说明 |
 | ---- | ---- | ---- | ---- |
 | GET | `/api/v1/bangumi/sync/status` | User | 获取当前用户的 Bangumi 同步状态与最近日志 |
+| PATCH | `/api/v1/bangumi/collections/{subject_id}` | User | 更新当前用户 Bangumi 条目收藏状态 |
 | POST | `/api/v1/bangumi/sync/trigger` | User | 手动触发一次 Bangumi 同步 |
 | GET | `/api/v1/bangumi/sync/history` | User | 获取同步历史日志（`?limit=`） |
 | DELETE | `/api/v1/bangumi/sync/history` | User | 清除当前用户的同步历史 |
@@ -223,6 +229,8 @@
 | POST | `/api/v1/admin/users/{uid}/disable` | Admin | 禁用用户 |
 | POST | `/api/v1/admin/users/{uid}/enable` | Admin | 启用用户 |
 | DELETE | `/api/v1/admin/users/{uid}/emby` | Admin | 删除用户的 Emby 账号 |
+| POST | `/api/v1/admin/users/{uid}/emby/enable` | Admin | 启用用户绑定的 Emby 账号 |
+| POST | `/api/v1/admin/users/{uid}/emby/disable` | Admin | 禁用用户绑定的 Emby 账号 |
 | POST | `/api/v1/admin/users/{uid}/force-unbind` | Admin | 强制解除本地绑定 |
 | POST | `/api/v1/admin/users/{uid}/registration-queue/clear` | Admin | 清空指定用户的注册队列 |
 | POST | `/api/v1/admin/users/registration-queue/clear` | Admin | 清空注册队列 |
@@ -230,8 +238,10 @@
 | POST | `/api/v1/admin/users/{uid}/registration-entitlement` | Admin | 授予指定用户注册资格 |
 | POST | `/api/v1/admin/users/{uid}/registration-entitlement/dequeue` | Admin | 授予资格并出队 |
 | POST | `/api/v1/admin/users/sync-bindings` | Admin | 同步绑定状态 |
+| POST | `/api/v1/admin/users/{uid}/refresh-status` | Admin | 刷新用户本地与 Emby 状态 |
 | POST | `/api/v1/admin/users/{uid}/renew` | Admin | 管理员为用户续期 |
 | POST | `/api/v1/admin/users/{uid}/cancel-permanent` | Admin | 取消永久有效（与续期同 handler） |
+| POST | `/api/v1/admin/users/{uid}/set-expiry` | Admin | 管理员设置用户到期时间 |
 | POST | `/api/v1/admin/users/{uid}/reset-password` | Admin | 重置用户密码 |
 | POST | `/api/v1/admin/users/{uid}/kick` | Admin | 将用户踢下线 |
 | PUT | `/api/v1/admin/users/{uid}/admin` | Admin | 设置/取消管理员角色 |
@@ -251,6 +261,9 @@
 | POST | `/api/v1/admin/emby/reset-bindings` | Admin | 重置 Emby 绑定 |
 | POST | `/api/v1/admin/emby/delete-unlinked` | Admin | 删除未绑定的 Emby 用户 |
 | POST | `/api/v1/admin/emby/create-standalone` | Admin | 创建独立 Emby 用户（不写本地 users 表） |
+| POST | `/api/v1/admin/emby/users/{embyId}/enable` | Admin | 启用指定 Emby 用户 |
+| POST | `/api/v1/admin/emby/users/{embyId}/disable` | Admin | 禁用指定 Emby 用户 |
+| POST | `/api/v1/admin/emby/users/{embyId}/kick` | Admin | 踢下指定 Emby 用户会话 |
 | POST | `/api/v1/admin/users/{uid}/bind-emby` | Admin | 为用户绑定/强绑 Emby（冲突走 200+success=false 携带 conflict 详情） |
 | GET | `/api/v1/admin/regcodes` | Admin | 注册码列表 |
 | POST | `/api/v1/admin/regcodes` | Admin | 创建注册码 |
@@ -276,6 +289,7 @@
 | POST | `/api/v1/admin/email/test` | Admin | 用当前 SMTP 配置发送测试邮件 |
 | GET | `/api/v1/admin/email/verifications` | Admin | 邮箱验证记录审查：在用验证码（脱敏，不含验证码/哈希）+ 已绑邮箱账号及验证状态 + 统计 |
 | POST | `/api/v1/admin/email/verifications/cleanup` | Admin | 手动清理所有已过期的在用验证码 |
+| POST | `/api/v1/admin/email/verifications/clear-unverified` | Admin | 清理未验证邮箱绑定 |
 | DELETE | `/api/v1/admin/email/verifications/{id}` | Admin | 撤销指定在用验证码记录（立即失效） |
 | POST | `/api/v1/admin/users/kick-no-emby` | Admin | 踢出无 Emby 账号的用户 |
 | GET | `/api/v1/admin/invite/tree` | Admin | 邀请树 |
@@ -296,6 +310,7 @@
 | POST | `/api/v1/admin/telegram/rebind-requests/{request_id}/approve` | Admin | 通过换绑申请 |
 | POST | `/api/v1/admin/telegram/rebind-requests/{request_id}/reject` | Admin | 拒绝换绑申请 |
 | POST | `/api/v1/admin/telegram/rebind-requests/batch` | Admin | 批量审核换绑申请 |
+| POST | `/api/v1/admin/telegram/rebind-requests/revoke-approved` | Admin | 撤销所有已批准但未完成的换绑申请 |
 | GET | `/api/v1/admin/telegram/roster/stats` | Admin | Telegram 花名册统计 |
 | POST | `/api/v1/admin/telegram/rejoined-users/enable` | Admin | 启用重新入群用户 |
 | POST | `/api/v1/admin/telegram/kick-unbound` | Admin | 踢出未绑定 Telegram 的用户 |
@@ -310,6 +325,14 @@
 | POST | `/api/v1/admin/announcements` | Admin | 创建公告 |
 | PUT | `/api/v1/admin/announcements/{announcement_id}` | Admin | 更新公告 |
 | DELETE | `/api/v1/admin/announcements/{announcement_id}` | Admin | 删除公告 |
+| GET | `/api/v1/admin/tickets` | Admin | 管理员工单列表 |
+| PUT | `/api/v1/admin/tickets/{ticket_id}` | Admin | 管理员更新工单 |
+| DELETE | `/api/v1/admin/tickets/{ticket_id}` | Admin | 管理员删除工单 |
+| GET | `/api/v1/admin/ticket-types` | Admin | 工单类型列表 |
+| POST | `/api/v1/admin/ticket-types` | Admin | 新增工单类型 |
+| PUT | `/api/v1/admin/ticket-types` | Admin | 重命名工单类型 |
+| DELETE | `/api/v1/admin/ticket-types` | Admin | 删除工单类型 |
+| POST | `/api/v1/admin/audit-logs/prune` | Admin | 按保留策略裁剪操作审计日志 |
 
 ## Stats
 
@@ -344,6 +367,9 @@
 | POST | `/api/v1/batch/users/delete` | Admin | 批量删除用户 |
 | POST | `/api/v1/batch/users/emby-unbind-lock` | Admin | 批量禁止用户自助解绑 Emby |
 | POST | `/api/v1/batch/users/emby-grant-clear` | Admin | 批量清理无 Emby 账号用户的注册码/邀请码使用记录（解除误判的"已用过注册资格"锁定） |
+| POST | `/api/v1/batch/users/emby/enable` | Admin | 批量启用用户 Emby 账号 |
+| POST | `/api/v1/batch/users/emby/disable` | Admin | 批量禁用用户 Emby 账号 |
+| POST | `/api/v1/batch/users/refresh-status` | Admin | 批量刷新用户本地与 Emby 状态 |
 | GET | `/api/v1/batch/export/users` | Admin | 导出用户 |
 | GET | `/api/v1/batch/export/playback` | Admin | 导出播放数据 |
 | GET | `/api/v1/batch/watch-stats` | User | 当前用户播放统计 |
@@ -385,6 +411,19 @@
 | POST | `/api/v1/signin` | User | 签到 |
 | POST | `/api/v1/signin/renew` | User | 使用签到积分续期（需管理员开启） |
 | GET | `/api/v1/signin/history` | User | 签到历史 |
+
+## Tickets
+
+| 方法 | 路径 | 鉴权 | 说明 |
+| ---- | ---- | ---- | ---- |
+| GET | `/api/v1/tickets` | User | 当前用户工单列表 |
+| POST | `/api/v1/tickets` | User | 创建工单 |
+| POST | `/api/v1/tickets/{ticket_id}/close` | User | 关闭自己的工单 |
+| POST | `/api/v1/tickets/{ticket_id}/reopen` | User | 重新打开自己的工单 |
+| PUT | `/api/v1/tickets/{ticket_id}/notify-telegram` | User | 切换工单 Telegram 通知 |
+| POST | `/api/v1/tickets/{ticket_id}/images` | User | 上传工单图片 |
+| GET | `/api/v1/tickets/{ticket_id}/images/{filename}` | User | 读取工单图片 |
+| DELETE | `/api/v1/tickets/{ticket_id}/images/{filename}` | User | 删除工单图片 |
 
 ## API Key
 
