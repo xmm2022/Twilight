@@ -154,11 +154,15 @@ docker compose ps
 | `API.host` | `0.0.0.0` | 监听所有接口 |
 | `SystemUpdate.auto_update_enabled` | `false` | Docker 通过镜像更新 |
 
-### 只读配置与后台配置管理
+### 配置文件权限与后台配置管理
 
-默认 compose 将 `./config.toml` 以只读方式挂载，适合把 Docker 部署视为不可变配置：修改配置后编辑宿主机文件并重启容器。
+默认 compose 将 `./config.toml` 以可写方式挂载，便于在后台配置管理页面直接保存配置。宿主机文件需要允许容器内 UID `1001` 写入：
 
-如果需要在后台配置管理页面直接保存 `config.toml`，可把挂载改为 `./config.toml:/app/config.toml:rw`，并确保宿主机文件允许容器内 UID `1001` 写入。生产环境更推荐保留只读挂载，敏感覆写放入 `config.local.toml` 或 `TWILIGHT_*` 环境变量。
+```bash
+chown 1001:1001 config.toml
+```
+
+如果希望把 Docker 部署视为不可变配置，可手动把挂载改回 `./config.toml:/app/config.toml:ro`，并通过编辑宿主机文件后重启容器、`config.local.toml` 或 `TWILIGHT_*` 环境变量管理配置。
 
 ### 环境变量参考
 

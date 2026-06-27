@@ -128,7 +128,9 @@ services:
       - path: .env
         required: false
     volumes:
-      - ./config.toml:/app/config.toml:ro
+      # Web config management needs write access. Ensure host config.toml is
+      # writable by container UID 1001, for example: chown 1001:1001 config.toml
+      - ./config.toml:/app/config.toml:rw
       - twilight_uploads:/app/uploads
       - twilight_backups:/app/db/backups
     healthcheck:

@@ -48,7 +48,9 @@ services:
       - /tmp:size=64M
     # volumes with read_only override for writable paths
     volumes:
-      - ./config.toml:/app/config.toml:ro
+      # Web config management needs write access. Ensure host config.toml is
+      # writable by container UID 1001, for example: chown 1001:1001 config.toml
+      - ./config.toml:/app/config.toml:rw
       - twilight_uploads:/app/uploads:rw
       - twilight_backups:/app/db/backups:rw
 
@@ -78,7 +80,7 @@ services:
   #     - path: .env
   #       required: false
   #   volumes:
-  #     - ./config.toml:/app/config.toml:ro
+  #     - ./config.toml:/app/config.toml:rw
   #     - twilight_uploads:/app/uploads
   #     - twilight_backups:/app/db/backups
   #   command: ["scheduler", "--config", "config.toml"]
@@ -116,7 +118,7 @@ services:
   #     - path: .env
   #       required: false
   #   volumes:
-  #     - ./config.toml:/app/config.toml:ro
+  #     - ./config.toml:/app/config.toml:rw
   #     - twilight_uploads:/app/uploads
   #     - twilight_backups:/app/db/backups
   #   command: ["bot", "--config", "config.toml"]

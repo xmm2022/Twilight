@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/prejudice-studio/twilight/internal/config"
@@ -26,6 +28,24 @@ const configRestoreConfirmPhrase = "RESTORE_CONFIG_BACKUP"
 //   - 管理员要清空某个密钥，可以显式提交空串（"" → 写入空），或者走原始 TOML
 //     编辑接口；随便填一段非 sentinel 的字符串则视为新值覆盖。
 const secretMaskValue = "__TWILIGHT_SECRET_UNCHANGED__"
+
+func replaceConfigFile(tmpPath, configFile string, rename func(string, string) error) error {
+	if err := rename(tmpPath, configFile); err != nil {
+		if !errors.Is(err, syscall.EBUSY) && !errors.Is(err, syscall.EXDEV) {
+			return err
+		}
+		content, readErr := os.ReadFile(tmpPath)
+		if readErr != nil {
+			return err
+		}
+		if writeErr := os.WriteFile(configFile, content, 0o600); writeErr != nil {
+			return err
+		}
+		_ = os.Remove(tmpPath)
+		return nil
+	}
+	return nil
+}
 
 // isSecretField 集中判定某个 section.field 是否应在响应里被遮蔽 / 在写入时被
 // preserve。configSectionDefs 已经声明了 Type=="secret"，这里直接复用，避免在
@@ -427,7 +447,7 @@ func (a *App) saveConfigContent(content string) (map[string]any, int, string) {
 	// 提前 Remove 反而打开了一个 "configFile 不存在" 的窗口——若此时进程被
 	// SIGKILL 或磁盘忽然写满（Rename 失败 + 下一行 WriteFile rollback 也失败）
 	// 系统下次启动找不到 config.toml 就直接 fail-fast。
-	if err := os.Rename(tmpPath, configFile); err != nil {
+	if err := replaceConfigFile(tmpPath, configFile, os.Rename); err != nil {
 		_ = os.Remove(tmpPath)
 		if hadExisting {
 			// 原文件 Rename 之前从未被改动，无需 rollback；这里仅做保险记录路径。
@@ -442,7 +462,7 @@ func (a *App) saveConfigContent(content string) (map[string]any, int, string) {
 			// 走 Remove + WriteFile 这条会再次留下"无 config.toml"窗口的旧路径。
 			rollbackTmp := configFile + "." + stamp + ".rollback.tmp"
 			if writeErr := os.WriteFile(rollbackTmp, existing, 0o600); writeErr == nil {
-				if renameErr := os.Rename(rollbackTmp, configFile); renameErr != nil {
+				if renameErr := replaceConfigFile(rollbackTmp, configFile, os.Rename); renameErr != nil {
 					_ = os.Remove(rollbackTmp)
 				}
 			}
@@ -497,7 +517,7 @@ func (a *App) saveInitialSetupConfigContent(content, adminUsername string) (map[
 	if err := os.WriteFile(tmpPath, []byte(content), 0o600); err != nil {
 		return nil, http.StatusInternalServerError, "保存临时配置失败"
 	}
-	if err := os.Rename(tmpPath, configFile); err != nil {
+	if err := replaceConfigFile(tmpPath, configFile, os.Rename); err != nil {
 		_ = os.Remove(tmpPath)
 		return nil, http.StatusInternalServerError, "替换配置失败"
 	}
@@ -506,7 +526,7 @@ func (a *App) saveInitialSetupConfigContent(content, adminUsername string) (map[
 		if hadExisting {
 			rollbackTmp := configFile + "." + stamp + ".rollback.tmp"
 			if writeErr := os.WriteFile(rollbackTmp, existing, 0o600); writeErr == nil {
-				if renameErr := os.Rename(rollbackTmp, configFile); renameErr != nil {
+				if renameErr := replaceConfigFile(rollbackTmp, configFile, os.Rename); renameErr != nil {
 					_ = os.Remove(rollbackTmp)
 				}
 			}
