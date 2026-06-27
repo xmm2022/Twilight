@@ -57,9 +57,15 @@ function webSocketOriginFromHTTPOrigin(origin: string): string {
   }
 }
 
+function isHTTPSRequest(request: NextRequest): boolean {
+  if (request.nextUrl.protocol === "https:") return true;
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+  return forwardedProto === "https";
+}
+
 export function middleware(request: NextRequest) {
-  void request;
   const isDev = process.env.NODE_ENV !== "production";
+  const isHTTPS = isHTTPSRequest(request);
   // dev 下 Next 用 eval 做 HMR / RSC payload 解析；生产构建后丢掉 unsafe-eval。
   const scriptExtras = isDev ? " 'unsafe-eval'" : "";
 
@@ -107,7 +113,7 @@ export function middleware(request: NextRequest) {
   // / 后端输入校验。
   // static.cloudflareinsights.com 是 CF Pages 自动注入的 RUM 脚本来源；不放进
   // 允许列表会在控制台刷出 "Refused to load the script ... beacon.min.js"。
-  const csp = [
+  const cspDirectives = [
     "default-src 'self'",
     `script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com${scriptExtras}`,
     "style-src 'self' 'unsafe-inline'",
@@ -121,11 +127,17 @@ export function middleware(request: NextRequest) {
     "form-action 'self'",
     "worker-src 'self' blob:",
     "manifest-src 'self'",
-    "upgrade-insecure-requests",
-  ].join("; ");
+  ];
+  if (isHTTPS) {
+    cspDirectives.push("upgrade-insecure-requests");
+  }
+  const csp = cspDirectives.join("; ");
 
   const response = NextResponse.next();
   response.headers.set("Content-Security-Policy", csp);
+  if (isHTTPS) {
+    response.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
   // 应用 HTML / RSC 响应不能被共享缓存长期复用。Next 对静态预渲染页会默认给
   // s-maxage=31536000，部署新镜像后中间缓存可能继续返回旧 HTML，旧 HTML 再
   // 引用已不存在的 immutable chunk，浏览器端就会卡在启动 loader。matcher 已

@@ -34,9 +34,6 @@ const nextConfig = {
       { key: 'X-Frame-Options', value: 'DENY' },
       { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
       { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
-      // HSTS: 一年；浏览器仅在 HTTPS 响应里读取该头，HTTP 下静默忽略，
-      // 故对本地 dev 也安全发出；preload 暂不启用，避免提交错误后难以撤回。
-      { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
       { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
       { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
     ];
