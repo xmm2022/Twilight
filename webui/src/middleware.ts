@@ -63,6 +63,13 @@ function isHTTPSRequest(request: NextRequest): boolean {
   return forwardedProto === "https";
 }
 
+function requestOrigin(request: NextRequest): string {
+  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  const host = forwardedHost || request.headers.get("host")?.trim();
+  if (!host) return request.nextUrl.origin;
+  return `${isHTTPSRequest(request) ? "https:" : "http:"}//${host}`;
+}
+
 export function middleware(request: NextRequest) {
   const isDev = process.env.NODE_ENV !== "production";
   const isHTTPS = isHTTPSRequest(request);
@@ -84,7 +91,7 @@ export function middleware(request: NextRequest) {
   //   - NEXT_PUBLIC_CSP_CONNECT 留作运维兜底，可塞额外白名单（如对接的第三方
   //     metrics / sentry / OAuth 跳转回调）。
   const apiOrigin = safeOrigin(process.env.NEXT_PUBLIC_API_URL);
-  const selfWsOrigin = webSocketOriginFromHTTPOrigin(request.nextUrl.origin);
+  const selfWsOrigin = webSocketOriginFromHTTPOrigin(requestOrigin(request));
   const apiWsOrigin = apiOrigin ? webSocketOriginFromHTTPOrigin(apiOrigin) : "";
   const extraConnect = process.env.NEXT_PUBLIC_CSP_CONNECT?.trim();
   const connectParts = new Set<string>(["'self'"]);
