@@ -126,6 +126,13 @@ export function middleware(request: NextRequest) {
 
   const response = NextResponse.next();
   response.headers.set("Content-Security-Policy", csp);
+  // 应用 HTML / RSC 响应不能被共享缓存长期复用。Next 对静态预渲染页会默认给
+  // s-maxage=31536000，部署新镜像后中间缓存可能继续返回旧 HTML，旧 HTML 再
+  // 引用已不存在的 immutable chunk，浏览器端就会卡在启动 loader。matcher 已
+  // 排除 _next/static / api / images 等资源，因此这里不会影响静态资源长缓存。
+  response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  response.headers.set("Pragma", "no-cache");
+  response.headers.set("Expires", "0");
   return response;
 }
 
